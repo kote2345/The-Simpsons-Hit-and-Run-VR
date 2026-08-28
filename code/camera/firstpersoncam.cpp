@@ -55,6 +55,66 @@ static const float VR_STICK_YAW_DEAD_ZONE = 0.15f;
 // animated character pose: the transition pose is not guaranteed to have been
 // evaluated when SuperCam switches targets.
 static const float VR_DRIVER_EYE_HEIGHT = 0.96f;
+static const float VR_VEHICLE_TILT_SCALE = 0.25f;
+static const float VR_VEHICLE_TILT_LIMIT = rmt::DegToRadian( 7.0f );
+static const float VR_VEHICLE_TILT_LAG_SECONDS = 0.25f;
+
+static float ClampVrVehicleTilt(float angle)
+{
+    if(angle>VR_VEHICLE_TILT_LIMIT) return VR_VEHICLE_TILT_LIMIT;
+    if(angle<-VR_VEHICLE_TILT_LIMIT) return -VR_VEHICLE_TILT_LIMIT;
+    return angle;
+}
+
+static void BuildVrStabilizedVehicleTransform(const rmt::Matrix& vehicleTransform,
+                                               float deltaSeconds,
+                                               bool initialize,
+                                               float* filteredPitch,
+                                               float* filteredRoll,
+                                               rmt::Matrix* stabilized)
+{
+    rmt::Vector horizontalForward=vehicleTransform.Row(2);
+    horizontalForward.y=0.0f;
+    if(horizontalForward.NormalizeSafe()<0.0001f)
+        horizontalForward.Set(0.0f,0.0f,1.0f);
+
+    float forwardY=vehicleTransform.Row(2).y;
+    if(forwardY>1.0f) forwardY=1.0f;
+    if(forwardY<-1.0f) forwardY=-1.0f;
+    const float desiredPitch=ClampVrVehicleTilt(
+        rmt::ASin(forwardY)*VR_VEHICLE_TILT_SCALE);
+    const float desiredRoll=ClampVrVehicleTilt(
+        rmt::ATan2(vehicleTransform.Row(0).y,vehicleTransform.Row(1).y)*
+        VR_VEHICLE_TILT_SCALE);
+
+    if(initialize)
+    {
+        *filteredPitch=desiredPitch;
+        *filteredRoll=desiredRoll;
+    }
+    else
+    {
+        float blend=deltaSeconds/(VR_VEHICLE_TILT_LAG_SECONDS+deltaSeconds);
+        if(blend>1.0f) blend=1.0f;
+        *filteredPitch+=(desiredPitch-*filteredPitch)*blend;
+        *filteredRoll+=(desiredRoll-*filteredRoll)*blend;
+    }
+
+    const float pitchSin=rmt::Sin(*filteredPitch);
+    const float pitchCos=rmt::Cos(*filteredPitch);
+    const float rollSin=rmt::Sin(*filteredRoll);
+    const float rollCos=rmt::Cos(*filteredRoll);
+    const rmt::Vector worldUp(0.0f,1.0f,0.0f);
+    const rmt::Vector yawRight(horizontalForward.z,0.0f,-horizontalForward.x);
+    const rmt::Vector forward=horizontalForward*pitchCos+worldUp*pitchSin;
+    const rmt::Vector upWithoutRoll=worldUp*pitchCos-horizontalForward*pitchSin;
+
+    stabilized->Identity();
+    stabilized->Row(0)=yawRight*rollCos+upWithoutRoll*rollSin;
+    stabilized->Row(1)=upWithoutRoll*rollCos-yawRight*rollSin;
+    stabilized->Row(2)=forward;
+    stabilized->Row(3)=vehicleTransform.Row(3);
+}
 #endif
 
 #ifdef DEBUGWATCH
@@ -89,7 +149,10 @@ FirstPersonCam::FirstPersonCam() :
     mTargetDirty( false ),
     mVrStickYaw( 0.0f ),
     mVrSnapReady( true ),
+    mVrVehiclePitch( 0.0f ),
+    mVrVehicleRoll( 0.0f ),
     mVrVehicleAnchorValid( false ),
+    mVrVehicleTiltValid( false ),
     mVrVehicleCameraLogged( false ),
     mRotation( DEFAULT_ROTATION ),
     mElevation( DEFAULT_ELEVATION ),
@@ -247,6 +310,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
             mVrStickYaw+=yawDelta;
             Vehicle* vehicle=static_cast<Vehicle*>(mTarget);
             mVrBaseHeading=vehicle->GetTransform().Row(2);
+            mVrBaseHeading.y=0.0f;
             mVrBaseHeading.NormalizeSafe();
             yawMatrix.FillRotateY( mVrStickYaw );
             mVrBaseHeading.Rotate( yawMatrix );
@@ -266,6 +330,10 @@ void FirstPersonCam::Update( unsigned int milliseconds )
     //place the target at the position and deal with controller input.
 
     rmt::Vector position, target;
+#if defined(RAD_ANDROID)
+    rmt::Matrix vrVehicleTransform;
+    bool vrVehicleTransformValid=false;
+#endif
 #if defined(RAD_ANDROID)
     if( SharOpenXR::IsVrModeEnabled() )
     {
@@ -307,6 +375,11 @@ void FirstPersonCam::Update( unsigned int milliseconds )
     {
         Avatar* avatar=GetAvatarManager()->GetAvatarForPlayer( GetPlayerID() );
         Vehicle* vehicle=static_cast<Vehicle*>(mTarget);
+        BuildVrStabilizedVehicleTransform(vehicle->GetTransform(),
+            static_cast<float>(milliseconds)/1000.0f,!mVrVehicleTiltValid,
+            &mVrVehiclePitch,&mVrVehicleRoll,&vrVehicleTransform);
+        mVrVehicleTiltValid=true;
+        vrVehicleTransformValid=true;
         if( !mVrVehicleAnchorValid && avatar && avatar->IsInCar() )
         {
             // Use the car's authored seat socket. Character head joints can
@@ -327,7 +400,8 @@ void FirstPersonCam::Update( unsigned int milliseconds )
             // and physical height the zero offset from that seated anchor.
             // From the next frame onward the vehicle transform supplies the
             // base position/orientation and tracked motion stays local to it.
-            mVrBaseHeading=vehicle->GetTransform().Row(2);
+            mVrBaseHeading=vrVehicleTransform.Row(2);
+            mVrBaseHeading.y=0.0f;
             mVrBaseHeading.NormalizeSafe();
             mVrStickYaw=0.0f;
             SharOpenXR::SetVrBaseHeading( mVrBaseHeading );
@@ -337,7 +411,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
         if( mVrVehicleAnchorValid )
         {
             rmt::Matrix anchorWorld;
-            anchorWorld.Mult(mVrVehicleAnchorLocal,vehicle->GetTransform());
+            anchorWorld.Mult(mVrVehicleAnchorLocal,vrVehicleTransform);
             position=anchorWorld.Row(3);
         }
     }
@@ -407,11 +481,12 @@ void FirstPersonCam::Update( unsigned int milliseconds )
         // Use the complete head pose captured at successful entry and rigidly
         // parented to the vehicle. No live character animation or camera
         // collision can move this anchor after it has been established.
-        Vehicle* vehicle=static_cast<Vehicle*>(mTarget);
         // Build orientation from the chassis only. The seat anchor contributes
         // translation above; including its full world matrix here couples yaw
         // to a translated transform and can produce an invalid view matrix.
-        rmt::Matrix anchorWorld=vehicle->GetTransform();
+        rmt::Matrix anchorWorld=vrVehicleTransformValid ?
+                                vrVehicleTransform :
+                                static_cast<Vehicle*>(mTarget)->GetTransform();
         anchorWorld.Row(3).Set(0.0f,0.0f,0.0f);
         rmt::Matrix localYaw;
         localYaw.Identity();
@@ -524,6 +599,7 @@ void FirstPersonCam::SetTarget( ISuperCamTarget* target )
     mTargetDirty = true;
 #if defined(RAD_ANDROID)
     mVrVehicleAnchorValid=false;
+    mVrVehicleTiltValid=false;
     mVrVehicleCameraLogged=false;
 #endif
 }

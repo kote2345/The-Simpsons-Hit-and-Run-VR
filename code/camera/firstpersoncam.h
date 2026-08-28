@@ -78,7 +78,10 @@ private:
     float mVrStickYaw;
     bool mVrSnapReady : 1;
     rmt::Matrix mVrVehicleAnchorLocal;
+    float mVrVehiclePitch;
+    float mVrVehicleRoll;
     bool mVrVehicleAnchorValid : 1;
+    bool mVrVehicleTiltValid : 1;
     bool mVrVehicleCameraLogged : 1;
 
     float mRotation;
