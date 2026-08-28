@@ -41,6 +41,7 @@
 #include <worldsim/redbrick/vehiclecontroller/vehiclemappable.h>
 #include <worldsim/redbrick/vehiclecontroller/humanvehiclecontroller.h>
 #include <worldsim/redbrick/geometryvehicle.h>
+#include <worldsim/traffic/trafficmanager.h>
 #include <worldsim/worldphysicsmanager.h>
 #include <simcollision/collisionmanager.hpp>
 #include <render/IntersectManager/IntersectManager.h>
@@ -72,6 +73,31 @@
 
 namespace CharacterAi
 {
+
+static bool UseVrPassengerSeatForNpcDriver(Character* character, Vehicle* vehicle,
+                                            bool isDriver)
+{
+#if defined(RAD_ANDROID)
+    return isDriver && character && vehicle &&
+           SharOpenXR::IsVrModeEnabled() &&
+           !SharOpenXR::IsThirdPersonVehicleMode() &&
+           vehicle->IsUserDrivingCar() &&
+           !TrafficManager::GetInstance()->IsVehicleTrafficVehicle(vehicle) &&
+           character != GetCharacterManager()->GetCharacter(0);
+#else
+    return false;
+#endif
+}
+
+static const rmt::Vector& GetInCarSeat(Character* character, Vehicle* vehicle,
+                                       bool isDriver)
+{
+    if(isDriver && !UseVrPassengerSeatForNpcDriver(character, vehicle, isDriver))
+    {
+        return vehicle->GetDriverLocation();
+    }
+    return vehicle->GetPassengerLocation();
+}
 
 //******************************************************************************
 //
@@ -232,9 +258,9 @@ void InCar::Enter( void )
     mIsDriver = (mpCharacter->GetTargetVehicle()->mpDriver == mpCharacter) ||
                 (!mpCharacter->GetTargetVehicle()->HasDriver());
 
-    rmt::Vector seat = mIsDriver ? 
-        mpCharacter->GetTargetVehicle()->GetDriverLocation() : 
-        mpCharacter->GetTargetVehicle()->GetPassengerLocation(); 
+    rmt::Vector seat = GetInCarSeat(mpCharacter,
+                                   mpCharacter->GetTargetVehicle(),
+                                   mIsDriver);
 
     bool busy = mpCharacter->GetActionController()->IsBusy();
 
@@ -312,15 +338,7 @@ void InCar::SequenceAction( void )
 
 
     rmt::Vector localPos = mpCharacter->GetPuppet()->GetPosition();
-    rmt::Vector seatPos;
-    if(mIsDriver)
-    {
-        seatPos = pVehicle->GetDriverLocation();
-    }
-    else
-    {
-        seatPos = pVehicle->GetPassengerLocation();
-    }
+    rmt::Vector seatPos = GetInCarSeat(mpCharacter, pVehicle, mIsDriver);
     seatPos.y = localPos.y;
     mpCharacter->GetPuppet()->SetPosition(seatPos);
 

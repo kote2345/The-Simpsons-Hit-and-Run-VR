@@ -25,6 +25,7 @@
 #include <worldsim/character/charactercontroller.h>
 #include <worldsim/character/charactermanager.h>
 #include <worldsim/coins/coinmanager.h>
+#include <worldsim/traffic/trafficmanager.h>
 #include <camera/supercam.h>
 #include <camera/supercamcentral.h>
 #include <camera/supercammanager.h>
@@ -521,8 +522,6 @@ static void UpdateVrInCarCharacterVisibility()
         return;
 
     static bool s_playerHiddenByVr = false;
-    static Character* s_hiddenNpc = NULL;
-
     const bool hide = g.vrModeEnabled && player->IsInCar() &&
                       g.vehicleControlMode != 2;
 
@@ -534,16 +533,31 @@ static void UpdateVrInCarCharacterVisibility()
             s_playerHiddenByVr = true;
         }
 
-        // NPC driver (distinct from the player) can also sit in the seat.
+        // A distinct mission driver is rendered on the passenger seat in VR.
+        // InCar keeps its driver animations but swaps its local seat position,
+        // so only the player's own mesh must be hidden here.
         Vehicle* vehicle = player->GetTargetVehicle();
-        if (vehicle)
+        Character* driver = vehicle ? vehicle->GetDriver() : NULL;
+        if (driver && driver != player)
         {
-            Character* driver = vehicle->GetDriver();
-            if (driver && driver != player)
+            const bool trafficDriver =
+                TrafficManager::GetInstance()->IsVehicleTrafficVehicle(vehicle);
+            if (trafficDriver)
             {
                 if (driver->IsVisible())
                     driver->RemoveFromWorldScene();
-                s_hiddenNpc = driver;
+            }
+            else
+            {
+                // Some mission cars normally hide their seated characters.
+                // This NPC must remain visible after the VR seat swap.
+                if (!driver->IsVisible())
+                    driver->AddToWorldScene();
+
+                rmt::Vector passengerPosition = vehicle->GetPassengerLocation();
+                const rmt::Vector animatedPosition = driver->GetPuppet()->GetPosition();
+                passengerPosition.y = animatedPosition.y;
+                driver->GetPuppet()->SetPosition(passengerPosition);
             }
         }
     }
@@ -560,12 +574,6 @@ static void UpdateVrInCarCharacterVisibility()
                     player->AddToWorldScene();
             }
             s_playerHiddenByVr = false;
-        }
-        if (s_hiddenNpc)
-        {
-            if (!s_hiddenNpc->IsVisible())
-                s_hiddenNpc->AddToWorldScene();
-            s_hiddenNpc = NULL;
         }
     }
 }

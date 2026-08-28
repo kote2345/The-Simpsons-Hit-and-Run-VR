@@ -169,9 +169,21 @@ END_PROFILE("CharRender Cull")
         // the player walks up to them. Keep this only for the local player,
         // whose body is intentionally hidden by the current VR camera mode.
         Character* player=GetCharacterManager()->GetCharacter(0);
-        rmt::Vector playerPosition;
-        if(player) player->GetPosition(playerPosition);
-        hideForNearCamera=player && (playerPosition-(iPosn+camPosn)).MagnitudeSqr()<0.25f;
+        if(player && player->IsInCar())
+        {
+            // The local player is removed from the world scene separately in
+            // first-person vehicle mode. Its original passenger-seat position
+            // can overlap the mission NPC moved there for VR, so a positional
+            // identity test would incorrectly hide that NPC as well.
+            hideForNearCamera=false;
+        }
+        else
+        {
+            rmt::Vector playerPosition;
+            if(player) player->GetPosition(playerPosition);
+            hideForNearCamera=player &&
+                (playerPosition-(iPosn+camPosn)).MagnitudeSqr()<0.25f;
+        }
     }
 #endif
     if ( hideForNearCamera )
