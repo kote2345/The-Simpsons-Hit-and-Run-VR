@@ -60,12 +60,16 @@ pddiShadeColourTable pglMat::colourTable[] =
     {PDDI_SP_DIFFUSE  , SHADE_COLOUR(&pglMat::SetDiffuse)},
     {PDDI_SP_EMISSIVE , SHADE_COLOUR(&pglMat::SetEmissive)},
     {PDDI_SP_SPECULAR , SHADE_COLOUR(&pglMat::SetSpecular)},
+    // Simple traffic-body shaders can be promoted to the reflection path at
+    // runtime. The value is inert until a reflection map is assigned.
+    {PDDI_SP_ENVBLEND , SHADE_COLOUR(&pglMat::SetEnvBlend)},
     {PDDI_SP_NULL , NULL}
 };
 
 pddiShadeTextureTable pglMat::textureTable[] = 
 {
     {PDDI_SP_BASETEX , SHADE_TEXTURE(&pglMat::SetTexture)},
+    {PDDI_SP_REFLMAP, SHADE_TEXTURE(&pglMat::SetReflectionMap)},
     {PDDI_SP_NULL , NULL}
 };
 
@@ -230,6 +234,7 @@ void pglMat::SetReflectionMap(pddiTexture* t)
     if(texEnv[pass].reflectionMap)
         texEnv[pass].reflectionMap->Release();
     texEnv[pass].reflectionMap = static_cast<pglTexture*>(t);
+    texEnv[pass].reflection = texEnv[pass].reflectionMap != NULL;
     if(texEnv[pass].reflectionMap)
         texEnv[pass].reflectionMap->AddRef();
 }

@@ -524,8 +524,9 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
         "precision highp float;varying vec2 tc;varying vec4 cpri,csec;"
         "varying vec3 paintNormal;varying vec3 reflectionNormal;varying highp vec3 paintPosition;"
         "uniform sampler2D tex;uniform sampler2D reflectionTex;uniform vec4 environmentBlend;"
-        "uniform mat4 reflectionViewToWorld;"
-        "void main(){vec4 base=texture2D(tex,tc)*cpri+csec;"
+        "uniform mat4 reflectionViewToWorld;uniform float alpharef;"
+        "void main(){vec4 texel=texture2D(tex,tc);vec4 base=texel*cpri+csec;"
+        "if(base.a<alpharef)discard;"
         // D3D's TCI_CAMERASPACEREFLECTIONVECTOR uses the direction from the
         // eye to each vertex, not one camera-forward vector for the complete
         // car. Transforming both that vector and the normal back to world
@@ -544,8 +545,18 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
         "float l=dot(base.rgb,vec3(0.2126,0.7152,0.0722));"
         "vec3 paint=clamp(mix(vec3(l),base.rgb,1.25),0.0,1.0);paint*=paint;"
         "vec3 env=texture2D(reflectionTex,uv).rgb;"
-        "env=pow(max(env,vec3(0.0)),vec3(0.78))*environmentBlend.rgb*0.72;"
-        "base.rgb=clamp(paint+env,0.0,1.0);"
+        "env=pow(max(env,vec3(0.0)),vec3(0.78));"
+        // Traffic alpha is a swatch mask: near-opaque texels are restored to
+        // white by the following gloss pass (bumpers/trim), while lower-alpha
+        // texels are recolourable paint. Reflect only the inverse mask here.
+        "if(environmentBlend.a<0.5){float bodyMask=1.0-step(250.0/255.0,texel.a);"
+        // Reproduce the normal Android material grade before adding EnvMap.
+        // Without the square/contrast curve the traffic swatch colour becomes
+        // pale and appears overexposed merely by selecting reflectionProgram.
+        "float tl=dot(base.rgb,vec3(0.2126,0.7152,0.0722));"
+        "vec3 traffic=clamp(mix(vec3(tl),base.rgb,1.25),0.0,1.0);traffic*=traffic;"
+        "base.rgb=clamp(traffic+env*environmentBlend.r*bodyMask,0.0,1.0);}"
+        "else{env*=environmentBlend.rgb*0.72;base.rgb=clamp(paint+env,0.0,1.0);}"
         "gl_FragColor=base;}");
     reflectionProgram=pglProgram::CreateProgram(vertexShader,reflectionFS);
     glDeleteShader(reflectionFS);

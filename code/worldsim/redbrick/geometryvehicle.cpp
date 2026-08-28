@@ -2179,6 +2179,14 @@ bool GeometryVehicle::GetArt( const char* name)
         char shadername[64];
         sprintf( shadername, "%s_m", name );
         tShader* bodyShade = p3d::find<tShader>( shadername );
+        // The school bus asset breaks the normal traffic naming convention:
+        // its vehicle/composite is "schoolbu", but its chassis material is
+        // authored as "schoolbus_m" rather than "schoolbu_m".
+        if( bodyShade == NULL && strcmp( name, "schoolbu" ) == 0 )
+        {
+            strcpy( shadername, "schoolbus_m" );
+            bodyShade = p3d::find<tShader>( shadername );
+        }
 
         // Find the body prop in compositedrawable's list of elements by name
         // e.g. compactAShape

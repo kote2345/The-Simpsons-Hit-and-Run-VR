@@ -4,6 +4,7 @@
 #include <p3d/drawable.hpp>
 
 class tShader;
+class tTexture;
 
 class TrafficBodyDrawable :
     public tDrawable
@@ -32,8 +33,10 @@ public:
 private:
     tDrawable* mBodyPropDrawable;
     tShader* mBodyShader;
+    tTexture* mReflectionMap;
     pddiColour mDesiredColour;
+    bool mReflectionConfigured;
 
 };
 
-#endif 
+#endif
