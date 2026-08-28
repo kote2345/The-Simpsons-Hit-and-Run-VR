@@ -15,6 +15,7 @@
 
 #if defined(RAD_ANDROID)
 #include <vr/openxrmanager.h>
+#include <vr/dynamiccubemap.h>
 #endif
 #include <string.h>
 #include <SDL.h>
@@ -27,6 +28,137 @@ int gPglCsmBillboardMode=0; // 0 normal, 1 caster, 2 receiver overlay
 static double PglTelemetryMilliseconds()
 {
     return SDL_GetPerformanceCounter()*1000.0/SDL_GetPerformanceFrequency();
+}
+
+static GLuint gVehicleCubeTexture=0;
+static GLuint gVehicleCubeFramebuffer=0;
+static GLuint gVehicleCubeDepth=0;
+// Keep the complete implementation available while dynamic probes are
+// temporarily disabled. Setting this back to true restores capture and makes
+// vehicle materials select the samplerCube reflection program again.
+static const bool gVehicleCubeEnabled=false;
+static bool gVehicleCubeReady=false;
+static bool gVehicleCubeCapture=false;
+static bool gVehicleCubeSuppressTransparent=false;
+static bool gVehicleCubeSkipDraw=false;
+static GLint gVehicleCubeSavedFramebuffer=0;
+static GLint gVehicleCubeSavedRenderbuffer=0;
+static GLint gVehicleCubeSavedViewport[4]={0,0,0,0};
+static GLint gVehicleCubeSavedActiveTexture=GL_TEXTURE0;
+static GLboolean gVehicleCubeSavedScissor=GL_FALSE;
+static GLboolean gVehicleCubeSavedColourMask[4]={GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE};
+static GLfloat gVehicleCubeSavedClearColour[4]={0,0,0,0};
+static const int VEHICLE_CUBE_SIZE=128;
+
+bool VrHasDynamicVehicleCubeMap(){return gVehicleCubeEnabled&&gVehicleCubeReady;}
+bool VrIsDynamicVehicleCubeMapCapture(){return gVehicleCubeCapture;}
+void VrSetVehicleCubeMapTransparentSuppression(bool suppress)
+{
+    gVehicleCubeSuppressTransparent=suppress;
+    if(!suppress) gVehicleCubeSkipDraw=false;
+    // Force the first material on either side of the scope boundary to publish
+    // its alpha state even if it happens to share the previous shader UID.
+    pddiBaseShader::ClearCurrentShader();
+}
+void VrBindDynamicVehicleCubeMap()
+{
+    glBindTexture(GL_TEXTURE_CUBE_MAP,gVehicleCubeTexture);
+}
+void VrRestoreVehicleCubeMapRendering(pddiRenderContext* context)
+{
+    if(context) static_cast<pglContext*>(context)->RestoreAfterVehicleCubeMap();
+}
+
+bool VrBeginVehicleCubeMapFace(pddiRenderContext*,int face)
+{
+    if(!gVehicleCubeEnabled || face<0 || face>=6 || gVehicleCubeCapture)
+        return false;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING,&gVehicleCubeSavedFramebuffer);
+    glGetIntegerv(GL_RENDERBUFFER_BINDING,&gVehicleCubeSavedRenderbuffer);
+    glGetIntegerv(GL_VIEWPORT,gVehicleCubeSavedViewport);
+    glGetIntegerv(GL_ACTIVE_TEXTURE,&gVehicleCubeSavedActiveTexture);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE,gVehicleCubeSavedClearColour);
+    gVehicleCubeSavedScissor=glIsEnabled(GL_SCISSOR_TEST);
+    glGetBooleanv(GL_COLOR_WRITEMASK,gVehicleCubeSavedColourMask);
+    // A cubemap face is an ordinary mono framebuffer.  During the normal VR
+    // world pass IsMultiviewRendering() is true, which otherwise makes every
+    // PDDI material select its two-view native program while drawing into this
+    // single 2D attachment.  Switch program selection to the legacy mono
+    // variants before the cube camera and any materials establish their state.
+    SharOpenXR::SetMultiviewTargetActive(false);
+    if(!gVehicleCubeTexture)
+    {
+        glGenTextures(1,&gVehicleCubeTexture);
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_CUBE_MAP,gVehicleCubeTexture);
+        for(int cubeFace=0;cubeFace<6;++cubeFace)
+            glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+cubeFace,0,GL_RGBA8,
+                         VEHICLE_CUBE_SIZE,VEHICLE_CUBE_SIZE,0,GL_RGBA,
+                         GL_UNSIGNED_BYTE,NULL);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_MIN_FILTER,
+                        GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_CUBE_MAP,GL_TEXTURE_WRAP_R,GL_CLAMP_TO_EDGE);
+        glGenFramebuffers(1,&gVehicleCubeFramebuffer);
+        glGenRenderbuffers(1,&gVehicleCubeDepth);
+        glBindRenderbuffer(GL_RENDERBUFFER,gVehicleCubeDepth);
+        glRenderbufferStorage(GL_RENDERBUFFER,GL_DEPTH_COMPONENT24,
+                              VEHICLE_CUBE_SIZE,VEHICLE_CUBE_SIZE);
+        SDL_Log("VR vehicle cubemap: allocated %dx%d incremental probe",
+                VEHICLE_CUBE_SIZE,VEHICLE_CUBE_SIZE);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER,gVehicleCubeFramebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER,GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_CUBE_MAP_POSITIVE_X+face,
+                           gVehicleCubeTexture,0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER,GL_DEPTH_ATTACHMENT,
+                              GL_RENDERBUFFER,gVehicleCubeDepth);
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER)!=GL_FRAMEBUFFER_COMPLETE)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER,gVehicleCubeSavedFramebuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER,gVehicleCubeSavedRenderbuffer);
+        glActiveTexture(gVehicleCubeSavedActiveTexture);
+        SharOpenXR::SetMultiviewTargetActive(true);
+        return false;
+    }
+    glViewport(0,0,VEHICLE_CUBE_SIZE,VEHICLE_CUBE_SIZE);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+    glClearColor(0.38f,0.58f,0.78f,1.0f);
+    glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
+    gVehicleCubeCapture=true;
+    return true;
+}
+
+void VrEndVehicleCubeMapFace(pddiRenderContext*,int face)
+{
+    if(!gVehicleCubeCapture) return;
+    gVehicleCubeCapture=false;
+    if(face==5)
+    {
+        glActiveTexture(GL_TEXTURE4);
+        glBindTexture(GL_TEXTURE_CUBE_MAP,gVehicleCubeTexture);
+        glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+        if(!gVehicleCubeReady)
+        {
+            gVehicleCubeReady=true;
+            SDL_Log("VR vehicle cubemap: first six-face capture complete");
+        }
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER,gVehicleCubeSavedFramebuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER,gVehicleCubeSavedRenderbuffer);
+    SharOpenXR::SetMultiviewTargetActive(true);
+    glViewport(gVehicleCubeSavedViewport[0],gVehicleCubeSavedViewport[1],
+               gVehicleCubeSavedViewport[2],gVehicleCubeSavedViewport[3]);
+    if(gVehicleCubeSavedScissor) glEnable(GL_SCISSOR_TEST);
+    else glDisable(GL_SCISSOR_TEST);
+    glColorMask(gVehicleCubeSavedColourMask[0],gVehicleCubeSavedColourMask[1],
+                gVehicleCubeSavedColourMask[2],gVehicleCubeSavedColourMask[3]);
+    glClearColor(gVehicleCubeSavedClearColour[0],gVehicleCubeSavedClearColour[1],
+                 gVehicleCubeSavedClearColour[2],gVehicleCubeSavedClearColour[3]);
+    glActiveTexture(gVehicleCubeSavedActiveTexture);
 }
 #endif
 
@@ -96,6 +228,7 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
     vehicleCsmTextureProgram=NULL;
     vehicleCsmAlphaTestProgram=NULL;
     reflectionProgram=NULL;
+    dynamicReflectionProgram=NULL;
     shadowDepthProgram=NULL;
     shadowOverlayProgram=NULL;
     particleTextureProgram=NULL;
@@ -255,8 +388,8 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
         "varying vec2 tc;\n"
         "varying vec4 cpri;\n"
         "varying vec4 csec;\n"
-        "varying vec3 paintNormal;\n"
-        "varying vec3 reflectionNormal;\n"
+    "varying vec3 paintNormal;\n"
+    "varying vec3 reflectionNormal;\n"
         "varying vec3 paintPosition;\n"
         "varying float paintEnabled;\n"
         "varying float pixelLit;\n"
@@ -285,7 +418,7 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
             "    paintNormal = normalize(mat3(normalmatrix) * normal);\n"
             // Convert the ordinary view-space normal back to world space.
             // This preserves vehicle rotation while cancelling HMD rotation.
-            "    reflectionNormal = normalize(mat3(reflectionViewToWorld) * paintNormal);\n"
+    "    reflectionNormal = normalize(mat3(reflectionViewToWorld) * paintNormal);\n"
             "    paintPosition = V.xyz;\n"
             "    paintEnabled = float(vehiclePaint);\n"
             // Enhanced Materials is a single on/off switch. Only genuinely
@@ -560,6 +693,26 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
         "gl_FragColor=base;}");
     reflectionProgram=pglProgram::CreateProgram(vertexShader,reflectionFS);
     glDeleteShader(reflectionFS);
+    GLuint dynamicReflectionFS=pglProgram::CompileShader(GL_FRAGMENT_SHADER,
+        "precision highp float;varying vec2 tc;varying vec4 cpri,csec;"
+        "varying vec3 paintNormal;varying vec3 reflectionNormal;varying highp vec3 paintPosition;"
+        "uniform sampler2D tex;uniform samplerCube reflectionTex;uniform vec4 environmentBlend;"
+        "uniform mat4 reflectionViewToWorld;uniform float alpharef;"
+        "void main(){vec4 texel=texture2D(tex,tc);vec4 base=texel*cpri+csec;"
+        "if(base.a<alpharef)discard;vec3 N=normalize(reflectionNormal);"
+        "vec3 I=normalize(mat3(reflectionViewToWorld)*paintPosition);"
+        "vec3 R=normalize(reflect(I,N));vec3 env=textureCube(reflectionTex,R).rgb;"
+        "float l=dot(base.rgb,vec3(0.2126,0.7152,0.0722));"
+        "vec3 paint=clamp(mix(vec3(l),base.rgb,1.25),0.0,1.0);paint*=paint;"
+        "env=pow(max(env,vec3(0.0)),vec3(0.82));"
+        "if(environmentBlend.a<0.5){float bodyMask=1.0-step(250.0/255.0,texel.a);"
+        "float tl=dot(base.rgb,vec3(0.2126,0.7152,0.0722));"
+        "vec3 traffic=clamp(mix(vec3(tl),base.rgb,1.25),0.0,1.0);traffic*=traffic;"
+        "base.rgb=clamp(traffic+env*environmentBlend.r*bodyMask,0.0,1.0);}"
+        "else{env*=environmentBlend.rgb*0.72;base.rgb=clamp(paint+env,0.0,1.0);}"
+        "gl_FragColor=base;}");
+    dynamicReflectionProgram=pglProgram::CreateProgram(vertexShader,dynamicReflectionFS);
+    glDeleteShader(dynamicReflectionFS);
     // Alpha-blended effects never receive CSM or enhanced-material lighting.
     // Keeping their fragment stage free of those large dynamic branches is
     // essential for smoke, whose overlapping sprites are fill-rate bound.
@@ -629,6 +782,7 @@ pglContext::~pglContext()
     if(vehicleCsmTextureProgram) vehicleCsmTextureProgram->Release();
     if(vehicleCsmAlphaTestProgram) vehicleCsmAlphaTestProgram->Release();
     if(reflectionProgram) reflectionProgram->Release();
+    if(dynamicReflectionProgram) dynamicReflectionProgram->Release();
 #endif
     defaultShader->Release();
     currentProgram->Release();
@@ -775,7 +929,14 @@ void pglContext::SetupHardwareProjection(void)
     }
 
 #if defined(RAD_ANDROID)
-    if (SharOpenXR::GetActiveViewport &&
+    if (VrIsDynamicVehicleCubeMapCapture())
+    {
+        // The legacy projection cases above size the viewport from the game
+        // display.  A cubemap face owns a much smaller private attachment and
+        // must override that display-sized viewport after SetCamera.
+        glViewport(0,0,VEHICLE_CUBE_SIZE,VEHICLE_CUBE_SIZE);
+    }
+    else if (SharOpenXR::GetActiveViewport &&
         SharOpenXR::GetActiveViewport(&xrWidth, &xrHeight))
     {
         if( SharOpenXR::IsRadarRendering && SharOpenXR::IsRadarRendering() &&
@@ -826,7 +987,8 @@ void pglContext::SetupHardwareProjection(void)
     // OpenXR eye FOVs are asymmetric. Move head-locked 2D layers to the
     // optical centre of each eye so menus converge instead of separating.
     float uiOffset = 0.0f;
-    if ((!SharOpenXR::IsMovieRendering || !SharOpenXR::IsMovieRendering()) &&
+    if (!VrIsDynamicVehicleCubeMapCapture() &&
+        (!SharOpenXR::IsMovieRendering || !SharOpenXR::IsMovieRendering()) &&
         (!SharOpenXR::IsEmbeddedHudRendering ||
          !SharOpenXR::IsEmbeddedHudRendering()) &&
         SharOpenXR::GetActiveUiHorizontalOffset &&
@@ -1043,6 +1205,9 @@ void pglContext::EndPrims(pddiPrimStream* stream)
     MICROPROFILE_SCOPEI("SRR2", "pglContext::EndPrims", MP_RED);
 
     pddiBaseContext::EndPrims(stream);
+#if defined(RAD_ANDROID)
+    if(gVehicleCubeCapture && gVehicleCubeSkipDraw) return;
+#endif
     pglPrimStream* glstream = (pglPrimStream*)stream;
 
     glBindVertexArrayOES( 0 );
@@ -1510,6 +1675,11 @@ void pglContext::DrawPrimBuffer(pddiShader* mat, pddiPrimBuffer* buffer)
     material->SetMaterial();
 #if defined(RAD_ANDROID)
     SharOpenXR::RecordPddiMaterial(materialChanged,PglTelemetryMilliseconds()-materialStart);
+    // Leaves, bushes, fences and other cutout/transparent surfaces cause very
+    // high overdraw in a probe but contribute only noisy sub-pixel detail to
+    // 128x128 vehicle reflections. Keep sky/cloud rendering outside this
+    // suppression scope, and reject these world primitives before submission.
+    if(gVehicleCubeCapture && gVehicleCubeSkipDraw) return;
     // Some level-specific materials restore their normal GLES program/state
     // from SetMaterial. During a CSM caster replay that can leak packed depth
     // geometry into the eye target as long coloured strips. The shadow pass
@@ -1803,6 +1973,11 @@ void pglContext::SetShaderProgram(pglProgram* program)
 void pglContext::SetTextureEnvironment(const pglTextureEnv* texEnv)
 {
 #if defined(RAD_ANDROID)
+    gVehicleCubeSkipDraw=gVehicleCubeCapture &&
+        gVehicleCubeSuppressTransparent &&
+        (texEnv->alphaTest || texEnv->alphaBlendMode!=PDDI_BLEND_NONE);
+#endif
+#if defined(RAD_ANDROID)
     if(shadowPass)
     {
         SetShaderProgram(shadowDepthProgram);
@@ -1843,7 +2018,8 @@ void pglContext::SetTextureEnvironment(const pglTextureEnv* texEnv)
                                     effectiveMaterialMode==2 &&
                                     pglGetVehicleRearLightMode()==0;
     if(texEnv->reflection && texEnv->texture && texEnv->reflectionMap)
-        SetShaderProgram(reflectionProgram);
+        SetShaderProgram(VrHasDynamicVehicleCubeMap()?dynamicReflectionProgram:
+                                                        reflectionProgram);
     else if(texEnv->texture)
     {
         if(pglIsParticleRendering() && !texEnv->alphaTest)
@@ -1879,6 +2055,18 @@ void pglContext::SetTextureEnvironment(const pglTextureEnv* texEnv)
     }
     currentProgram->SetTextureEnvironment(texEnv);
 }
+
+#if defined(RAD_ANDROID)
+void pglContext::RestoreAfterVehicleCubeMap()
+{
+    // SetShaderProgram normally changes the native program only when a new
+    // material is selected. A mono probe interrupted the multiview world pass,
+    // so force a known program through that boundary even if Pure3D believes
+    // the following material is still current.
+    pddiBaseShader::ClearCurrentShader();
+    SetShaderProgram(colorProgram);
+}
+#endif
 
 #if defined(RAD_ANDROID)
 bool pglContext::BeginSunShadowMap(int cascadeIndex,const pddiMatrix& eyeCameraToWorld,

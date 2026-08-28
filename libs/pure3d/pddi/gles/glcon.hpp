@@ -87,6 +87,7 @@ public :
     void SetShaderProgram(pglProgram* program);
     void SetTextureEnvironment(const pglTextureEnv* texEnv);
 #if defined(RAD_ANDROID)
+    void RestoreAfterVehicleCubeMap();
     bool BeginSunShadowMap(int cascadeIndex,const pddiMatrix& eyeCameraToWorld,
                            pddiMatrix* lightWorldToCamera,
                            pddiMatrix* lightCameraToWorld);
@@ -129,6 +130,7 @@ protected:
     pglProgram* vehicleCsmTextureProgram;
     pglProgram* vehicleCsmAlphaTestProgram;
     pglProgram* reflectionProgram;
+    pglProgram* dynamicReflectionProgram;
     pglProgram* shadowDepthProgram;
     pglProgram* shadowOverlayProgram;
     pglProgram* particleTextureProgram;

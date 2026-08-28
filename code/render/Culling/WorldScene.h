@@ -82,6 +82,7 @@ public:
    void RemoveQuietFail( IEntityDSG* ipEDSG );
 
    void Render( unsigned int viewIndex );
+   void RenderFromCamera( tPointCamera* camera, unsigned int visibilityFilter );
    void RenderOpaque( void );
    void RenderTranslucent( void );
    void RenderShadows();

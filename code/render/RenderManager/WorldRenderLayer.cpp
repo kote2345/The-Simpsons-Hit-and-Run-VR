@@ -49,12 +49,14 @@
 #include <render/animentitydsgmanager/animentitydsgmanager.h>
 
 #include <p3d/camera.hpp>
+#include <p3d/pointcamera.hpp>
 #include <p3d/shadow.hpp>
 #include <p3d/view.hpp>
 #if defined(RAD_ANDROID)
 #include <SDL.h>
 #include <vr/csmbridge.h>
 #include <vr/openxrmanager.h>
+#include <vr/dynamiccubemap.h>
 #include <p3d/primgroup.hpp>
 void pglSetVehicleRearLights(int mode,int count,const float* positions,const float* directions,const float* colour);
 #endif
@@ -376,6 +378,106 @@ void WorldRenderLayer::Render()
             pglSetVehicleRearLights(rearMode,rearLightCount,rearPositions,rearDirections,rearColour);
             SharOpenXR::RecordRenderSection(5,
                 (radTimeGetMicroseconds64()-vrSetupStart)/1000.0);
+
+            // Update one 128x128 face every other frame. A complete probe
+            // refresh still takes only about 167 ms at 72 Hz, while halving
+            // the extra world submissions on the standalone headset. The
+            // player vehicle is omitted by WorldScene to avoid
+            // sampling from the cubemap attachment currently being written.
+            Avatar* cubeAvatar=GetAvatarManager()->GetAvatarForPlayer(0);
+            static bool cubeCaptureTurn=false;
+            if(!SharOpenXR::IsRightEyeRendering())
+                cubeCaptureTurn=!cubeCaptureTurn;
+            if(SharOpenXR::IsVrModeEnabled() && cubeAvatar &&
+               !SharOpenXR::IsRightEyeRendering() && cubeCaptureTurn)
+            {
+                static tPointCamera* cubeCamera=NULL;
+                static int cubeFace=0;
+                static rmt::Vector cubeCapturePosition(0.0f,0.0f,0.0f);
+                if(!cubeCamera)
+                {
+                    cubeCamera=new tPointCamera;
+                    cubeCamera->AddRef();
+                    cubeCamera->SetFOV(rmt::PI_BY2,1.0f);
+                    cubeCamera->SetNearPlane(0.6f);
+                    // WorldSphere geometry is deliberately enormous (level
+                    // one cloud joints extend beyond 1700 units). Match the
+                    // normal VR world range so the authored sky survives the
+                    // cubemap projection; spatial-tree culling still limits
+                    // ordinary level geometry to its gameplay draw distance.
+                    cubeCamera->SetFarPlane(8000.0f);
+                }
+                static const rmt::Vector directions[6]={
+                    rmt::Vector(1,0,0),rmt::Vector(-1,0,0),
+                    rmt::Vector(0,1,0),rmt::Vector(0,-1,0),
+                    rmt::Vector(0,0,1),rmt::Vector(0,0,-1)};
+                static const rmt::Vector upVectors[6]={
+                    rmt::Vector(0,-1,0),rmt::Vector(0,-1,0),
+                    rmt::Vector(0,0,1),rmt::Vector(0,0,-1),
+                    rmt::Vector(0,-1,0),rmt::Vector(0,-1,0)};
+                // Every face in a cycle must share exactly one origin. At
+                // driving speed, sampling the moving vehicle position once per
+                // face produces six displaced images whose edges look like a
+                // literal box in the paint reflection.
+                if(cubeFace==0)
+                {
+                    // Keep the probe fresh while the player is on foot as
+                    // well. A parked car must not retain the environment from
+                    // the previous drive until the first six in-car frames.
+                    cubeAvatar->GetPosition(cubeCapturePosition);
+                    cubeCapturePosition.y+=1.0f;
+                }
+                cubeCamera->SetPosition(cubeCapturePosition);
+                cubeCamera->SetTarget(cubeCapturePosition+directions[cubeFace]);
+                cubeCamera->SetUpVector(upVectors[cubeFace]);
+                if(VrBeginVehicleCubeMapFace(p3d::pddi,cubeFace))
+                {
+                    // This render happens inside the OpenXR world pass, but it
+                    // is not an eye render.  Leaving world rendering enabled
+                    // makes SetupHardwareProjection replace the cube camera's
+                    // square 90-degree projection with the active eye's
+                    // asymmetric projection.  Every face then captures a
+                    // narrow, displaced part of the scene instead of its own
+                    // cube direction.
+                    SharOpenXR::SetWorldRendering(false);
+                    cubeCamera->SetState();
+                    p3d::context->LoadViewMatrix(
+                        cubeCamera->GetWorldToCameraMatrix(),
+                        cubeCamera->GetCameraToWorldMatrix());
+                    p3dSetEnhancedWorldMaterials(false);
+                    // WorldSphereDSG centres the sky and orients its cloud
+                    // billboards from the camera stored on the active tView.
+                    // Point it at the probe camera for this private pass.
+                    tView* cubeView=p3d::context->GetView();
+                    tCamera* eyeCamera=mpView[view]->GetCamera();
+                    cubeView->SetCamera(cubeCamera);
+                    p3d::pddi->EnableZBuffer(false);
+                    for(int sphere=0;sphere<mWorldSpheres.mUseSize;++sphere)
+                        mWorldSpheres[sphere]->Display();
+                    p3d::pddi->EnableZBuffer(true);
+                    // Preserve the authored sky and cloud layers above, but
+                    // omit alpha-tested foliage and blended world effects from
+                    // the expensive environment probe.
+                    VrSetVehicleCubeMapTransparentSuppression(true);
+                    mpWorldScene->RenderFromCamera(cubeCamera,
+                                                   WorldScene::msVisible2);
+                    mpWorldScene->RenderOpaque();
+                    VrSetVehicleCubeMapTransparentSuppression(false);
+                    cubeView->SetCamera(eyeCamera);
+                    VrEndVehicleCubeMapFace(p3d::pddi,cubeFace);
+                    SharOpenXR::SetWorldRendering(true);
+                    eyeCamera->SetState();
+                    p3d::context->LoadViewMatrix(
+                        eyeCamera->GetWorldToCameraMatrix(),
+                        eyeCamera->GetCameraToWorldMatrix());
+                    // The probe used ordinary mono programs. Re-establish a
+                    // multiview native program before any cached/direct world
+                    // draw can continue into only the left framebuffer layer.
+                    VrRestoreVehicleCubeMapRendering(p3d::pddi);
+                    p3dSetEnhancedWorldMaterials(enhancedMaterials);
+                    cubeFace=(cubeFace+1)%6;
+                }
+            }
 #endif
 
             int i;

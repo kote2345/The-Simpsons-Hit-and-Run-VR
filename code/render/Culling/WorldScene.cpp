@@ -1,6 +1,7 @@
 #include <render/Culling/WorldScene.h>
 #if defined(RAD_ANDROID)
 #include <vr/openxrmanager.h>
+#include <vr/dynamiccubemap.h>
 #endif
 #include <render/Culling/SpatialTreeFactory.h>
 #include <render/Culling/SpatialTree.h>
@@ -1749,6 +1750,11 @@ DSG_SET_PROFILE('O')
 BEGIN_PROFILE("qsort display")	
  	for(int i=mpZSorts.size() - 1; i>-1; i--)
 	{
+#if defined(RAD_ANDROID)
+        if(VrIsDynamicVehicleCubeMapCapture() &&
+           dynamic_cast<Vehicle*>(mpZSorts[i].entityPtr)!=NULL)
+            continue;
+#endif
 //BEGIN_PROFILE("opaque inner")	
 		mpZSorts[i].entityPtr->Display();
 #ifdef TRACK_SHADERS
@@ -1757,6 +1763,18 @@ BEGIN_PROFILE("qsort display")
 //END_PROFILE("opaque inner")	
 	}
 END_PROFILE("qsort display")
+}
+
+void WorldScene::RenderFromCamera(tPointCamera* camera,
+                                  unsigned int visibilityFilter)
+{
+    if(!camera) return;
+    mStaticTreeWalker.AndTree(msClear);
+    // Build the probe list from this face's 90-degree camera. Rendering every
+    // streamed node made particle-heavy areas such as the burning dump replay
+    // far more geometry than a single face can see.
+    MarkCameraVisible(camera,visibilityFilter);
+    RenderScene(visibilityFilter,camera);
 }
 
 void WorldScene::RenderTranslucent( void )
@@ -2292,7 +2310,8 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
 #endif
 
 #if defined(RAD_ANDROID)
-   if( SharOpenXR::IsVrModeEnabled() )
+   if( SharOpenXR::IsVrModeEnabled() &&
+       !VrIsDynamicVehicleCubeMapCapture() )
    {
       // Spatial streaming must cover the union of both eyes and remain
       // stable while the player pitches the headset.  A sphere tangent to

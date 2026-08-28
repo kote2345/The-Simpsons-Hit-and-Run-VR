@@ -4,6 +4,9 @@
 
 #include <pddi/gles/gl.hpp>
 #include <pddi/gles/glmat.hpp>
+#if defined(RAD_ANDROID)
+#include <vr/dynamiccubemap.h>
+#endif
 #include <pddi/gles/gltex.hpp>
 #include <pddi/gles/glcon.hpp>
 #include <pddi/gles/glprog.hpp>
@@ -393,9 +396,16 @@ void pglMat::SetDevPass(unsigned pass)
     {
         // Units 1-3 are reserved for the three sun-shadow cascades.
         glActiveTexture(GL_TEXTURE4);
-        texEnv[i].reflectionMap->SetGLState();
-        texEnv[i].reflectionMap->SetSamplerState(GL_LINEAR,GL_LINEAR,
-            GL_CLAMP_TO_EDGE,GL_CLAMP_TO_EDGE,1.0f);
+        if(VrHasDynamicVehicleCubeMap())
+        {
+            VrBindDynamicVehicleCubeMap();
+        }
+        else
+        {
+            texEnv[i].reflectionMap->SetGLState();
+            texEnv[i].reflectionMap->SetSamplerState(GL_LINEAR,GL_LINEAR,
+                GL_CLAMP_TO_EDGE,GL_CLAMP_TO_EDGE,1.0f);
+        }
         glActiveTexture(GL_TEXTURE0);
     }
 #endif
