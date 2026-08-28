@@ -29,6 +29,9 @@
 #include <render/Loaders/LensFlareLoader.h>
 
 #include <constants/srrchunks.h>
+#if defined(RAD_ANDROID)
+#include <SDL.h>
+#endif
 #include <memory/srrmemory.h>
 
 #include <render/Loaders/AllWrappers.h>
@@ -140,9 +143,10 @@ tEntity* WorldSphereLoader::LoadObject(tChunkFile* f, tEntityStore* store)
 
     tMultiController* pMC = NULL;
 
-    pWorldSphereDSG->SetNumMeshes(f->GetLong());
-
-	pWorldSphereDSG->SetNumBillBoardQuadGroups( f->GetLong() );
+    const int meshCount=f->GetLong();
+    const int billboardCount=f->GetLong();
+    pWorldSphereDSG->SetNumMeshes(meshCount);
+    pWorldSphereDSG->SetNumBillBoardQuadGroups(billboardCount);
 
     while(f->ChunksRemaining())
     {      
@@ -226,6 +230,12 @@ tEntity* WorldSphereLoader::LoadObject(tChunkFile* f, tEntityStore* store)
     } // while
 
 	LensFlareDSG* pFlare = NULL;
+
+#if defined(RAD_ANDROID)
+    SDL_Log("WorldSphere loaded: %s meshes=%d billboards=%d composite=%d controller=%d",
+            name,meshCount,billboardCount,pWorldSphereDSG->HasCompositeDrawable()?1:0,
+            pMC?1:0);
+#endif
 
 
     mpListenerCB->OnChunkLoaded( pWorldSphereDSG, mUserData, _id );

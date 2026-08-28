@@ -69,6 +69,23 @@ pddiShadeTextureTable pglMat::textureTable[] =
     {PDDI_SP_NULL , NULL}
 };
 
+pddiShadeTextureTable pglMat::reflectionTextureTable[] =
+{
+    {PDDI_SP_BASETEX, SHADE_TEXTURE(&pglMat::SetTexture)},
+    {PDDI_SP_REFLMAP, SHADE_TEXTURE(&pglMat::SetReflectionMap)},
+    {PDDI_SP_NULL, NULL}
+};
+
+pddiShadeColourTable pglMat::reflectionColourTable[] =
+{
+    {PDDI_SP_AMBIENT, SHADE_COLOUR(&pglMat::SetAmbient)},
+    {PDDI_SP_DIFFUSE, SHADE_COLOUR(&pglMat::SetDiffuse)},
+    {PDDI_SP_EMISSIVE, SHADE_COLOUR(&pglMat::SetEmissive)},
+    {PDDI_SP_SPECULAR, SHADE_COLOUR(&pglMat::SetSpecular)},
+    {PDDI_SP_ENVBLEND, SHADE_COLOUR(&pglMat::SetEnvBlend)},
+    {PDDI_SP_NULL, NULL}
+};
+
 pddiShadeIntTable pglMat::intTable[] = 
 {
     {PDDI_SP_UVMODE , SHADE_INT(&pglMat::SetUVMode)},
@@ -127,7 +144,7 @@ GLenum alphaBlendTable[8][3] =
     { GL_FUNC_REVERSE_SUBTRACT, GL_SRC_ALPHA, GL_SRC_ALPHA} //PDDI_BLEND_SUBMODULATEALPHA
 };
 
-pglMat::pglMat(pglContext* c) 
+pglMat::pglMat(pglContext* c, bool reflection)
 {
     context = c;
 
@@ -135,6 +152,9 @@ pglMat::pglMat(pglContext* c)
     {
         texEnv[i].enabled = false;
         texEnv[i].texture = NULL;
+        texEnv[i].reflectionMap = NULL;
+        texEnv[i].reflection = reflection;
+        texEnv[i].envBlend.Set(128,128,128,128);
         texEnv[i].uvSet = i;
         texEnv[i].texGen = PDDI_TEXGEN_NONE;
         texEnv[i].uvMode = PDDI_UV_CLAMP;
@@ -164,8 +184,12 @@ pglMat::pglMat(pglContext* c)
 pglMat::~pglMat() 
 {
     for(int i = 0; i < pglMaxPasses; i++)
+    {
         if(texEnv[i].texture)
             texEnv[i].texture->Release();
+        if(texEnv[i].reflectionMap)
+            texEnv[i].reflectionMap->Release();
+    }
 }
 
 
@@ -197,6 +221,22 @@ void pglMat::SetTexture(pddiTexture* t)
 
     if(texEnv[pass].texture)
         texEnv[pass].texture->AddRef();
+}
+
+void pglMat::SetReflectionMap(pddiTexture* t)
+{
+    if(t == texEnv[pass].reflectionMap)
+        return;
+    if(texEnv[pass].reflectionMap)
+        texEnv[pass].reflectionMap->Release();
+    texEnv[pass].reflectionMap = static_cast<pglTexture*>(t);
+    if(texEnv[pass].reflectionMap)
+        texEnv[pass].reflectionMap->AddRef();
+}
+
+void pglMat::SetEnvBlend(pddiColour colour)
+{
+    texEnv[pass].envBlend = colour;
 }
 
 void pglMat::SetUVMode(int mode) 
@@ -341,6 +381,19 @@ void pglMat::SetDevPass(unsigned pass)
         glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_WRAP_T,uvTable[texEnv[i].uvMode]);
 #endif
     }
+
+
+#if defined(RAD_ANDROID)
+    if(texEnv[i].reflection && texEnv[i].reflectionMap)
+    {
+        // Units 1-3 are reserved for the three sun-shadow cascades.
+        glActiveTexture(GL_TEXTURE4);
+        texEnv[i].reflectionMap->SetGLState();
+        texEnv[i].reflectionMap->SetSamplerState(GL_LINEAR,GL_LINEAR,
+            GL_CLAMP_TO_EDGE,GL_CLAMP_TO_EDGE,1.0f);
+        glActiveTexture(GL_TEXTURE0);
+    }
+#endif
 
     if(texEnv[i].alphaBlendMode == PDDI_BLEND_NONE)
     {

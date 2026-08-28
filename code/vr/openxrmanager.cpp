@@ -966,6 +966,11 @@ void SetVrSteeringWheelEnabled(bool enabled)
 {
     SetVehicleControlMode(enabled?1:0);
 }
+
+// Match SuperCam's authored world range. A 1000-unit VR far plane clips the
+// level-one WorldSphere: its animated cloud joints extend beyond 1700 units,
+// while the original game renders the scene with SUPERCAM_FAR (8000).
+static const float VR_WORLD_FAR_PLANE = 8000.0f;
 bool IsVrSteeringWheelEnabled(){ return g.vehicleControlMode==1; }
 void SetVehicleControlMode(int mode)
 {
@@ -1668,8 +1673,8 @@ bool PrepareMultiviewCamera(tCamera* base)
     worldToRight.InvertOrtho(rightWorld);
     g.multiviewViewAdjustment[0].Mult(centreWorld,worldToLeft);
     g.multiviewViewAdjustment[1].Mult(centreWorld,worldToRight);
-    MakeProjection(g.eyes[0].view.fov,0.1f,1000.0f,&g.multiviewProjection[0]);
-    MakeProjection(g.eyes[1].view.fov,0.1f,1000.0f,&g.multiviewProjection[1]);
+    MakeProjection(g.eyes[0].view.fov,0.1f,VR_WORLD_FAR_PLANE,&g.multiviewProjection[0]);
+    MakeProjection(g.eyes[1].view.fov,0.1f,VR_WORLD_FAR_PLANE,&g.multiviewProjection[1]);
     return true;
 }
 bool GetMultiviewMatrices(rmt::Matrix* p,rmt::Matrix* a)
@@ -1798,7 +1803,7 @@ void ApplyGtao()
                 static_cast<float>(eye.width)/(tanR-tanL),
                 static_cast<float>(eye.height)/(tanU-tanD));
     glUniform4f(glGetUniformLocation(g.gtaoProgram,"projXy"),invFx,invFy,offX,offY);
-    glUniform2f(glGetUniformLocation(g.gtaoProgram,"clipPlanes"),0.1f,1000.0f);
+    glUniform2f(glGetUniformLocation(g.gtaoProgram,"clipPlanes"),0.1f,VR_WORLD_FAR_PLANE);
     glDrawArrays(GL_TRIANGLES,0,6);
 
     // Smooth the quarter-resolution result before upsampling.  The AO pass keeps
@@ -2987,7 +2992,7 @@ bool GetActiveProjection(rmt::Matrix* p,int* w,int* h)
     // presentation layers may consume the real eye projection; the GUI layer
     // must fall through to its legacy projection and the VR HUD transform.
     if(!g.activeEye || !g.worldRendering || g.embeddedHudRendering) return false; Eye& e=g.eyes[g.activeEye-1];
-    MakeProjection(e.view.fov,0.1f,1000.0f,p); *w=e.width; *h=e.height; return true;
+    MakeProjection(e.view.fov,0.1f,VR_WORLD_FAR_PLANE,p); *w=e.width; *h=e.height; return true;
 }
 bool GetActiveViewport(int* w,int* h)
 {

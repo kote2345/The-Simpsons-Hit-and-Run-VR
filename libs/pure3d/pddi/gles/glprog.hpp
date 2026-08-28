@@ -76,6 +76,10 @@ protected:
 
     // Uniform locations
     GLint projection, modelview, normalmatrix, alpharef, sampler;
+#if defined(RAD_ANDROID)
+    GLint reflectionSampler, environmentBlend;
+    GLint reflectionViewToWorld;
+#endif
     struct {
         GLint enabled, position, colour, attenuation;
     } lights[PDDI_MAX_LIGHTS];

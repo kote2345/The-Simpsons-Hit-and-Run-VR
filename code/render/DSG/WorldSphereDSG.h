@@ -48,6 +48,7 @@ public:
    void SetMultiController(tMultiController* ipMultiController);
    void SetCompositeDrawable( tCompositeDrawable* ipCompDraw );
    void SetFlare( LensFlareDSG* pFlare );
+   bool HasCompositeDrawable() const { return mpCompDraw != NULL; }
    void Activate();
    void Deactivate();
 

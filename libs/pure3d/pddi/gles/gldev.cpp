@@ -203,7 +203,9 @@ pddiTexture* pglDevice::NewTexture(pddiTextureDesc* desc)
 //--------------------------------------------------------------
 pddiShader *pglDevice::NewShader(const char* name, const char*) 
 { 
-    pglMat* mat= new pglMat((pglContext*)context);
+    const bool reflection = name &&
+        (!strcmp(name, "environment") || !strcmp(name, "spheremap"));
+    pglMat* mat= new pglMat((pglContext*)context, reflection);
     if(mat->GetLastError() != PDDI_OK) {
         delete mat;
         return NULL;

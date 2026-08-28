@@ -95,6 +95,7 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
     vehicleCsmColorProgram=NULL;
     vehicleCsmTextureProgram=NULL;
     vehicleCsmAlphaTestProgram=NULL;
+    reflectionProgram=NULL;
     shadowDepthProgram=NULL;
     shadowOverlayProgram=NULL;
     particleTextureProgram=NULL;
@@ -223,6 +224,7 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
         "uniform mat4 projection;\n"
         "uniform mat4 modelview;\n"
         "uniform mat4 normalmatrix;\n"
+        "uniform mat4 reflectionViewToWorld;\n"
         "uniform mat4 shadowMatrix; uniform mat4 shadowMatrix1; uniform mat4 shadowMatrix2;\n"
 
         // Lights
@@ -254,6 +256,7 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
         "varying vec4 cpri;\n"
         "varying vec4 csec;\n"
         "varying vec3 paintNormal;\n"
+        "varying vec3 reflectionNormal;\n"
         "varying vec3 paintPosition;\n"
         "varying float paintEnabled;\n"
         "varying float pixelLit;\n"
@@ -280,6 +283,9 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
 
             "    vec3 spec = vec3(0.0);\n"
             "    paintNormal = normalize(mat3(normalmatrix) * normal);\n"
+            // Convert the ordinary view-space normal back to world space.
+            // This preserves vehicle rotation while cancelling HMD rotation.
+            "    reflectionNormal = normalize(mat3(reflectionViewToWorld) * paintNormal);\n"
             "    paintPosition = V.xyz;\n"
             "    paintEnabled = float(vehiclePaint);\n"
             // Enhanced Materials is a single on/off switch. Only genuinely
@@ -512,6 +518,37 @@ pglContext::pglContext(pglDevice* dev, pglDisplay* disp) : pddiBaseContext((pddi
     vehicleCsmColorProgram=pglProgram::CreateProgram(vertexShader,vehicleCsmColorFS);
     vehicleCsmTextureProgram=pglProgram::CreateProgram(vertexShader,vehicleCsmTextureFS);
     vehicleCsmAlphaTestProgram=pglProgram::CreateProgram(vertexShader,vehicleCsmAlphaFS);
+    // SHAR's authored vehicle reflection is a cheap 2D sphere map. Match the
+    // D3D environment shader instead of introducing a costly dynamic cubemap.
+    GLuint reflectionFS=pglProgram::CompileShader(GL_FRAGMENT_SHADER,
+        "precision highp float;varying vec2 tc;varying vec4 cpri,csec;"
+        "varying vec3 paintNormal;varying vec3 reflectionNormal;varying highp vec3 paintPosition;"
+        "uniform sampler2D tex;uniform sampler2D reflectionTex;uniform vec4 environmentBlend;"
+        "uniform mat4 reflectionViewToWorld;"
+        "void main(){vec4 base=texture2D(tex,tc)*cpri+csec;"
+        // D3D's TCI_CAMERASPACEREFLECTIONVECTOR uses the direction from the
+        // eye to each vertex, not one camera-forward vector for the complete
+        // car. Transforming both that vector and the normal back to world
+        // space cancels HMD rotation while restoring variation across broad,
+        // almost-flat bonnet and trunk panels.
+        "vec3 N=normalize(reflectionNormal);"
+        "vec3 I=normalize(mat3(reflectionViewToWorld)*paintPosition);"
+        "vec3 R=normalize(reflect(I,N));"
+        // Match the original D3D TCI_CAMERASPACEREFLECTIONVECTOR path. EnvMap
+        // is already authored as a circular reflection texture; applying a
+        // second sphere-map projection compresses and distorts its clouds.
+        "vec2 uv=clamp(vec2(0.5+0.5*R.x,0.5-0.5*R.y),0.001,0.999);"
+        // Grade paint independently. Squaring the combined colour suppressed
+        // most mid-grey cloud detail, while grading only the body keeps its
+        // highlights controlled and lets the authored reflection stay clear.
+        "float l=dot(base.rgb,vec3(0.2126,0.7152,0.0722));"
+        "vec3 paint=clamp(mix(vec3(l),base.rgb,1.25),0.0,1.0);paint*=paint;"
+        "vec3 env=texture2D(reflectionTex,uv).rgb;"
+        "env=pow(max(env,vec3(0.0)),vec3(0.78))*environmentBlend.rgb*0.72;"
+        "base.rgb=clamp(paint+env,0.0,1.0);"
+        "gl_FragColor=base;}");
+    reflectionProgram=pglProgram::CreateProgram(vertexShader,reflectionFS);
+    glDeleteShader(reflectionFS);
     // Alpha-blended effects never receive CSM or enhanced-material lighting.
     // Keeping their fragment stage free of those large dynamic branches is
     // essential for smoke, whose overlapping sprites are fill-rate bound.
@@ -580,6 +617,7 @@ pglContext::~pglContext()
     if(vehicleCsmColorProgram) vehicleCsmColorProgram->Release();
     if(vehicleCsmTextureProgram) vehicleCsmTextureProgram->Release();
     if(vehicleCsmAlphaTestProgram) vehicleCsmAlphaTestProgram->Release();
+    if(reflectionProgram) reflectionProgram->Release();
 #endif
     defaultShader->Release();
     currentProgram->Release();
@@ -1793,7 +1831,9 @@ void pglContext::SetTextureEnvironment(const pglTextureEnv* texEnv)
     const bool useVehicleCsmProgram=shadowReceiverEnabled &&
                                     effectiveMaterialMode==2 &&
                                     pglGetVehicleRearLightMode()==0;
-    if(texEnv->texture)
+    if(texEnv->reflection && texEnv->texture && texEnv->reflectionMap)
+        SetShaderProgram(reflectionProgram);
+    else if(texEnv->texture)
     {
         if(pglIsParticleRendering() && !texEnv->alphaTest)
             SetShaderProgram(particleTextureProgram);

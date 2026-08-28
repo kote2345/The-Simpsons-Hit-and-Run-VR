@@ -128,6 +128,7 @@ protected:
     pglProgram* vehicleCsmColorProgram;
     pglProgram* vehicleCsmTextureProgram;
     pglProgram* vehicleCsmAlphaTestProgram;
+    pglProgram* reflectionProgram;
     pglProgram* shadowDepthProgram;
     pglProgram* shadowOverlayProgram;
     pglProgram* particleTextureProgram;

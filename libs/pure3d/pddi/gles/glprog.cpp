@@ -143,6 +143,8 @@ pglProgram::pglProgram()
     projection = modelview = normalmatrix = alpharef = sampler = acs = -1;
 
     #ifdef RAD_ANDROID
+    reflectionSampler = environmentBlend = -1;
+    reflectionViewToWorld = -1;
     lit = -1;
     vehiclePaint = -1;
     enhancedSunDirection = -1;
@@ -260,6 +262,18 @@ void pglProgram::SetTextureEnvironment(const pglTextureEnv* texEnv)
 #else
     if (sampler >= 0)
         glUniform1i(sampler, 0);
+#ifdef RAD_ANDROID
+    if(reflectionSampler >= 0)
+        glUniform1i(reflectionSampler,4);
+    if(environmentBlend >= 0)
+        UniformColour(environmentBlend,texEnv->envBlend);
+    if(reflectionViewToWorld >= 0)
+    {
+        rmt::Matrix cameraToWorld;
+        if(SharOpenXR::GetLatestCullingCamera(&cameraToWorld))
+            glUniformMatrix4fv(reflectionViewToWorld,1,GL_FALSE,cameraToWorld.m[0]);
+    }
+#endif
 
 
     #ifdef RAD_ANDROID
@@ -582,6 +596,11 @@ bool pglProgram::LinkProgram(GLuint vertexShader, GLuint fragmentShader)
     normalmatrix = glGetUniformLocation(program, "normalmatrix");
     alpharef = glGetUniformLocation(program, "alpharef");
     sampler = glGetUniformLocation(program, "tex");
+#ifdef RAD_ANDROID
+    reflectionSampler=glGetUniformLocation(program,"reflectionTex");
+    environmentBlend=glGetUniformLocation(program,"environmentBlend");
+    reflectionViewToWorld=glGetUniformLocation(program,"reflectionViewToWorld");
+#endif
 
     for (int i = 0; i < PDDI_MAX_LIGHTS; i++)
     {
@@ -717,7 +736,7 @@ void pglProgram::RefreshUniformLocations()
     const GLuint p=usingMultiviewProgram?multiviewProgram:program;
     vrProjection=usingMultiviewProgram?glGetUniformLocation(p,"vrProjection[0]"):-1;
     vrViewAdjustment=usingMultiviewProgram?glGetUniformLocation(p,"vrViewAdjustment[0]"):-1;
-    projection=glGetUniformLocation(p,"projection");modelview=glGetUniformLocation(p,"modelview");normalmatrix=glGetUniformLocation(p,"normalmatrix");alpharef=glGetUniformLocation(p,"alpharef");sampler=glGetUniformLocation(p,"tex");
+    projection=glGetUniformLocation(p,"projection");modelview=glGetUniformLocation(p,"modelview");normalmatrix=glGetUniformLocation(p,"normalmatrix");alpharef=glGetUniformLocation(p,"alpharef");sampler=glGetUniformLocation(p,"tex");reflectionSampler=glGetUniformLocation(p,"reflectionTex");environmentBlend=glGetUniformLocation(p,"environmentBlend");reflectionViewToWorld=glGetUniformLocation(p,"reflectionViewToWorld");
     for(int i=0;i<PDDI_MAX_LIGHTS;i++){std::string n=std::string("lights[")+char('0'+i)+"].";lights[i].enabled=glGetUniformLocation(p,(n+"enabled").c_str());lights[i].position=glGetUniformLocation(p,(n+"position").c_str());lights[i].colour=glGetUniformLocation(p,(n+"colour").c_str());lights[i].attenuation=glGetUniformLocation(p,(n+"attenuation").c_str());}
     acs=glGetUniformLocation(p,"acs");acm=glGetUniformLocation(p,"acm");dcm=glGetUniformLocation(p,"dcm");scm=glGetUniformLocation(p,"scm");ecm=glGetUniformLocation(p,"ecm");srm=glGetUniformLocation(p,"srm");
     lit=glGetUniformLocation(p,"lit");vehiclePaint=glGetUniformLocation(p,"vehiclePaint");enhancedSunDirection=glGetUniformLocation(p,"enhancedSunDirection");vehicleDentCount=glGetUniformLocation(p,"vehicleDentCount");vehicleDents=glGetUniformLocation(p,"vehicleDents");vehicleRearLightMode=glGetUniformLocation(p,"vehicleRearLightMode");vehicleRearLightCount=glGetUniformLocation(p,"vehicleRearLightCount");vehicleRearLightPositions=glGetUniformLocation(p,"vehicleRearLightPositions");vehicleRearLightDirections=glGetUniformLocation(p,"vehicleRearLightDirections");vehicleRearLightColour=glGetUniformLocation(p,"vehicleRearLightColour");shadowEnabled=glGetUniformLocation(p,"shadowEnabled");shadowTexture=glGetUniformLocation(p,"shadowTex");shadowMatrix=glGetUniformLocation(p,"shadowMatrix");shadowTexelSize=glGetUniformLocation(p,"shadowTexelSize");for(int i=0;i<2;i++){std::string n=std::to_string(i+1);shadowTextureExtra[i]=glGetUniformLocation(p,("shadowTex"+n).c_str());shadowMatrixExtra[i]=glGetUniformLocation(p,("shadowMatrix"+n).c_str());shadowTexelSizeExtra[i]=glGetUniformLocation(p,("shadowTexelSize"+n).c_str());}

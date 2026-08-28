@@ -21,6 +21,7 @@
 #include <p3d/matrixstack.hpp>
 #include <p3d/utility.hpp>
 #include <p3d/view.hpp>
+#include <p3d/pure3d.hpp>
 #include <render/animentitydsgmanager/animentitydsgmanager.h>
 
 #ifndef TRUE
@@ -293,6 +294,11 @@ void WorldSphereDSG::Display()
 
         p3d::stack->PushMultiply( toCameraPosition );
 
+        // World-sphere meshes are viewed from the inside. Stereo projection
+        // and mirrored authored pieces must not make their winding disappear.
+        const pddiCullMode oldCullMode = p3d::pddi->GetCullMode();
+        p3d::pddi->SetCullMode(PDDI_CULL_NONE);
+
 		if ( mpCompDraw != NULL )
 		{
 			mpCompDraw->Display();
@@ -304,6 +310,14 @@ void WorldSphereDSG::Display()
 			    mpGeos[i]->Display();
 			}
 		}
+
+        // Cloud layers are authored as billboard groups inside the same
+        // WorldSphere chunk. They were loaded and animated but never submitted.
+        for(i=0; i<mpBillBoards.mUseSize; ++i)
+        {
+            mpBillBoards[i]->Display();
+        }
+        p3d::pddi->SetCullMode(oldCullMode);
         // Pop the toCamera matrix transformation
         p3d::stack->Pop();
     }

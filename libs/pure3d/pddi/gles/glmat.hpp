@@ -38,6 +38,9 @@ struct pglTextureEnv
 {
     bool enabled;
     pglTexture* texture;
+    pglTexture* reflectionMap;
+    bool reflection;
+    pddiColour envBlend;
 
     int uvSet;
     pddiTextureGen texGen;
@@ -62,25 +65,29 @@ struct pglTextureEnv
 class pglMat : public pddiBaseShader
 {
 public:
-    pglMat(pglContext*);
+    pglMat(pglContext*, bool reflection = false);
     ~pglMat();
 
     static pddiShadeColourTable colourTable[];
     static pddiShadeTextureTable textureTable[];
     static pddiShadeIntTable intTable[];
     static pddiShadeFloatTable floatTable[];
+    static pddiShadeTextureTable reflectionTextureTable[];
+    static pddiShadeColourTable reflectionColourTable[];
 
     const char* GetType(void);
     int         GetPasses(void);
     void        SetPass(int pass);
 
-    pddiShadeTextureTable* GetTextureTable(void) { return textureTable;}
+    pddiShadeTextureTable* GetTextureTable(void) { return texEnv[0].reflection ? reflectionTextureTable : textureTable;}
     pddiShadeIntTable*     GetIntTable(void)     { return intTable;}
     pddiShadeFloatTable*   GetFloatTable(void)   { return floatTable;}
-    pddiShadeColourTable*  GetColourTable(void)  { return colourTable;}
+    pddiShadeColourTable*  GetColourTable(void)  { return texEnv[0].reflection ? reflectionColourTable : colourTable;}
 
     // texture
     void SetTexture(pddiTexture* texture);
+    void SetReflectionMap(pddiTexture* texture);
+    void SetEnvBlend(pddiColour colour);
     void SetUVMode(int mode);
     void SetFilterMode(int mode);
 
