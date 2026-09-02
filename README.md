@@ -10,7 +10,7 @@
   ## Features
 
   - OpenXR support for Meta Quest 3.
-  - GLES 3.2 rendering.
+  - Vulkan rendering through OpenXR.
   - Single-pass stereo/multiview rendering.
   - Stereoscopic game world and HUD.
   - VR-compatible menus and settings.
@@ -35,25 +35,19 @@
 
   The port is actively developed. Core gameplay, VR rendering, menus, HUD, and controller support have been adapted for Quest 3. PCVR version in plans.
 
-  ## Experimental Vulkan renderer
+  ## Vulkan renderer
 
-  The production Quest renderer remains OpenGL ES. A parallel Vulkan/OpenXR
-  renderer is being developed so Quest and PCVR can eventually share one
-  graphics backend.
+  Vulkan is the production renderer for the VR port and permanently replaces
+  the previous OpenGL ES renderer. It provides the shared graphics backend for
+  standalone Quest builds and the planned PCVR version.
 
-  Build the Vulkan development variant for Quest with:
+  Build the Quest version with:
 
   ```powershell
-  .\android-project\gradlew.bat -p android-project assembleDebug -PvrRenderer=VULKAN
+  .\android-project\gradlew.bat -p android-project assembleDebug
   ```
 
-  The current compositor milestone creates a Vulkan OpenXR session and a
-  two-layer stereo swapchain. It submits a dark blue diagnostic clear from a
-  Vulkan command buffer; game geometry is intentionally suppressed until the
-  PDDI draw path is ported. Successful initialization is reported in logcat as
-  `OpenXR: initialized: Vulkan compositor smoke-test path`.
-
-  Omit `-PvrRenderer=VULKAN` for the normal GLES build.
+  Vulkan is selected by default; no renderer option is required.
 
   ## Based On
 
