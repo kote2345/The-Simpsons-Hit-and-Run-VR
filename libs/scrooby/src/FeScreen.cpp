@@ -175,6 +175,18 @@ void FeScreen::AddChild( FeEntity* s )
 //===========================================================================
 void FeScreen::Display()
 {
+#if defined(RAD_ANDROID)
+    const bool gameplayHud=SharOpenXR::IsGameplayHudScreen(
+        static_cast<Scrooby::Screen*>(this));
+    if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
+    // Spatial HUD elements own independent render targets and world-space
+    // placement. Capturing the complete screen here prevents FeGroup from
+    // entering its radar/mission captures (nested offscreen targets are
+    // deliberately rejected) and reduces the VR HUD to one flat texture.
+    // Keep the full-screen path available only for a non-spatial fallback.
+    const bool gameplayHudCaptured=gameplayHud &&
+        SharOpenXR::BeginGameplayHudCapture();
+#endif
     p3d::pddi->PushState( PDDI_STATE_RENDER );
     p3d::pddi->PushState( PDDI_STATE_VIEW );
     p3d::pddi->EnableZBuffer( false );
@@ -223,10 +235,21 @@ void FeScreen::Display()
     p3d::pddi->PopState( PDDI_STATE_RENDER );
     p3d::pddi->PopState( PDDI_STATE_VIEW );
 
+#if defined(RAD_ANDROID)
+    if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
+#endif
+
 }
 
 void FeScreen::DisplayBackground()
 {
+#if defined(RAD_ANDROID)
+    const bool gameplayHud=SharOpenXR::IsGameplayHudScreen(
+        static_cast<Scrooby::Screen*>(this));
+    if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
+    const bool gameplayHudCaptured=gameplayHud &&
+        SharOpenXR::BeginGameplayHudCapture();
+#endif
     p3d::pddi->PushState( PDDI_STATE_RENDER );
     p3d::pddi->PushState( PDDI_STATE_VIEW );
     p3d::pddi->EnableZBuffer( false );
@@ -279,9 +302,20 @@ void FeScreen::DisplayBackground()
     p3d::stack->Pop();
     p3d::pddi->PopState( PDDI_STATE_RENDER );
     p3d::pddi->PopState( PDDI_STATE_VIEW );
+
+#if defined(RAD_ANDROID)
+    if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
+#endif
 }
 void FeScreen::DisplayForeground()
 {
+#if defined(RAD_ANDROID)
+    const bool gameplayHud=SharOpenXR::IsGameplayHudScreen(
+        static_cast<Scrooby::Screen*>(this));
+    if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
+    const bool gameplayHudCaptured=gameplayHud &&
+        SharOpenXR::BeginGameplayHudCapture();
+#endif
     p3d::pddi->PushState( PDDI_STATE_RENDER );
     p3d::pddi->PushState( PDDI_STATE_VIEW );
     p3d::pddi->EnableZBuffer( false );
@@ -334,6 +368,10 @@ void FeScreen::DisplayForeground()
     p3d::stack->Pop();
     p3d::pddi->PopState( PDDI_STATE_RENDER );
     p3d::pddi->PopState( PDDI_STATE_VIEW );
+
+#if defined(RAD_ANDROID)
+    if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
+#endif
 
 }
 

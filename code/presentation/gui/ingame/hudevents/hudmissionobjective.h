@@ -55,6 +55,9 @@ public:
     bool UpdateIcon();
 
 private:
+#ifdef RAD_ANDROID
+    void AlignSpatialIconToMessageBox();
+#endif
     enum eSubState
     {
         STATE_ICON_POP_UP,
@@ -68,6 +71,7 @@ private:
     unsigned int m_currentSubState;
 
     Scrooby::Sprite* m_missionIcon;
+    Scrooby::Sprite* m_messageBox;
     tSprite* m_missionIconImage;
     unsigned int m_messageID;
 

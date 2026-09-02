@@ -44,9 +44,7 @@ enum ePauseMenuItem
     MENU_ITEM_SOUND,
 
 
-#if !defined(RAD_ANDROID)
     MENU_ITEM_SETTINGS,
-#endif
 //    MENU_ITEM_CAMERA,
 
     NUM_PAUSE_MENU_ITEMS
@@ -62,9 +60,7 @@ static const char* PAUSE_MENU_ITEMS[] =
     "Sound",
 
 //#ifndef RAD_ANDROID // reestablecemos configuración
-#if !defined(RAD_ANDROID)
     "Settings",
-#endif
 //#endif
 //    "Camera",
 
@@ -146,17 +142,9 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenPauseOptions" );
         graphicsEntry->SetString( 0, "Graphics" );
     }
 
-    // Settings is not part of the Android pause menu.  The Scrooby object is
-    // still authored in the shared page, so hiding it from CGuiMenu alone is
-    // insufficient.
+    // Reuse the authored Settings row as an entry to the dedicated debug page.
     Scrooby::Text* settingsEntry = menu->GetText( "Settings" );
-    if( settingsEntry != NULL ) settingsEntry->SetVisible( false );
-    Scrooby::Text* settingsValue = pPage->GetText( "Settings_Value" );
-    if( settingsValue != NULL ) settingsValue->SetVisible( false );
-    Scrooby::Sprite* settingsLeft = pPage->GetSprite( "Settings_LArrow" );
-    if( settingsLeft != NULL ) settingsLeft->SetVisible( false );
-    Scrooby::Sprite* settingsRight = pPage->GetSprite( "Settings_RArrow" );
-    if( settingsRight != NULL ) settingsRight->SetVisible( false );
+    if( settingsEntry != NULL ) settingsEntry->SetString( 0, "Debug" );
 #endif
 
     
@@ -269,12 +257,14 @@ void CGuiScreenPauseOptions::HandleMessage
                     m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_SOUND );
                 }
                 
-#if !defined(RAD_ANDROID)
                 else if( param1 == MENU_ITEM_SETTINGS )
                 {
+#ifdef RAD_ANDROID
+                     m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_DEBUG );
+#else
                      m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_SETTINGS );
-                }
 #endif
+                }
             
 #if defined(RAD_PC) || defined(RAD_ANDROID)
                 else if( param1 == MENU_ITEM_DISPLAY )

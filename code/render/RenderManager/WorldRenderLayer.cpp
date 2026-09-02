@@ -52,6 +52,7 @@
 #include <p3d/pointcamera.hpp>
 #include <p3d/shadow.hpp>
 #include <p3d/view.hpp>
+#include <p3d/geometry.hpp>
 #if defined(RAD_ANDROID)
 #include <SDL.h>
 #include <vr/csmbridge.h>
@@ -385,11 +386,23 @@ void WorldRenderLayer::Render()
             // player vehicle is omitted by WorldScene to avoid
             // sampling from the cubemap attachment currently being written.
             Avatar* cubeAvatar=GetAvatarManager()->GetAvatarForPlayer(0);
-            static bool cubeCaptureTurn=false;
-            if(!SharOpenXR::IsRightEyeRendering())
-                cubeCaptureTurn=!cubeCaptureTurn;
+            static unsigned cubeCaptureCounter=0;
+            const int reflectionMode=SharOpenXR::GetReflectionMode();
+            if(!SharOpenXR::IsRightEyeRendering()) ++cubeCaptureCounter;
+            const unsigned captureInterval=4u;
+            // Static captures one complete probe and then freezes it. Dynamic
+            // keeps refreshing the same probe. Previously mode 1 never
+            // created a cubemap, so mapped PBR materials had no environment.
+            // The probe is renderer-independent. Legacy, Phong and Toon use
+            // the same captured environment as PBR whenever reflections are
+            // enabled; only their BRDF/compositing differs.
+            // Static mode uses the authored reflection texture supplied by
+            // the original material. Only Dynamic owns and refreshes the
+            // runtime cubemap.
+            const bool cubeCaptureRequested=reflectionMode==2;
             if(SharOpenXR::IsVrModeEnabled() && cubeAvatar &&
-               !SharOpenXR::IsRightEyeRendering() && cubeCaptureTurn)
+               cubeCaptureRequested && !SharOpenXR::IsRightEyeRendering() &&
+               cubeCaptureCounter%captureInterval==0)
             {
                 static tPointCamera* cubeCamera=NULL;
                 static int cubeFace=0;
@@ -485,6 +498,11 @@ void WorldRenderLayer::Render()
             if(!mMirror)
             {
                 BEGIN_PROFILE( "Render World Spheres" );
+#if defined(RAD_ANDROID)
+                // Sky domes are emissive backgrounds, not physical surfaces.
+                // Running them through PBR darkens and tints the authored sky.
+                p3dSetEnhancedWorldMaterials(false);
+#endif
                 p3d::pddi->EnableZBuffer(false);
                 for(i=0; i<mWorldSpheres.mUseSize; i++)
                 {
@@ -492,6 +510,9 @@ void WorldRenderLayer::Render()
                 }
                 BEGIN_PROFILE( "pddi ZBuf" );
                 p3d::pddi->EnableZBuffer(true);
+#if defined(RAD_ANDROID)
+                p3dSetEnhancedWorldMaterials(enhancedMaterials);
+#endif
                 END_PROFILE( "pddi ZBuf" );
                 END_PROFILE( "Render World Spheres" );
             }
@@ -520,6 +541,11 @@ void WorldRenderLayer::Render()
             // second eye reuses their depth maps and only updates matrices.
             tCamera* shadowEyeCamera=mpView[view]->GetCamera();
             const bool csmAllowed=SharOpenXR::IsCsmEnabled();
+            // Old tree/light-pool shadows are ordinary named geometries, not
+            // always calls to DisplaySimpleShadow. Suppress them for the
+            // complete frame so neither the colour pass nor a cascade sees
+            // their rectangular carrier mesh.
+            p3dSetLegacyGroundShadowsSuppressed(csmAllowed);
             const radTime64 vrCsmStart=radTimeGetMicroseconds64();
             const float casterHalfWidths[3]={24.0f,56.0f,224.0f};
             const float casterHalfDepths[3]={64.0f,96.0f,155.0f};
@@ -532,15 +558,17 @@ void WorldRenderLayer::Render()
                 {
                     p3d::context->LoadViewMatrix(lightWorldToCamera,
                                                  lightCameraToWorld);
-                    // The near map is dynamic-only and cleared every frame.
-                    // Static casters live in cached mid/far maps and are merged
-                    // with it while sampling, avoiding a full static replay at
-                    // headset refresh rate.
-                    mpWorldScene->RenderCsmCasters(cascadeIndex>0,
+                    // Vulkan uses one depth image per cascade rather than a
+                    // separately composited static near map. The per-frame
+                    // near cascade therefore needs both static and dynamic
+                    // casters; cached mid/far cascades remain static-only.
+                    mpWorldScene->RenderCsmCasters(true,
                                                    cascadeIndex==0,
                                                    lightWorldToCamera,
                                                    casterHalfWidths[cascadeIndex],
                                                    casterHalfDepths[cascadeIndex]);
+                    // These dynamic caster lists live outside WorldScene and
+                    // belong only in the per-frame near cascade.
                     if(cascadeIndex==0)
                     {
                         GetCoinManager()->RenderCsmCasters();
@@ -552,12 +580,6 @@ void WorldRenderLayer::Render()
                             Character* character=characters->GetCharacter(characterIndex);
                             if(character) character->DisplayCsmCaster();
                         }
-
-                        // Dynamic vehicles are already present in the world
-                        // scene's CSM caster list.  Replaying the active list
-                        // here submitted every vehicle a second time (the
-                        // player car measured 25 main draws versus 50 CSM
-                        // draws) without adding any shadow information.
                     }
                     VrEndSunShadowMap(p3d::pddi,cascadeIndex,
                         shadowEyeCamera->GetCameraToWorldMatrix());

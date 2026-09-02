@@ -48,6 +48,7 @@ HudMissionObjective::HudMissionObjective( Scrooby::Page* pPage )
 :   HudEventHandler( pPage->GetGroup( "MissionObjective" ) ),
     m_currentSubState( STATE_ICON_POP_UP ),
     m_missionIcon( NULL ),
+    m_messageBox( NULL ),
     m_missionIconImage( NULL ),
     m_messageID( 0 )
 {
@@ -55,6 +56,8 @@ HudMissionObjective::HudMissionObjective( Scrooby::Page* pPage )
 
     m_missionIcon = pPage->GetSprite( "ObjectiveIcon" );
     rAssert( m_missionIcon != NULL );
+    m_messageBox = pPage->GetSprite( "MessageBox" );
+    rAssert( m_messageBox != NULL );
 
     m_iconTranslator.SetDrawable( m_missionIcon );
     m_iconTranslator.SetStartOffscreenBottom( m_missionIcon );
@@ -69,6 +72,13 @@ HudMissionObjective::HudMissionObjective( Scrooby::Page* pPage )
         m_missionIcon->ResetTransformation();
         m_missionIcon->ScaleAboutCenter( MISSION_ICON_SCALE );
 #ifdef RAD_ANDROID
+        if( SharOpenXR::IsSpatialHudEnabled() )
+            this->AlignSpatialIconToMessageBox();
+        {
+            int xMin, yMin, xMax, yMax;
+            m_missionIcon->GetBoundingBox( xMin, yMin, xMax, yMax );
+            SharOpenXR::SetMissionObjectiveIconRect( xMin, yMin, xMax, yMax );
+        }
         if( !SharOpenXR::IsSpatialHudEnabled() )
 #endif
             m_missionIcon->Translate( 0, HUD_ICON_SLIDE_DISTANCE );
@@ -102,6 +112,12 @@ HudMissionObjective::Start()
             m_iconTranslator.Deactivate();
             m_missionIcon->ResetTransformation();
             m_missionIcon->ScaleAboutCenter( MISSION_ICON_SCALE );
+            this->AlignSpatialIconToMessageBox();
+            {
+                int xMin, yMin, xMax, yMax;
+                m_missionIcon->GetBoundingBox( xMin, yMin, xMax, yMax );
+                SharOpenXR::SetMissionObjectiveIconRect( xMin, yMin, xMax, yMax );
+            }
             CGuiScreenHud* currentHud = GetCurrentHud();
             if( currentHud != NULL ) currentHud->DisplayMessage( true, m_messageID );
             m_currentSubState = STATE_IDLE;
@@ -116,6 +132,23 @@ HudMissionObjective::Start()
         m_iconTranslator.Deactivate();
     }
 }
+
+#ifdef RAD_ANDROID
+void HudMissionObjective::AlignSpatialIconToMessageBox()
+{
+    int iconXMin, iconYMin, iconXMax, iconYMax;
+    int frameXMin, frameYMin, frameXMax, frameYMax;
+    m_missionIcon->GetBoundingBox( iconXMin, iconYMin, iconXMax, iconYMax );
+    m_messageBox->GetBoundingBox( frameXMin, frameYMin, frameXMax, frameYMax );
+    const int iconCentreY=(iconYMin+iconYMax)/2;
+    const int frameCentreY=(frameYMin+frameYMax)/2;
+    // Horizontal placement is performed by the VR compositor against the
+    // physical frame edge. Applying the authored X delta here as well moved
+    // the pixels inside their separately captured texture and cancelled part
+    // of that world-space correction. Only correct the inverted Scrooby Y.
+    m_missionIcon->Translate( 0, iconCentreY-frameCentreY );
+}
+#endif
 
 void
 HudMissionObjective::Stop()
@@ -270,4 +303,3 @@ HudMissionObjective::UpdateIcon()
 
     return (pSprite != NULL);
 }
-

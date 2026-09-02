@@ -572,12 +572,12 @@ void tSprite::BuildPoly(int polyNum, tRect& src, int newX, int newY)
     polys[(polyNum * 4) + 3].uv0.v = v0;
 }
 
-int tSprite::GetNativeX(void)
+int tSprite::GetNativeX(void) const
 {
     return nativeX;
 }
 
-int tSprite::GetNativeY(void)
+int tSprite::GetNativeY(void) const
 {
     return nativeY;
 }

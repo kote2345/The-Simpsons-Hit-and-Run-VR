@@ -292,12 +292,9 @@ void CGuiScreenMultiHud::HandleMessage
             // update HUD elements for all players
             this->UpdateElements( param1 );
 #if defined(RAD_ANDROID)
-            if( SharOpenXR::IsVrModeEnabled() )
-            {
-                // Mission/cutscene transitions may re-enable this page after
-                // ShowLetterBox. Keep every embedded black bar hidden in VR.
-                m_LetterboxPage->SetVisible( false );
-            }
+            // Mission/cutscene transitions may re-enable this page after
+            // ShowLetterBox. Keep embedded cinema bars out of all XR modes.
+            m_LetterboxPage->SetVisible( false );
 #endif
 
             if( m_isStartButtonPressed )
@@ -789,7 +786,7 @@ void CGuiScreenMultiHud::SetTutorialMessage( int index )
 void CGuiScreenMultiHud::ShowLetterBox()
 {
 #if defined(RAD_ANDROID)
-    m_LetterboxPage->SetVisible( !SharOpenXR::IsVrModeEnabled() );
+    m_LetterboxPage->SetVisible( false );
 #else
     m_LetterboxPage->SetVisible( true );
 #endif

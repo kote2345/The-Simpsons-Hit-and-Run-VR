@@ -322,12 +322,6 @@ void CGuiScreenIrisWipe::InitRunning()
 //===========================================================================
 void CGuiScreenIrisWipe::InitOutro()
 {
-#if defined(RAD_ANDROID)
-    // DoNotOpenOnNextOutro keeps the legacy static iris flag closed while
-    // changing gameplay screens. The full-eye VR overlay must still be
-    // released when the destination screen starts its outro.
-    SharOpenXR::SetIrisBlackout( false );
-#endif
     if( m_loadingText != NULL )
     {
         // hide loading text
@@ -341,6 +335,11 @@ void CGuiScreenIrisWipe::InitOutro()
     }
     else
     {
+#if defined(RAD_ANDROID)
+        // Release the full-eye cover at the exact point where the authored
+        // circular iris begins its opening half.
+        SharOpenXR::SetIrisBlackout( false );
+#endif
         g_IsIrisClosed = false;
         if( !m_isIrisActive )
         {

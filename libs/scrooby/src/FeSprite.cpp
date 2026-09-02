@@ -28,6 +28,7 @@
 
 #include <FeCharMap.h>
 #include <p3d/unicode.hpp>
+#include <algorithm>
 
 #ifdef BITMAP_TEXT_SUPPORT
     const short DEFAULT_BITMAP_TEXT_SPACING = 0; // in pixels
@@ -531,6 +532,54 @@ FeSprite::SetBitmapTextLineSpacing( short numPixels )
 {
     rAssert( m_bitmapTextData != NULL );
     m_bitmapTextData->m_lineSpacing = numPixels;
+}
+
+void FeSprite::GetBoundingBox( int& xMin, int& yMin,
+                               int& xMax, int& yMax ) const
+{
+    Parent::GetBoundingBox( xMin, yMin, xMax, yMax );
+#ifdef BITMAP_TEXT_SUPPORT
+    if( m_bitmapTextData == NULL || m_bitmapTextData->m_textBuffer == NULL )
+        return;
+
+    float widest = 0.0f;
+    int lines = 0;
+    for( int line = 0; line < BitmapTextData::MAX_NUM_LINES; ++line )
+    {
+        if( m_bitmapTextData->m_newlineIndex[ line ] >=
+            m_bitmapTextData->m_textBufferSize ) break;
+        widest = std::max( widest, m_bitmapTextData->m_textWidth[ line ] );
+        ++lines;
+        if( m_bitmapTextData->m_newlineIndex[ line + 1 ] >=
+            m_bitmapTextData->m_textBufferSize ||
+            m_bitmapTextData->m_textBuffer[
+                m_bitmapTextData->m_newlineIndex[ line + 1 ] ] == '\0' ) break;
+    }
+    if( lines == 0 ) return;
+
+    const int textWidth = static_cast<int>( widest *
+        FeApp::GetInstance()->GetScreenWidth() + 0.5f );
+    const int glyphHeight = mSprite != NULL ? mSprite->GetHeight() : m_height;
+    const int lineAdvance = m_height + m_bitmapTextData->m_lineSpacing;
+    const int originalY = yMin;
+    if( m_horizontalJustification == Scrooby::Right )
+        xMin = xMax - textWidth;
+    else if( m_horizontalJustification == Scrooby::Centre )
+    {
+        // DisplayBitmapText uses ConvertToScreenX(m_width / 4) before
+        // subtracting half the measured line width. Mirror that legacy
+        // coordinate convention exactly; a conventional m_width / 2 centre
+        // shifts the crop right and removes the left side of centred text.
+        const int centre = xMin + m_width / 4;
+        xMin = centre - textWidth / 2;
+        xMax = xMin + textWidth;
+    }
+    else
+        xMax = xMin + textWidth;
+    // Subsequent bitmap lines are translated in negative screen Y.
+    yMin = originalY - ( lines - 1 ) * lineAdvance;
+    yMax = originalY + glyphHeight;
+#endif
 }
 
 float

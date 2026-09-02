@@ -140,6 +140,11 @@ elseif(SRR2_P3D_PDDI STREQUAL "GLES2")
 			"pddi/gles/display_win32/gldisplay.cpp"
 		)
 	endif()
+elseif(SRR2_P3D_PDDI STREQUAL "VULKAN")
+	list(APPEND PDDI_SOURCES
+		"pddi/gles/decompress.cpp"
+		"pddi/vulkan/vkdevice.cpp"
+	)
 else()
 	list(APPEND PDDI_SOURCES
 		"pddi/gl/glcon.cpp"
@@ -168,6 +173,8 @@ if(SRR2_P3D_PDDI STREQUAL GXM)
 	target_link_libraries(pddi radcontent)
 elseif(SRR2_P3D_PDDI STREQUAL GLES2)
 	target_include_directories(pddi PRIVATE "pddi/gles/glad/include/")
+elseif(SRR2_P3D_PDDI STREQUAL VULKAN)
+	target_link_libraries(pddi ${VULKAN_LIBRARY})
 else()
 	target_include_directories(pddi PRIVATE "pddi/gl/glad/include/")
 endif()

@@ -7,6 +7,7 @@
 #include <p3d/utility.hpp>
 #include <p3d/shader.hpp>
 #include <p3d/vertexlist.hpp>
+#include <p3d/geometry.hpp>
 #include <constants/chunks.h>
 #include <constants/chunkids.hpp>
 #include <p3d/chunkfile.hpp>
@@ -56,6 +57,14 @@ static bool gEnhancedCharacterMaterials=false;
 static bool gEnhancedVehicleMaterials=false;
 static tShader* gFadedVrVehicleShaders[128];
 static unsigned gFadedVrVehicleShaderCount=0;
+
+static bool SuppressLegacyGroundShadowPrimGroup(tShader* shader)
+{
+    if(!p3dAreLegacyGroundShadowsSuppressed() || !shader) return false;
+    // Entity text is compiled out of release builds (GetName returns
+    // NO_NAME_TEXT), but the asset UID is always retained.
+    return shader->GetUID()==tName::MakeUID("treeshadow_m");
+}
 
 void p3dSetVrVehicleGlassFaded(bool faded)
 {
@@ -290,6 +299,7 @@ tPrimGroupOptimised::~tPrimGroupOptimised()
 
 void tPrimGroupOptimised::Display()
 {
+    if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
     FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
@@ -374,7 +384,8 @@ tPrimGroupSkinnedOptimised::~tPrimGroupSkinnedOptimised()
 }
 
 void tPrimGroupSkinnedOptimised::Display() 
-{ 
+{
+    if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
     FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
@@ -434,6 +445,7 @@ tPrimGroupStreamed::~tPrimGroupStreamed()
 
 void tPrimGroupStreamed::Display()
 {
+    if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
     FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
@@ -541,6 +553,7 @@ tPrimGroupSkinnedStreamed::~tPrimGroupSkinnedStreamed()
 
 void tPrimGroupSkinnedStreamed::Display(void)
 {
+    if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
     FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
@@ -706,6 +719,7 @@ bool tPrimGroupSkinnedPC::SetVertices(unsigned start, unsigned count, rmt::Vecto
 
 void tPrimGroupSkinnedPC::Display(void)
 {
+    if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
 	if(SuppressVrVehicleDriver(mShader)) return;
 	FadeVrVehicleGlass(mShader);
 	if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
@@ -1814,7 +1828,14 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
         return LoadStreamed(f, store, bones);
     }
 */
-    if( bones && !hwSkin )
+    // Non-optimised skins can be deformed by expression animation and are
+    // intentionally backed by the PC CPU representation. Advertising the
+    // Vulkan hardware extension made these assets fall through to
+    // tPrimGroupSkinnedStreamed, whose legacy draw path assumes a
+    // pddiBaseShader (the Vulkan shader is a direct pddiShader). Keep those
+    // exceptional/deformable assets on the compatible path; ordinary
+    // optimised characters still use GPU skinning.
+    if( bones && (!hwSkin || !optimise) )
     {
         #ifdef RAD_PS2
             rAssert( false );

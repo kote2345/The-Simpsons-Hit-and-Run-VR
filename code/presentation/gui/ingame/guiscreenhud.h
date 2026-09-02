@@ -128,6 +128,9 @@ public:
     // Show/Hide Text Message
     //
     void DisplayMessage( bool show, const int index = 0 );
+#if defined(RAD_ANDROID)
+    void DisplayVrMissionMessage( int index );
+#endif
 
     // Show/Hide All Mission Overlays
     //
@@ -157,9 +160,10 @@ public:
     static void UpdateNumCoinsDisplay( int numCoins, bool show = true );
     void AbortFade();
 
-    #ifdef RAD_ANDROID
+#ifdef RAD_ANDROID
     void ApplyAndroidHudMapLayout();
-    #endif
+    void RefreshVrOriginalCanvasRects();
+#endif
 
 protected:
     void InitIntro();

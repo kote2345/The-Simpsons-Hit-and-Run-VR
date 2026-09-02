@@ -80,7 +80,6 @@ HudHitNRun::HudHitNRun( Scrooby::Page* pPage )
     m_messageTranslateX -= messageCenterX;
     m_messageTranslateY -= messageCenterY;
 }
-
 HudHitNRun::~HudHitNRun()
 {
 }

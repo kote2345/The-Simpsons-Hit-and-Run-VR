@@ -25,6 +25,7 @@
 // Forward References
 //========================================
 class ISuperCamTarget;
+class Vehicle;
 
 //=============================================================================
 //
@@ -83,6 +84,7 @@ private:
     bool mVrVehicleAnchorValid : 1;
     bool mVrVehicleTiltValid : 1;
     bool mVrVehicleCameraLogged : 1;
+    Vehicle* mVrAnchoredVehicle;
 
     float mRotation;
     float mElevation;

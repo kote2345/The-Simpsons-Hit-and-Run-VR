@@ -100,11 +100,8 @@ CGuiScreenLetterBox::CGuiScreenLetterBox
     m_topBar = m_Page->GetGroup( "TopBar" );
     m_bottomBar = m_Page->GetGroup( "BottomBar" );
 #if defined(RAD_ANDROID)
-    if( SharOpenXR::IsVrModeEnabled() )
-    {
-        m_topBar->SetVisible( false );
-        m_bottomBar->SetVisible( false );
-    }
+    m_topBar->SetVisible( false );
+    m_bottomBar->SetVisible( false );
 #endif
 
     // get letter box buttons from 'LetterBoxButtons.pag'
@@ -266,13 +263,10 @@ void CGuiScreenLetterBox::HandleMessage
         float deltaT = static_cast< float >( param1 );
         UpdateTransitions( deltaT );
 #if defined(RAD_ANDROID)
-        if( SharOpenXR::IsVrModeEnabled() )
-        {
-            // Letterbox transitions explicitly make these groups visible
-            // again. Enforce the VR policy after every transition update.
-            m_topBar->SetVisible( false );
-            m_bottomBar->SetVisible( false );
-        }
+        // Letterbox transitions explicitly make these groups visible again.
+        // OpenXR never needs 2D cinema bars, in either VR or Original mode.
+        m_topBar->SetVisible( false );
+        m_bottomBar->SetVisible( false );
 #endif
 
 #ifdef RAD_DEMO
@@ -398,11 +392,8 @@ void CGuiScreenLetterBox::InitIntro()
     m_topBar->SetVisible( true );
     m_bottomBar->SetVisible( true );
 #if defined(RAD_ANDROID)
-    if( SharOpenXR::IsVrModeEnabled() )
-    {
-        m_topBar->SetVisible( false );
-        m_bottomBar->SetVisible( false );
-    }
+    m_topBar->SetVisible( false );
+    m_bottomBar->SetVisible( false );
 #endif
     ResetTransitions();
     m_topBar->Translate( 0, LETTERBOX_OPEN_OFFSET );

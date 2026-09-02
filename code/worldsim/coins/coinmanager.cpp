@@ -1029,6 +1029,9 @@ void CoinManager::RenderCsmCasters( void )
 
 void CoinManager::SetHUDCoin( int X, int Y, bool IsShowing )
 {
+#ifdef RAD_ANDROID
+    SharOpenXR::SetSpatialCoinAuthoredPosition( X, Y, IsShowing );
+#endif
     const static float ScreenWidthRatio  = 1.0f / 640.0f;
     const static float ScreenHeightRatio = 1.0f / 480.0f;
     const static float ScreenAspect = 4.0f / 3.0f;

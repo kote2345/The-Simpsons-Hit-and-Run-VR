@@ -68,6 +68,8 @@ public:
     virtual void Reset();
     virtual void Display();
     virtual void ResizeToBoundingBox();
+    virtual void GetBoundingBox( int& xMin, int& yMin,
+                                 int& xMax, int& yMax ) const;
 
 #ifdef BITMAP_TEXT_SUPPORT
     // display/render bitmap text

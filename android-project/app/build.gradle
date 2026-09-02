@@ -21,7 +21,8 @@ android {
                         "-DANDROID_STL=c++_shared",
                         "-DANDROID=ON",
                         "-DSRR2_BUILD_TESTS=OFF",
-                        "-DSRR2_REGION=PAL"
+                        "-DSRR2_REGION=PAL",
+                        "-DSRR2_VR_RENDERER=${project.findProperty('vrRenderer') ?: 'VULKAN'}"
                 // Meta Quest standalone devices are arm64-only.
                 abiFilters 'arm64-v8a'
 
@@ -36,6 +37,9 @@ android {
        // }
 
     }
+
+    // Vulkan is the primary Quest/PCVR renderer. GLES can still be selected
+    // explicitly during migration with: -PvrRenderer=GLES
 
     // ✅ CAMBIO 1: Activar Prefab para poder consumir AARs con paquetes C/C++ (como com.fpliu...:ffmpeg)
     buildFeatures {

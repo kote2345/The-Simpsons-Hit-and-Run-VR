@@ -97,6 +97,7 @@ class CGuiWindow : public CGuiEntity
             GUI_SCREEN_ID_MISSION_SELECT,
             GUI_SCREEN_ID_SETTINGS,
             GUI_SCREEN_ID_VR,
+            GUI_SCREEN_ID_DEBUG,
             GUI_SCREEN_ID_LEVEL_STATS,
             GUI_SCREEN_ID_VIEW_CARDS,
             GUI_SCREEN_ID_SAVE_GAME,

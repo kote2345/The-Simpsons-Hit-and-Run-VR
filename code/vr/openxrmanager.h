@@ -4,11 +4,26 @@
 #if defined(RAD_ANDROID)
 
 #include <radmath/radmath.hpp>
+#if defined(SRR2_VR_RENDERER_VULKAN)
+#include <vulkan/vulkan.h>
+#endif
 
 class tCamera;
 
 namespace SharOpenXR
 {
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    struct VulkanEyeTarget
+    {
+        VkImage image;
+        VkFormat format;
+        uint32_t width;
+        uint32_t height;
+        uint32_t arrayLayer;
+        bool firstUse;
+    };
+    bool GetActiveVulkanEyeTarget(VulkanEyeTarget* target);
+#endif
     bool Initialize();
     void Shutdown();
     void PollEvents();
@@ -37,7 +52,17 @@ namespace SharOpenXR
     void EndMissionHudCapture();
     void ResetMissionHudSlot(unsigned slot);
     void CaptureSpatialCoinIcon();
+    void SetSpatialCoinAuthoredPosition(int x,int y,bool visible);
+    void SetMissionObjectiveFrameRect(int xMin,int yMin,int xMax,int yMax);
+    void SetMissionObjectiveIconRect(int xMin,int yMin,int xMax,int yMax);
+    void SetRadarAuthoredRect(int xMin,int yMin,int xMax,int yMax);
     bool IsRadarRendering() __attribute__((weak));
+    void SetGameplayHudScreen(const void* screen);
+    bool IsGameplayHudScreen(const void* screen);
+    bool BeginGameplayHudCapture();
+    void EndGameplayHudCapture();
+    bool IsGameplayHudCaptureActive() __attribute__((weak));
+    bool IsMissionHudCaptureActive() __attribute__((weak));
     bool IsRightEyeRendering();
     void PrepareRadarDraw() __attribute__((weak));
     bool GetActiveRadarProjection(rmt::Matrix* projection, int* width,
@@ -64,11 +89,13 @@ namespace SharOpenXR
                             rmt::Matrix* cameraToWorld);
     bool GetActiveCullingCamera(rmt::Matrix* cameraToWorld);
     bool GetLatestCullingCamera(rmt::Matrix* cameraToWorld);
+    // Returns the gameplay camera before the tracked HMD pose is applied.
+    // Simulation-facing presentation such as the rotating radar must use
+    // this heading, otherwise looking around also rotates the road map.
+    bool GetGameplayCamera(rmt::Matrix* cameraToWorld);
     void SetVrModeEnabled(bool enabled);
     bool IsVrModeEnabled();
-    void SetSpatialHudEnabled(bool enabled);
     bool IsSpatialHudEnabled();
-    bool IsSpatialHudConfigured();
     void SetDeveloperMenusEnabled(bool enabled);
     bool IsDeveloperMenusEnabled();
     void SetVrBaseHeading(const rmt::Vector& heading);
@@ -87,10 +114,18 @@ namespace SharOpenXR
     bool IsCsmEnabled();
     void SetEnhancedMaterialsEnabled(bool enabled);
     bool IsEnhancedMaterialsEnabled();
+    void SetCustomMaterialsEnabled(bool enabled);
+    bool AreCustomMaterialsEnabled();
+    void SetEnhancedMaterialModel(int model);
+    int GetEnhancedMaterialModel();
     void SetGtaoEnabled(bool enabled);
     bool IsGtaoEnabled();
     void SetVehicleLightMode(int mode);
     int GetVehicleLightMode();
+    void SetReflectionMode(int mode);
+    int GetReflectionMode();
+    void SetPbrDebugMode(int mode);
+    int GetPbrDebugMode();
     void SetVrSteeringWheelEnabled(bool enabled);
     bool IsVrSteeringWheelEnabled();
     void SetVehicleControlMode(int mode);

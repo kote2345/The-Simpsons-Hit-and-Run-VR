@@ -55,8 +55,10 @@ static const float VR_STICK_YAW_DEAD_ZONE = 0.15f;
 // animated character pose: the transition pose is not guaranteed to have been
 // evaluated when SuperCam switches targets.
 static const float VR_DRIVER_EYE_HEIGHT = 0.96f;
-static const float VR_VEHICLE_TILT_SCALE = 0.25f;
-static const float VR_VEHICLE_TILT_LIMIT = rmt::DegToRadian( 7.0f );
+// Preserve the vehicle's real pitch/roll, but cap extreme impacts and flips.
+// Yaw remains unrestricted and tilt keeps the existing temporal smoothing.
+static const float VR_VEHICLE_TILT_SCALE = 1.0f;
+static const float VR_VEHICLE_TILT_LIMIT = rmt::DegToRadian( 45.0f );
 static const float VR_VEHICLE_TILT_LAG_SECONDS = 0.25f;
 
 static float ClampVrVehicleTilt(float angle)
@@ -154,6 +156,7 @@ FirstPersonCam::FirstPersonCam() :
     mVrVehicleAnchorValid( false ),
     mVrVehicleTiltValid( false ),
     mVrVehicleCameraLogged( false ),
+    mVrAnchoredVehicle( NULL ),
     mRotation( DEFAULT_ROTATION ),
     mElevation( DEFAULT_ELEVATION ),
     mRotationDelta( 0.0f ),
@@ -193,6 +196,15 @@ FirstPersonCam::~FirstPersonCam()
 //=============================================================================
 void FirstPersonCam::OnInit()
 {
+#if defined(RAD_ANDROID)
+    // Mission restart can reactivate this same camera without calling
+    // SetTarget(), especially when the stage starts with the player already
+    // seated. Never reuse a seat pose/recenter state across activations.
+    mVrVehicleAnchorValid=false;
+    mVrVehicleTiltValid=false;
+    mVrVehicleCameraLogged=false;
+    mVrAnchoredVehicle=NULL;
+#endif
     InitMyController();
 }
 
@@ -375,6 +387,16 @@ void FirstPersonCam::Update( unsigned int milliseconds )
     {
         Avatar* avatar=GetAvatarManager()->GetAvatarForPlayer( GetPlayerID() );
         Vehicle* vehicle=static_cast<Vehicle*>(mTarget);
+        // A restart may replace the mission car while retaining the same
+        // FirstPersonCam and target adapter. Rebuild the local seat anchor for
+        // the actual vehicle before using it to place the eye camera.
+        if(mVrAnchoredVehicle!=vehicle)
+        {
+            mVrVehicleAnchorValid=false;
+            mVrVehicleTiltValid=false;
+            mVrVehicleCameraLogged=false;
+            mVrAnchoredVehicle=vehicle;
+        }
         BuildVrStabilizedVehicleTransform(vehicle->GetTransform(),
             static_cast<float>(milliseconds)/1000.0f,!mVrVehicleTiltValid,
             &mVrVehiclePitch,&mVrVehicleRoll,&vrVehicleTransform);
@@ -601,6 +623,7 @@ void FirstPersonCam::SetTarget( ISuperCamTarget* target )
     mVrVehicleAnchorValid=false;
     mVrVehicleTiltValid=false;
     mVrVehicleCameraLogged=false;
+    mVrAnchoredVehicle=NULL;
 #endif
 }
 

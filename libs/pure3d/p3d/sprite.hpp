@@ -46,11 +46,18 @@ public:
     //El flujo será p3d carga en memoria los iconos y pddi se encarga de dibujarlos con esta función
     void DisplayAt( float x, float y, float displayWidth, float displayHeight );
 
-    int GetNativeX(void); 
-    int GetNativeY(void);
+    int GetNativeX(void) const;
+    int GetNativeY(void) const;
 
-    int GetHeight(void) {return height; } 
-    int GetWidth(void)  {return width; }
+    int GetHeight(void) const {return height; }
+    int GetWidth(void) const {return width; }
+    // Read-only access for render backends which reuse the authored sprite
+    // resource without invoking the legacy 2D HUD layout.
+    tTexture* GetImageTexture(int index = 0) const
+    { return index >= 0 && index < nPolys ? textures[index] : NULL; }
+    int GetImageCount() const { return nPolys; }
+    const sprVertex* GetImageVertices(int index) const
+    { return index >= 0 && index < nPolys ? &polys[index * 4] : NULL; }
 
     virtual void GetBoundingBox(rmt::Box3D* b)          { *b = box; }
     virtual void GetBoundingSphere(rmt::Sphere* s)      { *s = sphere; }
@@ -61,7 +68,7 @@ public:
     tColour GetColour(void)                         { return colour; }
 
     void SetBlitBorder(int border);
-    int  GetBlitBorder()                            { return blitBorder; }
+    int  GetBlitBorder() const                      { return blitBorder; }
 
     tShader* GetShader(void);
 

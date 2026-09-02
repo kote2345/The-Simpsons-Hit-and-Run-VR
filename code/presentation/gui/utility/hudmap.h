@@ -169,6 +169,7 @@ public:
 
     #ifdef RAD_ANDROID
     void SetAndroidHudMapOverlayOffset( int x, int y );
+    void SetAndroidHudMapScale( float scale, int centreX, int centreY );
     #endif
 
 private:
@@ -236,6 +237,7 @@ private:
     #ifdef RAD_ANDROID
     int m_androidHudMapOverlayOffsetX;
     int m_androidHudMapOverlayOffsetY;
+    float m_androidHudMapScale;
     #endif
 
 };

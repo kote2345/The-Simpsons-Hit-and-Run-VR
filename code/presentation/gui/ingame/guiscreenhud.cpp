@@ -73,6 +73,9 @@
 #include <vr/openxrmanager.h>
 void ScroobySetVrRadarGroup(Scrooby::Group* group);
 void ScroobySetVrMissionHudGroup(unsigned slot,Scrooby::Group* group);
+void ScroobySetVrGameplayHudPage(Scrooby::Page* page);
+void ScroobySetVrRadarPure3dObjects(Scrooby::Pure3dObject* map,
+                                    Scrooby::Pure3dObject* hole);
 #endif
 //===========================================================================
 // Global Data, Local Data, Local Classes
@@ -234,9 +237,18 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     //
     Scrooby::Page* pPage = m_pScroobyScreen->GetPage( "Hud" );
 	rAssert( pPage != NULL );
+#ifdef RAD_ANDROID
+    SharOpenXR::SetGameplayHudScreen( pPage );
+    ScroobySetVrGameplayHudPage( pPage );
+#endif
 
     // Get dynamic elements
     this->RetrieveElements( pPage );
+#ifdef RAD_ANDROID
+    rAssert( m_hudMap[ 0 ] != NULL );
+    ScroobySetVrRadarPure3dObjects( m_hudMap[ 0 ]->GetMap(),
+                                   m_hudMap[ 0 ]->GetHole() );
+#endif
 
     m_missionOverlays = pPage->GetGroup( "MissionOverlays" );
     rAssert( m_missionOverlays != NULL );
@@ -261,7 +273,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     m_timer->CreateBitmapTextBuffer( BITMAP_TEXT_BUFFER_SIZE );
     m_timer->SetBitmapTextSpacing( NUMERIC_TEXT_SPACING );
     m_defaultTimerColour = m_timer->GetColour();
-#ifdef RAD_WIN32
+#if defined(RAD_WIN32) && !defined(RAD_ANDROID)
     m_timer->Translate( -25, 0 );
     m_timer->ScaleAboutCenter( 0.5f );
 #endif
@@ -278,7 +290,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     m_parTime->SetSpriteMode( Scrooby::SPRITE_BITMAP_TEXT );
     m_parTime->CreateBitmapTextBuffer( BITMAP_TEXT_BUFFER_SIZE );
     m_parTime->SetBitmapTextSpacing( NUMERIC_TEXT_SPACING );
-#ifdef RAD_WIN32
+#if defined(RAD_WIN32) && !defined(RAD_ANDROID)
     m_parTime->Translate( -25, 0 );
     m_parTime->ScaleAboutCenter( 0.5f );
 #endif
@@ -381,21 +393,29 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     // Register the actual runtime object. Release Scrooby packages do not
     // preserve a dependable group-name UID, so renderer-side name matching
     // can silently miss HudMap0 altogether.
-    ScroobySetVrRadarGroup(m_overlays[HUD_MAP]);
+    // Vulkan has no depth attachment in the mono HUD capture, so preserve the
+    // authored HudMap0 overlay (bezel, markers and Hit & Run art) separately
+    // from Map0. The map is clipped geometrically, then this original overlay
+    // is composited above it at the identical controller anchor.
+    ScroobySetVrMissionHudGroup( 13, m_overlays[HUD_MAP] );
+    if( Scrooby::Group* radarFrame = pPage->GetGroup( "Radar0" ) )
+    {
+        int x0, y0, x1, y1;
+        radarFrame->GetBoundingBox( x0, y0, x1, y1 );
+        SharOpenXR::SetRadarAuthoredRect( x0, y0, x1, y1 );
+    }
 #endif
 
     // scale entire HUD map (or RADAR, if you'd prefer to call it that)
     //
     m_overlays[ HUD_MAP ]->ResetTransformation();
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID)
     // FePure3dObject resets the matrix stack and therefore does not inherit
     // this parent scale, while the Radar0 sprites do. Applying RADAR_SCALE in
     // VR makes only the frame 10% smaller and moves it around the group centre.
-    if( !SharOpenXR::IsSpatialHudEnabled() )
+#else
+    m_overlays[ HUD_MAP ]->ScaleAboutCenter( RADAR_SCALE );
 #endif
-    {
-        m_overlays[ HUD_MAP ]->ScaleAboutCenter( RADAR_SCALE );
-    }
 
     #ifdef RAD_ANDROID
     ApplyAndroidHudMapLayout();
@@ -443,6 +463,13 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     m_messageBox->ScaleAboutCenter( MESSAGE_BOX_CORRECTION_SCALE * MESSAGE_BOX_HORIZONTAL_STRETCH,
                                     MESSAGE_BOX_CORRECTION_SCALE * MESSAGE_BOX_VERTICAL_STRETCH,
                                     1.0f );
+#ifdef RAD_ANDROID
+    {
+        int xMin,yMin,xMax,yMax;
+        m_messageBox->GetBoundingBox(xMin,yMin,xMax,yMax);
+        SharOpenXR::SetMissionObjectiveFrameRect(xMin,yMin,xMax,yMax);
+    }
+#endif
 
     m_actionButton = pPage->GetGroup( "ActionButton" );
     rAssert( m_actionButton != NULL );
@@ -526,6 +553,10 @@ MEMTRACK_POP_GROUP("CGUIScreenHud");
 //===========================================================================
 CGuiScreenHud::~CGuiScreenHud()
 {
+#ifdef RAD_ANDROID
+    ScroobySetVrGameplayHudPage( NULL );
+    SharOpenXR::SetGameplayHudScreen( NULL );
+#endif
     // destroy hud event handlers
     //
     for( int i = 0; i < NUM_HUD_EVENT_HANDLERS; i++ )
@@ -1391,11 +1422,14 @@ CGuiScreenHud::HandleEvent( EventEnum id, void* pEventData )
             if( messageID != -1 )
             {
                 rAssert( m_hudEventHandlers[ HUD_EVENT_HANDLER_MISSION_OBJECTIVE ] != NULL );
+                // Spatial Start() displays the message immediately, so the
+                // new stage ID must be installed before starting. The old
+                // order rendered the previous mission/save objective and only
+                // updated m_messageID after the stale text was already shown.
+                hudMissionObjective->SetMessageID( messageID );
                 m_hudEventHandlers[ HUD_EVENT_HANDLER_MISSION_OBJECTIVE ]->Start();
 
 //                this->DisplayMessage( true, messageID );
-
-                hudMissionObjective->SetMessageID( messageID );
             }
             else
             {
@@ -1563,6 +1597,9 @@ CGuiScreenHud::UpdateNumCoinsDisplay( int numCoins, bool show )
 #ifdef RAD_ANDROID
     GetCoinManager()->SetHUDCoin( coinPosX, coinPosY,
         show && !SharOpenXR::IsSpatialHudEnabled() );
+    // SetHUDCoin intentionally suppresses the legacy screen-space 3D draw in
+    // spatial mode. Restore the same authored position for its VR capture.
+    SharOpenXR::SetSpatialCoinAuthoredPosition( coinPosX, coinPosY, show );
 #else
     GetCoinManager()->SetHUDCoin( coinPosX, coinPosY, show );
 #endif
@@ -2202,16 +2239,13 @@ void CGuiScreenHud::AbortFade()
 
 void CGuiScreenHud::ApplyAndroidHudMapLayout()
 {
-    rAssert( m_overlays[ HUD_MAP ] != NULL );
+    if( m_overlays[ HUD_MAP ] == NULL )
+        return;
 
+    // OpenXR always uses the authored 640x480 HUD coordinates. Controller
+    // input must not activate Android's touch-screen radar translation.
     const bool useVrHudMapLayout = SharOpenXR::IsSpatialHudEnabled();
-    // Motion controllers can make Android report touch input while VR is
-    // active. The touch layout translates Map0 by (100,290) independently of
-    // Radar0, separating the 3D map from its frame. A spatial radar has its
-    // own placement, so keep the complete authored HUD group registered.
-    const bool useTouchHudMapLayout =
-            !useVrHudMapLayout &&
-            TouchInputModeManager::GetInstance().IsTouchMode();
+    const bool useTouchHudMapLayout = false;
 
     if( m_androidHudMapLayoutInitialized &&
         m_androidHudMapTouchLayoutActive == useTouchHudMapLayout &&
@@ -2230,29 +2264,12 @@ void CGuiScreenHud::ApplyAndroidHudMapLayout()
     const int offsetX = ANDROID_TOUCH_HUD_MAP_OFFSET_X;
     const int offsetY = ANDROID_TOUCH_HUD_MAP_OFFSET_Y;
 
-    // MoveHudMap changes Map0/Hole0 directly, unlike the parent group
-    // transform. Undo the previous touch layout before rebuilding the group.
     if( wasInitialized && wasTouchLayout )
-    {
         this->MoveHudMap( -offsetX, -offsetY );
-    }
 
     m_overlays[ HUD_MAP ]->ResetTransformation();
-    if( !useVrHudMapLayout )
-    {
-        m_overlays[ HUD_MAP ]->ScaleAboutCenter( RADAR_SCALE );
-    }
-
-    if( useTouchHudMapLayout )
-    {
-        m_overlays[ HUD_MAP ]->Translate( offsetX, offsetY );
-        this->MoveHudMap( offsetX, offsetY );
-    }
-
     if( m_hudMap[ 0 ] != NULL )
-        m_hudMap[ 0 ]->SetAndroidHudMapOverlayOffset(
-            useTouchHudMapLayout ? offsetX : 0,
-            useTouchHudMapLayout ? offsetY : 0 );
+        m_hudMap[ 0 ]->SetAndroidHudMapOverlayOffset( 0, 0 );
 }
 #endif // RAD_ANDROID 
 

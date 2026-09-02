@@ -779,10 +779,12 @@ void FMVPlayer::RenderCurrentVrEye()
     // GUI/presentation passes may leave per-eye clipping enabled. The movie
     // plane must cover the complete OpenXR target; otherwise each eye sees a
     // separate aperture with a black strip between them.
+#if !defined(SRR2_VR_RENDERER_VULKAN)
     const GLboolean oldScissor=glIsEnabled(GL_SCISSOR_TEST);
     const GLboolean oldStencil=glIsEnabled(GL_STENCIL_TEST);
     if(oldScissor) glDisable(GL_SCISSOR_TEST);
     if(oldStencil) glDisable(GL_STENCIL_TEST);
+#endif
     const bool oldZWrite=p3d::pddi->GetZWrite();
     const pddiCompareMode oldZComp=p3d::pddi->GetZCompare();
     p3d::pddi->SetZWrite(false);
@@ -798,8 +800,10 @@ void FMVPlayer::RenderCurrentVrEye()
     }
     m_refIRadMoviePlayer->Render();
     SharOpenXR::SetMovieRendering(false);
+#if !defined(SRR2_VR_RENDERER_VULKAN)
     if(oldStencil) glEnable(GL_STENCIL_TEST);
     if(oldScissor) glEnable(GL_SCISSOR_TEST);
+#endif
     p3d::pddi->SetZCompare(oldZComp);
     p3d::pddi->SetZWrite(oldZWrite);
 }

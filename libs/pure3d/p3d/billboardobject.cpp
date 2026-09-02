@@ -128,8 +128,9 @@ void
 tBillboardQuad::Display(pddiPrimStream* stream, const Matrix& world, const Matrix& camera, const Matrix& worldToCamera, float intensityBias)
 {
 #if defined(RAD_ANDROID)
-    if(gPglCsmBillboardMode==1 &&
-       billboardMode!=p3dBillboardConstants::BillboardMode::NO_AXIS) return;
+    // A billboard is oriented for the active HMD camera, not for the sun.
+    // Never bake any 2D billboard geometry into a world-locked shadow map.
+    if(gPglCsmBillboardMode==1) return;
 #endif
     if (!visible)
     {
@@ -440,8 +441,7 @@ tBillboardQuad::Display(pddiPrimStream* stream, const Matrix& world, const Matri
 void BakedBillboardQuad::Display(pddiPrimStream* stream)
 {
 #if defined(RAD_ANDROID)
-    if(gPglCsmBillboardMode==1 &&
-       billboardMode!=p3dBillboardConstants::BillboardMode::NO_AXIS) return;
+    if(gPglCsmBillboardMode==1) return;
 #endif
     //displayColour.SetAlpha(255);
     //displayColour.SetRed(255);
@@ -726,6 +726,9 @@ tCamRelativeBillboardQuad::Set( float in_minSize, float in_maxSize, float in_nea
 void
 tCamRelativeBillboardQuad::Display(pddiPrimStream* stream, const rmt::Matrix& world, const rmt::Matrix& camera, const rmt::Matrix& worldToCamera, float intensityBias)
 {
+#if defined(RAD_ANDROID)
+    if(gPglCsmBillboardMode==1) return;
+#endif
 
     if (!visible)
     {
@@ -2194,8 +2197,7 @@ inline void LoadMatrix(const Matrix& m)
 void tBillboardQuad::Display(pddiPrimStream* stream, const Matrix& world, const Matrix& camera, const Matrix& worldToCamera, float intensityBias)
 {
 #if defined(RAD_ANDROID)
-    if(gPglCsmBillboardMode==1 &&
-       billboardMode!=p3dBillboardConstants::BillboardMode::NO_AXIS) return;
+    if(gPglCsmBillboardMode==1) return;
 #endif
     if (!visible)
     {
@@ -2520,8 +2522,7 @@ void tBillboardQuad::Display(pddiPrimStream* stream, const Matrix& world, const 
 void BakedBillboardQuad::Display(pddiPrimStream* stream)
 {
 #if defined(RAD_ANDROID)
-    if(gPglCsmBillboardMode==1 &&
-       billboardMode!=p3dBillboardConstants::BillboardMode::NO_AXIS) return;
+    if(gPglCsmBillboardMode==1) return;
 #endif
     if ((!flip)||(billboardMode != p3dBillboardConstants::BillboardMode::NO_AXIS))
     {

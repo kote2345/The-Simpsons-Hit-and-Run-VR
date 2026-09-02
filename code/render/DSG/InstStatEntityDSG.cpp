@@ -23,6 +23,9 @@
 #include <p3d/view.hpp>
 #include <p3d/camera.hpp>
 #include <p3d/billboardobject.hpp>
+#if defined(RAD_ANDROID)
+#include <vr/openxrmanager.h>
+#endif
 //************************************************************************
 //
 // Global Data, Local Data, Local Classes
@@ -140,6 +143,12 @@ void InstStatEntityDSG::Display()
 
 void InstStatEntityDSG::DisplaySimpleShadow()
 {
+#if defined(RAD_ANDROID)
+    // These authored ground-projection meshes are legacy fake shadows. With
+    // CSM they would be drawn once in colour and again into each depth map,
+    // where their rectangular carrier geometry casts a square sun shadow.
+    if(SharOpenXR::IsCsmEnabled()) return;
+#endif
     BEGIN_PROFILE("DisplaySimpleShadow")
     p3d::pddi->SetZWrite(false);
     if ( mpShadowDrawable != NULL  )

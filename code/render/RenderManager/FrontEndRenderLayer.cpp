@@ -131,7 +131,17 @@ void FrontEndRenderLayer::DrawCoinObject()
         // offscreen pass. Its GLES material selects a non-multiview program
         // and then makes every world coin disappear. The spatial counter has
         // an independent texture; this call only retains flying HUD coins.
+        // Vulkan uses the rebuilt HUD in both Original and VR gameplay modes.
+        // The genuine animated coin model therefore has to be captured in
+        // either mode; the legacy spatial-HUD preference must not gate it.
+#if defined(SRR2_VR_RENDERER_VULKAN)
+        // This is now a resource update for the rebuilt renderer, not the
+        // legacy spatial-HUD layout. Keep the original 3D coin animated in
+        // both gameplay modes.
+        const bool spatialCoinHud=true;
+#else
         const bool spatialCoinHud=SharOpenXR::IsSpatialHudEnabled();
+#endif
         if(spatialCoinHud)
             SharOpenXR::CaptureSpatialCoinIcon();
         else
@@ -334,6 +344,14 @@ void FrontEndRenderLayer::Render()
     CGuiManager* guiManager=GetGuiSystem()->GetCurrentManager();
     const CGuiWindow::eGuiWindowID screenId=guiManager?
         guiManager->GetCurrentScreen():CGuiWindow::GUI_WINDOW_ID_UNDEFINED;
+    static CGuiWindow::eGuiWindowID loggedScreenId=
+        CGuiWindow::GUI_WINDOW_ID_UNDEFINED;
+    if(screenId!=loggedScreenId)
+    {
+        LOGI("OpenXR: frontend screen id=%d context=%d",
+             static_cast<int>(screenId),static_cast<int>(guiContext));
+        loggedScreenId=screenId;
+    }
     // Present the complete frontend, including the main menu, on one
     // world-locked VR panel. Keeping it active across screen changes preserves
     // the same anchor instead of making every submenu follow a new camera pose.

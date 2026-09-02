@@ -10,6 +10,9 @@
 #ifndef __FePage__
 #include "FePage.h"
 #endif
+#if defined(RAD_ANDROID)
+#include <vr/openxrmanager.h>
+#endif
 
 //===========================================================================
 // Includes
@@ -18,6 +21,15 @@
 #include "FeProject.h"
 #include "FeLayer.h"
 #include <raddebug.hpp>
+
+#if defined(RAD_ANDROID)
+static FePage* gVrGameplayHudPage=NULL;
+void ScroobyDisplayVrRadarMap();
+void ScroobySetVrGameplayHudPage(Scrooby::Page* page)
+{
+    gVrGameplayHudPage=dynamic_cast<FePage*>(page);
+}
+#endif
 #include "tLinearTable.h"
 #include "utility/debugMessages.h"
 
@@ -111,7 +123,26 @@ void FePage::GetBoundingBox( int& xMin, int& yMin, int& xMax, int& yMax ) const
 
 void FePage::Display()
 {
+#if defined(RAD_ANDROID)
+    const bool gameplayHud=this==gVrGameplayHudPage;
+    if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
+    // Capture Map0 on its own before entering the full HUD target.  A nested
+    // radar capture is intentionally unsupported, and drawing Map0 directly
+    // into the full target bypasses Hole0 and leaves a visible square behind
+    // the later circular composite.
+    // Prime Map0 before the authored HudMap0 overlay is traversed. This makes
+    // the first spatial-HUD frame deterministic; previously Map0 was first
+    // captured only after toggling modes had exercised the Original path.
+    if(gameplayHud)
+        ScroobyDisplayVrRadarMap();
+    const bool gameplayHudCaptured=gameplayHud &&
+        !SharOpenXR::IsSpatialHudEnabled() &&
+        SharOpenXR::BeginGameplayHudCapture();
+#endif
     FeOwner::Display();
+#if defined(RAD_ANDROID)
+    if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
+#endif
 }
 
 //gets a group object from within the page by hash

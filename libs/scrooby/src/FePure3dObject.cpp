@@ -27,12 +27,17 @@
 #include "FeResourceEntry.h"
 #include "FeScreen.h"
 #include <radmath/radmath.hpp>
+#if defined(RAD_ANDROID)
+#include <SDL.h>
+#endif
 #include "ResourceManager/FeResourceManager.h"
 #if defined(RAD_ANDROID)
 #include <vr/openxrmanager.h>
 #include <gameflow/gameflow.h>
 static Scrooby::Pure3dObject* gVrIrisPure3dObject=NULL;
 static Scrooby::Pure3dObject* gVrFrontendWorldPure3dObject=NULL;
+static FePure3dObject* gVrRadarMapPure3dObject=NULL;
+static FePure3dObject* gVrRadarHolePure3dObject=NULL;
 void ScroobySetVrIrisPure3dObject(Scrooby::Pure3dObject* object)
 {
     gVrIrisPure3dObject=object;
@@ -40,6 +45,29 @@ void ScroobySetVrIrisPure3dObject(Scrooby::Pure3dObject* object)
 void ScroobySetVrFrontendWorldPure3dObject(Scrooby::Pure3dObject* object)
 {
     gVrFrontendWorldPure3dObject=object;
+}
+void ScroobySetVrRadarPure3dObjects(Scrooby::Pure3dObject* map,
+                                    Scrooby::Pure3dObject* hole)
+{
+    gVrRadarMapPure3dObject=dynamic_cast<FePure3dObject*>(map);
+    gVrRadarHolePure3dObject=dynamic_cast<FePure3dObject*>(hole);
+    SDL_Log("OpenXR: radar Pure3D registered map=%p impl=%p hole=%p impl=%p",
+            map,gVrRadarMapPure3dObject,hole,gVrRadarHolePure3dObject);
+}
+void ScroobyDisplayVrRadarMap()
+{
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    static bool logged=false;
+    if(!logged)
+    {
+        SDL_Log("OpenXR: forced radar Map0 state impl=%p visible=%d",
+                gVrRadarMapPure3dObject,
+                gVrRadarMapPure3dObject&&gVrRadarMapPure3dObject->IsVisible()?1:0);
+        logged=true;
+    }
+    if(gVrRadarMapPure3dObject)
+        gVrRadarMapPure3dObject->Display();
+#endif
 }
 #endif
 
@@ -234,6 +262,39 @@ void FePure3dObject::Update( float elapsedTime )
 //===========================================================================
 void FePure3dObject::Display()
 {
+#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+    if(this==gVrRadarHolePure3dObject)
+        return;
+    if(this==gVrRadarMapPure3dObject)
+    {
+        // Slot 13 captures HudMap0 only as the original 2D radar overlay.
+        // Map0 owns its independent circular texture underneath that overlay.
+        if(SharOpenXR::IsMissionHudCaptureActive()) return;
+        if(SharOpenXR::IsRightEyeRendering()) return;
+        // When the complete authored gameplay HUD owns the active offscreen
+        // target, Map0 must render into that target directly. Attempting a
+        // nested radar capture fails by design; the old code then returned
+        // without drawing any 3D roads.
+        if(SharOpenXR::IsGameplayHudCaptureActive())
+        {
+            // The independently captured radar is composited through the
+            // frame opening after the authored HUD page.  Do not leave an
+            // unmasked square copy in the full-page texture.
+            return;
+        }
+        if(SharOpenXR::IsRadarRendering())
+        {
+            Render();
+            return;
+        }
+        int x0=0,y0=0,x1=0,y1=0;GetBoundingBox(x0,y0,x1,y1);
+        const bool captured=SharOpenXR::BeginRadarCapture(x0,y0,x1,y1);
+        if(!captured) return;
+        Render();
+        SharOpenXR::EndRadarCapture();
+        return;
+    }
+#endif
     Render();
 }
 
@@ -432,6 +493,11 @@ void FePure3dObject::Render()
 
     if( m_RuntimeDrawable == NULL )
     {
+#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+        if(this==gVrRadarMapPure3dObject)
+            SDL_Log("OpenXR: Map0 has no runtime drawable alias=%s alreadyRendered=%d",
+                    static_cast<const char*>(*m_alias),m_alreadyRendered?1:0);
+#endif
         // nothing to draw, return
         //
         return;
@@ -479,10 +545,19 @@ void FePure3dObject::Render()
                                m_colourWriteEnabled,
                                alphaWriteEnabled );
 #if defined(RAD_ANDROID)
-    const bool suppressVrIris=SharOpenXR::IsVrModeEnabled() &&
+    const bool suppressVrIris=
         gVrIrisPure3dObject==static_cast<Scrooby::Pure3dObject*>(this);
+    // In Original mode the authored Hole0 alpha mask is only needed to cut
+    // the minimap to the circular bezel. Vulkan's depth-only rendition can
+    // resolve that textured mask as a solid plane and consequently reject
+    // every road fragment submitted by Map0. The ordinary radar bezel already
+    // covers the edge, so keep Hole0 visual-only here and retain the authored
+    // depth mask for the spatial offscreen capture.
+    const bool suppressOriginalRadarHole=
+        m_isWideScreenCorrectionEnabled && !m_colourWriteEnabled &&
+        !SharOpenXR::IsSpatialHudEnabled();
     const bool oldZWrite=p3d::pddi->GetZWrite();
-    if(suppressVrIris)
+    if(suppressVrIris || suppressOriginalRadarHole)
     {
         // Keep Display and its animation lifecycle active, but emit neither
         // colour nor an invisible depth mask into the VR eyes.
@@ -540,7 +615,12 @@ void FePure3dObject::Render()
     currentView->SetCamera( m_Camera );
 
 #if defined(RAD_ANDROID)
-    const bool vrEmbeddedHud = m_isWideScreenCorrectionEnabled;
+    // Match the GLES path in both HUD modes. Map0/Hole0 use wide-screen
+    // correction as their embedded-map marker: it prevents the map camera
+    // from being replaced by the OpenXR eye projection and converts their
+    // sub-viewport through the same HUD transform as the surrounding radar.
+    const bool vrEmbeddedHud = m_isWideScreenCorrectionEnabled ||
+        this==gVrRadarMapPure3dObject || this==gVrRadarHolePure3dObject;
     if( vrEmbeddedHud )
     {
         SharOpenXR::SetEmbeddedHudRendering( true );
@@ -550,7 +630,9 @@ void FePure3dObject::Render()
     // HUD map Pure3D widgets use this flag.  Their camera is a map-space
     // camera and must stay inside the 2D clipped map rectangle, not inherit
     // the HMD eye pose.  Other embedded 3D menu objects remain stereoscopic.
-    if( m_Camera && !m_isWideScreenCorrectionEnabled )
+    if( m_Camera && !m_isWideScreenCorrectionEnabled &&
+        this != gVrRadarMapPure3dObject &&
+        this != gVrRadarHolePure3dObject )
     {
         originalVrCamera = m_Camera->GetCameraToWorldMatrix();
         rmt::Matrix eyeCamera;
@@ -599,6 +681,16 @@ void FePure3dObject::Render()
     // draw the damn thing!
     //
     rAssert( m_RuntimeDrawable != NULL );
+#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+    static bool loggedMapDrawable=false;
+    if(this==gVrRadarMapPure3dObject && !loggedMapDrawable)
+    {
+        SDL_Log("OpenXR: Map0 runtime drawable display alias=%s drawable=%p embedded=%d",
+                static_cast<const char*>(*m_alias),m_RuntimeDrawable,
+                SharOpenXR::IsEmbeddedHudRendering()?1:0);
+        loggedMapDrawable=true;
+    }
+#endif
     m_RuntimeDrawable->Display();
 
     // restore everything we changed
@@ -633,7 +725,8 @@ void FePure3dObject::Render()
     // restore colour write
     //
 #if defined(RAD_ANDROID)
-    if(suppressVrIris)p3d::pddi->SetZWrite(oldZWrite);
+    if(suppressVrIris || suppressOriginalRadarHole)
+        p3d::pddi->SetZWrite(oldZWrite);
     if(vrFrontendWorld)
     {
         SharOpenXR::SetFrontendPlaneRendering( true );

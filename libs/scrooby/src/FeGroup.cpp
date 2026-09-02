@@ -5,16 +5,43 @@
 #include "FeGroup.h"
 #endif
 #include "tLinearTable.h"
+#include "FePure3dObject.h"
 #if defined(RAD_ANDROID)
 #include <vr/openxrmanager.h>
 #include <p3d/pure3d.hpp>
 #endif
 
 #if defined(RAD_ANDROID)
-enum { VR_MISSION_HUD_GROUP_COUNT=13 };
+enum { VR_MISSION_HUD_GROUP_COUNT=14 };
 enum { VR_HUD_GROUP_INSTANCES=8 };
 static Scrooby::Group* gVrRadarGroup[VR_HUD_GROUP_INSTANCES]={NULL};
 static Scrooby::Group* gVrMissionHudGroup[VR_MISSION_HUD_GROUP_COUNT][VR_HUD_GROUP_INSTANCES]={{NULL}};
+void ScroobyDisplayVrRadarMap();
+#if defined(SRR2_VR_RENDERER_VULKAN)
+static void DisplayVrRadarModels(FeOwner* parent)
+{
+    for(int i=0;i<parent->GetChildrenCount();++i)
+    {
+        FeEntity* child=parent->GetChildIndex(i);
+        FeDrawable* drawable=child&&child->IsDrawable()?static_cast<FeDrawable*>(child):NULL;
+        if(!drawable||!drawable->IsVisible()) continue;
+        FePure3dObject* model=dynamic_cast<FePure3dObject*>(child);
+        FeOwner* nested=dynamic_cast<FeOwner*>(child);
+        if(!model&&!nested) continue;
+        p3d::stack->Push();
+        p3d::stack->Multiply(*drawable->GetMatrix());
+        float x=0.0f,y=0.0f;drawable->GetNormalizedPosition(x,y);
+        p3d::stack->Translate(x,y,0.0f);
+        const tColour original=drawable->GetColour();
+        tColour modulated=original;
+        drawable->ModulateColour(modulated,parent->GetColour());
+        drawable->SetColour(modulated);
+        if(model) model->Display(); else DisplayVrRadarModels(nested);
+        drawable->SetColour(original);
+        p3d::stack->Pop();
+    }
+}
+#endif
 void ScroobySetVrRadarGroup(Scrooby::Group* group)
 {
     if(!group) return;
@@ -72,16 +99,44 @@ FeGroup::~FeGroup()
 void FeGroup::Display()
 {
 #if defined(RAD_ANDROID)
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    // A complete Hud page capture must traverse Scrooby exactly like the
+    // working Android/GLES Original HUD.  Per-group capture here would be a
+    // nested render target and is what reduced the result to isolated pieces
+    // such as the coin counter.
+    if(SharOpenXR::IsGameplayHudCaptureActive())
+    {
+        FeOwner::Display();
+        return;
+    }
+#endif
     Scrooby::Group* self=static_cast<Scrooby::Group*>(this);
     bool isRadar=false;
     for(unsigned i=0;i<VR_HUD_GROUP_INSTANCES;++i)
         isRadar=isRadar||self==gVrRadarGroup[i];
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    bool isLegacyHudGroup=false;
+    for(unsigned slot=0;slot<VR_MISSION_HUD_GROUP_COUNT;++slot)
+        for(unsigned instance=0;instance<VR_HUD_GROUP_INSTANCES;++instance)
+            isLegacyHudGroup=isLegacyHudGroup||
+                self==gVrMissionHudGroup[slot][instance];
+    // Registered gameplay groups are rendered into their own Vulkan targets
+    // below. They are still suppressed from the eye framebuffer by the
+    // offscreen target, so this does not duplicate the legacy HUD.
+#endif
+#if !defined(SRR2_VR_RENDERER_VULKAN)
+    // GLES keeps its proven direct Original-mode path. Vulkan uses the new
+    // unified offscreen radar layer in both Original and spatial HUD modes.
     isRadar=isRadar&&SharOpenXR::IsSpatialHudEnabled();
+#endif
     int missionSlot=-1;
     for(int slot=0;slot<VR_MISSION_HUD_GROUP_COUNT;++slot)
         for(unsigned instance=0;instance<VR_HUD_GROUP_INSTANCES;++instance)
-            if(self==gVrMissionHudGroup[slot][instance] &&
-               SharOpenXR::IsSpatialHudEnabled()) missionSlot=slot;
+            if(self==gVrMissionHudGroup[slot][instance]
+#if !defined(SRR2_VR_RENDERER_VULKAN)
+               && SharOpenXR::IsSpatialHudEnabled()
+#endif
+               ) missionSlot=slot;
     // The legacy GUI is stateful: on its second eye traversal Map0 can draw
     // again while Radar0 sprites are skipped. Capturing that incomplete pass
     // overwrites the shared texture and leaves the frame visible only in the
@@ -98,6 +153,14 @@ void FeGroup::Display()
         radarXMin,radarYMin,radarXMax,radarYMax) :
         (missionSlot>=0 && SharOpenXR::BeginMissionHudCapture(
             (unsigned)missionSlot,radarXMin,radarYMin,radarXMax,radarYMax));
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    // A registered spatial group must never fall through to the current eye
+    // framebuffer. If its mono capture cannot start this frame, retain the
+    // previous wrist texture instead of drawing a head-locked duplicate.
+    if((isRadar || missionSlot>=0) && SharOpenXR::IsSpatialHudEnabled() &&
+       !captured)
+        return;
+#endif
     if(captured)
     {
         // BeginRadarCapture changes the framebuffer and enables the radar
@@ -107,9 +170,47 @@ void FeGroup::Display()
         const pddiProjectionMode mode=p3d::pddi->GetProjectionMode();
         p3d::pddi->SetProjectionMode(mode);
     }
+    // The legacy mission-overlay layout scales/translates the higher-indexed
+    // overlay when (for example) the timer and a counter are visible at the
+    // same time.  FeOwner has already put this group's matrix on the P3D
+    // stack before entering Display().  Applying it to the timer capture while
+    // cropping with the group's authored child bounds moves most of the timer
+    // outside the sampled rectangle (the familiar thin strip at the bottom).
+    //
+    // Spatial HUD presentation performs its own non-overlapping stack layout,
+    // so capture slot 2 in authored space.  Undo only the timer group's outer
+    // layout matrix; child transforms, bitmap glyph animation and colour remain
+    // untouched.  This also keeps the regular/original HUD path unchanged.
+    bool timerCaptureMatrixUndone=false;
+    if(captured && missionSlot==2 && SharOpenXR::IsSpatialHudEnabled())
+    {
+        rmt::Matrix inverseTimerLayout=*GetMatrix();
+        inverseTimerLayout.Invert();
+        float timerOriginX=0.0f;
+        float timerOriginY=0.0f;
+        GetNormalizedPosition(timerOriginX,timerOriginY);
+        p3d::stack->Push();
+        // The parent applied groupMatrix followed by the group's authored
+        // origin. Conjugate the inverse around that origin so the resulting
+        // stack retains the authored placement: M*T*(T^-1*M^-1*T) == T.
+        p3d::stack->Translate(-timerOriginX,-timerOriginY,0.0f);
+        p3d::stack->Multiply(inverseTimerLayout);
+        p3d::stack->Translate(timerOriginX,timerOriginY,0.0f);
+        timerCaptureMatrixUndone=true;
+    }
 #endif
+#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+    // Map0 and Hole0 are page siblings of HudMap0. Bring them into the same
+    // target before traversing Radar0 so the spatial plane contains the exact
+    // original map, depth mask, frame, markers and Hit & Run artwork.
+    if(isRadar && captured) ScroobyDisplayVrRadarMap();
     FeOwner::Display();
+#else
+    FeOwner::Display();
+#endif
 #if defined(RAD_ANDROID)
+    if(timerCaptureMatrixUndone)
+        p3d::stack->Pop();
     if(captured)
     {
         if(isRadar) SharOpenXR::EndRadarCapture();

@@ -25,9 +25,9 @@ public:
     tTextureGlyph();
     ~tTextureGlyph();
 
-    inline unsigned int GetTextureNum()     { return textureNum; }
-    inline rmt::Vector2 GetBottomLeft()     { return bottomLeft; }
-    inline rmt::Vector2 GetTopRight()       { return topRight; }
+    inline unsigned int GetTextureNum() const { return textureNum; }
+    inline rmt::Vector2 GetBottomLeft() const { return bottomLeft; }
+    inline rmt::Vector2 GetTopRight() const   { return topRight; }
 
     friend class tTextureFontLoader;
 
@@ -85,6 +85,13 @@ public:
     // set the glyph to display if an unknown glyph is encountered in text
     // returns false if glyph doesn't exist
     bool SetMissingLetter(P3D_UNICODE letter);
+
+    unsigned GetTextureCount() const { return numTextures; }
+    tTexture* GetTexture(unsigned i) const { return i<numTextures?textures[i]:NULL; }
+    unsigned GetGlyphCount() const { return numGlyphs; }
+    const tTextureGlyph* GetGlyph(unsigned i) const { return i<numGlyphs?&glyphs[i]:NULL; }
+    const tTextureGlyph* GetGlyphForCode(P3D_UNICODE c) const
+    { int i=FindGlyph(c);return i>=0?&glyphs[i]:&glyphs[missingGlyph]; }
 
     friend class tTextureFontLoader;
 

@@ -27,11 +27,11 @@ public:
     tFontGlyph();
     ~tFontGlyph();
 
-    inline float GetLeftBearing()   { return leftBearing; }
-    inline float GetRightBearing()  { return rightBearing; }
-    inline float GetWidth()         { return width; }
-    inline float GetAdvance()       { return advance; }
-    inline P3D_UNICODE GetCode()    { return code; }
+    inline float GetLeftBearing() const  { return leftBearing; }
+    inline float GetRightBearing() const { return rightBearing; }
+    inline float GetWidth() const        { return width; }
+    inline float GetAdvance() const      { return advance; }
+    inline P3D_UNICODE GetCode() const   { return code; }
 
 protected:
     float        leftBearing;

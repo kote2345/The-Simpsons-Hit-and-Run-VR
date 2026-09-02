@@ -88,7 +88,6 @@ HudCardCollected::HudCardCollected( Scrooby::Page* pPage )
     rAssert(m_itemsUnlocked != NULL );
     m_itemsUnlocked->SetTextMode( Scrooby::TEXT_WRAP );
 }
-
 HudCardCollected::~HudCardCollected()
 {
 }

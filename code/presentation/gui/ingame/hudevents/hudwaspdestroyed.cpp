@@ -42,7 +42,6 @@ HudWaspDestroyed::HudWaspDestroyed( Scrooby::Page* pPage )
     m_itemsComplete = m_drawableGroup->GetText( "WaspsComplete" );
     rAssert( m_itemsComplete != NULL );
 }
-
 HudWaspDestroyed::~HudWaspDestroyed()
 {
 }

@@ -19,6 +19,18 @@
 
 using namespace RadicalMathLibrary;
 
+static bool gLegacyGroundShadowsSuppressed = false;
+
+void p3dSetLegacyGroundShadowsSuppressed(bool suppressed)
+{
+    gLegacyGroundShadowsSuppressed = suppressed;
+}
+
+bool p3dAreLegacyGroundShadowsSuppressed()
+{
+    return gLegacyGroundShadowsSuppressed;
+}
+
 //------------------------------------------------------------------------
 tGeometry::tGeometry(int nPG) :
     //nFaceNormal(0),
@@ -89,6 +101,19 @@ void tGeometry::SetPrimGroup(int i, tPrimGroup* group)
 //------------------------------------------------------------------------
 void tGeometry::Display()
 {
+    // Unlike the explicit simple-shadow pass, authored tree shadows can also
+    // be reached as a normal drawable.  Dropping the geometry here removes
+    // both its visible fake projection and the square it would write into a
+    // CSM cascade.
+    const tUID uid=GetUID();
+    if(gLegacyGroundShadowsSuppressed &&
+       (uid==tName::MakeUID("treeshadowbig") ||
+        uid==tName::MakeUID("treeshadowsmall") ||
+        uid==tName::MakeUID("treeshadoweversmallShape") ||
+        uid==tName::MakeUID("deadtree_shadowShape") ||
+        uid==tName::MakeUID("l5_streetlamp_lightpoolShape")))
+        return;
+
     for( unsigned i = 0; i < primGroup.Size(); i++)
     {
         if( primGroup[i])

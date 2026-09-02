@@ -43,6 +43,9 @@
 #include <worldsim/redbrick/rootmatrixdriver.h>
 #include <p3d/billboardobject.hpp>
 #include <p3d/camera.hpp>
+#if defined(RAD_ANDROID)
+#include <vr/openxrmanager.h>
+#endif
 #include <p3d/matrixstack.hpp>
 #include <p3d/view.hpp>
 #include <p3d/utility.hpp>
@@ -366,6 +369,17 @@ StatePropDSG::Display()
 #endif
     if(IS_DRAW_LONG) return;
     DSG_BEGIN_PROFILE(profileName)
+#if defined(RAD_ANDROID)
+    // StateProp animation can restore authored visibility before every draw.
+    // Hide the embedded legacy shadow before the composite itself is drawn,
+    // otherwise it enters both the colour pass and the CSM caster pass before
+    // DisplaySimpleShadow gets a chance to turn it off.
+    if(SharOpenXR::IsCsmEnabled() && m_ShadowElement!=-1 && mpStateProp && mpStateProp->GetDrawable())
+    {
+        tCompositeDrawable* compDraw=static_cast<tCompositeDrawable*>(mpStateProp->GetDrawable());
+        compDraw->GetDrawableElement(m_ShadowElement)->SetVisibility(false);
+    }
+#endif
     if(CastsShadow())
     {
         BillboardQuadManager::Enable();
@@ -830,6 +844,20 @@ StatePropDSG::CastsShadow()
 void 
 StatePropDSG::DisplaySimpleShadow()
 {
+#if defined(RAD_ANDROID)
+    // Large state-prop trees carry an authored shadow as a hidden composite
+    // element. CSM replaces it; drawing that element exposes its flat model
+    // and also bakes its rectangular carrier into the sun depth map.
+    if(SharOpenXR::IsCsmEnabled())
+    {
+        if(m_ShadowElement!=-1 && mpStateProp && mpStateProp->GetDrawable())
+        {
+            tCompositeDrawable* compDraw=static_cast<tCompositeDrawable*>(mpStateProp->GetDrawable());
+            compDraw->GetDrawableElement(m_ShadowElement)->SetVisibility(false);
+        }
+        return;
+    }
+#endif
     BEGIN_PROFILE("DisplaySimpleShadow")
     p3d::pddi->SetZWrite(false);
     if ( mpShadowMatrix != NULL )

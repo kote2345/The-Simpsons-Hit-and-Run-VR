@@ -307,6 +307,7 @@ set(SRR2_SOURCES
 	"presentation/gui/ingame/guiscreenpausedisplay.cpp"
 	"presentation/gui/ingame/guiscreenpausemission.cpp"
 	"presentation/gui/ingame/guiscreenpauseoptions.cpp"
+	"presentation/gui/ingame/guiscreenpausedebug.cpp"
 	"presentation/gui/ingame/guiscreenpausevr.cpp"
 	"presentation/gui/ingame/guiscreenpausesettings.cpp"
 	"presentation/gui/ingame/guiscreenpausesound.cpp"
@@ -544,6 +545,19 @@ set(SRR2_SOURCES
 	"worldsim/worldobject.cpp"
 	"worldsim/worldphysicsmanager.cpp"
 )
+if(ANDROID AND SRR2_VR_RENDERER STREQUAL "VULKAN")
+	list(APPEND SRR2_SOURCES
+		"vr/vulkan/openxr_vulkan_context.cpp"
+		"vr/vulkan/material_pipeline.cpp"
+		"vr/vulkan/material_uniforms.cpp"
+		"vr/vulkan/shadow_pipeline.cpp"
+		"vr/vulkan/hud_pipeline.cpp"
+		"vr/vulkan/legacy_pipeline.cpp"
+		"vr/vulkan/phong_pipeline.cpp"
+		"vr/vulkan/pbr_pipeline.cpp"
+		"vr/vulkan/toon_pipeline.cpp"
+	)
+endif()
 if(SRR2_REGION STREQUAL "PAL")
 	list(APPEND SRR2_SOURCES
 		"sound/soundrenderer/scripts/french.cpp"
@@ -588,6 +602,9 @@ if(ANDROID)
 		GLESv2
 		dl
 	)
+	if(SRR2_VR_RENDERER STREQUAL "VULKAN")
+		target_link_libraries(${SRR2_TARGET} ${VULKAN_LIBRARY})
+	endif()
 endif()
 
 if(SRR2_MICROPROFILE AND WIN32)

@@ -33,6 +33,7 @@
 #include <presentation/gui/ingame/guiscreenhudmap.h>
 #include <presentation/gui/ingame/guiscreenpauseoptions.h>
 #include <presentation/gui/ingame/guiscreenpausevr.h>
+#include <presentation/gui/ingame/guiscreenpausedebug.h>
 #if defined(RAD_PC) || defined(RAD_ANDROID)
 #include <presentation/gui/ingame/guiscreenpausedisplay.h>
 #endif
@@ -75,6 +76,9 @@
 #include <render/RenderManager/RenderLayer.h>
 #include <sound/soundmanager.h>
 #include <meta/eventlocator.h>
+#if defined(RAD_ANDROID)
+#include <vr/openxrmanager.h>
+#endif
 
 #include <p3d/fileftt.hpp>
 #include <p3d/utility.hpp>
@@ -432,6 +436,9 @@ MEMTRACK_PUSH_GROUP( "CGUIManagerInGame" );
 #ifdef RAD_ANDROID
         pScreen = new CGuiScreenPauseVR( pScroobyScreen, this );
         this->AddWindow( CGuiWindow::GUI_SCREEN_ID_VR, pScreen );
+
+        pScreen = new CGuiScreenPauseDebug( pScroobyScreen, this );
+        this->AddWindow( CGuiWindow::GUI_SCREEN_ID_DEBUG, pScreen );
 #endif
     }
 

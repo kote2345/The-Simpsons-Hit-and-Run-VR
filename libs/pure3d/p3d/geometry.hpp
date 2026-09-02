@@ -17,6 +17,12 @@ class tVertexList;
 class tPrimGroup;
 class tShader;
 
+// Legacy projected-shadow meshes are ordinary geometries in several old
+// world assets.  CSM must be able to suppress them in both the colour and
+// depth passes.
+void p3dSetLegacyGroundShadowsSuppressed(bool suppressed);
+bool p3dAreLegacyGroundShadowsSuppressed();
+
 class tGeometry : public tDrawable
 {
 public:

@@ -38,7 +38,6 @@ HudItemDropped::HudItemDropped( Scrooby::Page* pPage )
     rAssert( m_itemDropped != NULL );
     m_itemDropped->SetTextMode( Scrooby::TEXT_WRAP );
 }
-
 HudItemDropped::~HudItemDropped()
 {
 }

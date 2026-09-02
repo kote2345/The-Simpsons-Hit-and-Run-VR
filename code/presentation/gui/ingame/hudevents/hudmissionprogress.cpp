@@ -42,7 +42,6 @@ HudMissionProgress::HudMissionProgress( Scrooby::Page* pPage )
     rAssert( m_stageComplete != NULL );
     m_stageComplete->SetTextMode( Scrooby::TEXT_WRAP );
 }
-
 HudMissionProgress::~HudMissionProgress()
 {
 }

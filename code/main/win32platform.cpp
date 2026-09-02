@@ -14,6 +14,9 @@
 // System Includes
 //========================================
 #include <SDL.h>
+#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#include <vr/openxrmanager.h>
+#endif
 // Standard Lib
 #include <stdlib.h>
 #include <string.h>
@@ -626,6 +629,13 @@ void Win32Platform::ShutdownMemory()
 void Win32Platform::InitializePlatform() 
 {
     HeapMgr()->PushHeap (GMA_PERSISTENT);
+
+#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+    // Vulkan PDDI needs the OpenXR-selected VkDevice before Pure3D asks the
+    // renderer factory to create its display/context.
+    const bool xrVulkanReady=SharOpenXR::Initialize();
+    rAssertMsg(xrVulkanReady,"OpenXR Vulkan bootstrap failed before Pure3D initialization");
+#endif
 
 #ifdef RAD_PC
     //

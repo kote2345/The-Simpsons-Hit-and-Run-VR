@@ -62,7 +62,6 @@ HudCountDown::HudCountDown( Scrooby::Page* pPage )
     m_countDownMessage->CreateBitmapTextBuffer( 32 );
 //    m_countDownMessage->SetBitmapTextSpacing( BITMAP_TEXT_SPACING );
 }
-
 HudCountDown::~HudCountDown()
 {
 }

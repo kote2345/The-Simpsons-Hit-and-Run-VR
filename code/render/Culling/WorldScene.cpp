@@ -98,7 +98,16 @@ inline bool gZSortCompare( IEntityDSG* pArg1, IEntityDSG* pArg2 )
 
 inline bool gShaderCompare( const WorldScene::zSortBlah& pArg1, const WorldScene::zSortBlah& pArg2 )
 {
-    return pArg1.shaderUID < pArg2.shaderUID;        
+    if(pArg1.shaderUID != pArg2.shaderUID)
+        return pArg1.shaderUID < pArg2.shaderUID;
+#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+    // RenderOpaque walks this sorted array backwards. Descending rank here
+    // therefore becomes near-to-far submission inside each material group,
+    // improving early-Z without sacrificing pipeline/texture batching.
+    return pArg1.entityPtr->mRank > pArg2.entityPtr->mRank;
+#else
+    return false;
+#endif
 }
 
 inline bool gTestZ( IEntityDSG* pArg1, IEntityDSG* pArg2 )
@@ -2432,7 +2441,6 @@ void WorldScene::RenderCsmCasters(bool includeStatic,bool includeDynamic,
                rmt::Fabs(lightCentre.y)<=halfWidth+sphere.radius &&
                rmt::Fabs(lightCentre.z)<=halfDepth+sphere.radius;
     };
-
     unsigned casterCount=0;
     for(int nodeIndex=mStaticTreeWalker.NumNodes()-1;nodeIndex>=0;--nodeIndex)
     {
