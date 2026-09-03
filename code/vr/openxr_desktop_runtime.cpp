@@ -4,6 +4,7 @@
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 #include <vr/openxr_desktop_runtime.h>
+#include <vr/openxrmanager.h>
 #include <vr/openxr_platform_loader.h>
 #include <vr/openxr_platform_instance.h>
 #include <vr/vulkan/openxr_vulkan_context.h>
@@ -75,4 +76,31 @@ void PumpCompositor(){
  XrCompositionLayerProjection layer={XR_TYPE_COMPOSITION_LAYER_PROJECTION};layer.space=space;layer.viewCount=2;layer.views=projectionViews;const XrCompositionLayerBaseHeader* layers[]={reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
  XrFrameEndInfo end={XR_TYPE_FRAME_END_INFO};end.displayTime=state.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=submit?1:0;end.layers=submit?layers:NULL;endFrame(session,&end);}
 } }
+
+namespace SharOpenXR
+{
+// Compatibility surface used by the shared Vulkan PDDI while the desktop
+// compositor is being connected to the full gameplay OpenXR manager.
+bool GetActiveVulkanEyeTarget(VulkanEyeTarget*) { return false; }
+bool GetActiveProjection(rmt::Matrix*,int*,int*) { return false; }
+bool GetActiveViewport(int*,int*) { return false; }
+bool GetActiveUiHorizontalOffset(float*) { return false; }
+bool GetActiveRadarProjection(rmt::Matrix*,int*,int*) { return false; }
+bool GetActiveMovieProjection(rmt::Matrix*,int*,int*) { return false; }
+bool GetActiveFrontendProjection(rmt::Matrix*,int*,int*) { return false; }
+bool GetLatestCullingCamera(rmt::Matrix*) { return false; }
+bool IsEmbeddedHudRendering() { return false; }
+bool IsRadarRendering() { return false; }
+bool IsMovieRendering() { return false; }
+bool IsFrontendPlaneRendering() { return false; }
+bool IsRightEyeRendering() { return false; }
+bool IsSpatialHudEnabled() { return false; }
+bool HasEnhancedUiConvergence() { return false; }
+bool AreCustomMaterialsEnabled() { return true; }
+int GetEnhancedMaterialModel() { return 1; }
+int GetReflectionMode() { return 0; }
+int GetPbrDebugMode() { return 0; }
+void RecordPddiDraw(unsigned,unsigned,bool,double) {}
+void RecordPddiUpload(unsigned,double) {}
+}
 #endif

@@ -1,7 +1,13 @@
 #ifndef SHAR_OPENXR_MANAGER_H
 #define SHAR_OPENXR_MANAGER_H
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
+
+#if defined(_MSC_VER)
+#define SHAR_OPENXR_WEAK
+#else
+#define SHAR_OPENXR_WEAK __attribute__((weak))
+#endif
 
 #include <radmath/radmath.hpp>
 #if defined(SRR2_VR_RENDERER_VULKAN)
@@ -42,7 +48,7 @@ namespace SharOpenXR
                               rmt::Matrix* viewAdjustments);
     void SetWorldRendering(bool enabled);
     void SetEmbeddedHudRendering(bool enabled);
-    bool IsEmbeddedHudRendering() __attribute__((weak));
+    bool IsEmbeddedHudRendering() SHAR_OPENXR_WEAK;
     void SetRadarRendering(bool enabled);
     bool BeginRadarCapture(int xMin,int yMin,int xMax,int yMax);
     void EndRadarCapture();
@@ -56,33 +62,33 @@ namespace SharOpenXR
     void SetMissionObjectiveFrameRect(int xMin,int yMin,int xMax,int yMax);
     void SetMissionObjectiveIconRect(int xMin,int yMin,int xMax,int yMax);
     void SetRadarAuthoredRect(int xMin,int yMin,int xMax,int yMax);
-    bool IsRadarRendering() __attribute__((weak));
+    bool IsRadarRendering() SHAR_OPENXR_WEAK;
     void SetGameplayHudScreen(const void* screen);
     bool IsGameplayHudScreen(const void* screen);
     bool BeginGameplayHudCapture();
     void EndGameplayHudCapture();
-    bool IsGameplayHudCaptureActive() __attribute__((weak));
-    bool IsMissionHudCaptureActive() __attribute__((weak));
+    bool IsGameplayHudCaptureActive() SHAR_OPENXR_WEAK;
+    bool IsMissionHudCaptureActive() SHAR_OPENXR_WEAK;
     bool IsRightEyeRendering();
-    void PrepareRadarDraw() __attribute__((weak));
+    void PrepareRadarDraw() SHAR_OPENXR_WEAK;
     bool GetActiveRadarProjection(rmt::Matrix* projection, int* width,
-                                  int* height) __attribute__((weak));
+                                  int* height) SHAR_OPENXR_WEAK;
     void SetMovieRendering(bool enabled);
-    bool IsMovieRendering() __attribute__((weak));
+    bool IsMovieRendering() SHAR_OPENXR_WEAK;
     void BeginMoviePlane();
     void EndMoviePlane();
     bool GetActiveMovieProjection(rmt::Matrix* projection, int* width,
-                                  int* height) __attribute__((weak));
+                                  int* height) SHAR_OPENXR_WEAK;
     void SetFrontendPlaneActive(bool active);
     void SetFrontendPlaneRendering(bool rendering);
-    bool IsFrontendPlaneRendering() __attribute__((weak));
+    bool IsFrontendPlaneRendering() SHAR_OPENXR_WEAK;
     bool GetActiveFrontendProjection(rmt::Matrix* projection, int* width,
-                                     int* height) __attribute__((weak));
+                                     int* height) SHAR_OPENXR_WEAK;
     void SetPauseCoinVisible(bool visible);
     void DrawPauseCoinIcon();
     void SetIrisBlackout(bool black);
     void SetEnhancedUiConvergence(bool enabled);
-    bool HasEnhancedUiConvergence() __attribute__((weak));
+    bool HasEnhancedUiConvergence() SHAR_OPENXR_WEAK;
     bool GetEyeCamera(unsigned eye, tCamera* baseCamera,
                       rmt::Matrix* cameraToWorld);
     bool GetActiveEyeCamera(tCamera* baseCamera,
@@ -156,12 +162,14 @@ namespace SharOpenXR
 
     // Queried by the GLES PDDI backend whenever a view changes projection.
     bool GetActiveProjection(rmt::Matrix* projection, int* width, int* height)
-        __attribute__((weak));
+        SHAR_OPENXR_WEAK;
     bool GetActiveViewport(int* width, int* height)
-        __attribute__((weak));
+        SHAR_OPENXR_WEAK;
     bool GetActiveUiHorizontalOffset(float* offset)
-        __attribute__((weak));
+        SHAR_OPENXR_WEAK;
 }
+
+#undef SHAR_OPENXR_WEAK
 
 #endif
 #endif
