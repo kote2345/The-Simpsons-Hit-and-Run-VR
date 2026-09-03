@@ -5,6 +5,7 @@ namespace SharOpenXR { namespace Desktop {
 bool InitializeRuntime();
 void ShutdownRuntime();
 bool IsRuntimeReady();
+void PumpCompositor();
 } }
 #endif
 #endif

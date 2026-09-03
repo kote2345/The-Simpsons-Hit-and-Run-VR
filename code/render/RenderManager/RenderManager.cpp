@@ -37,6 +37,9 @@
 #include <vr/openxrmanager.h>
 #include <p3d/camera.hpp>
 #endif
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxr_desktop_runtime.h>
+#endif
 #include <render/RenderManager/WorldRenderLayer.h>
 #include <render/RenderManager/FrontEndRenderLayer.h>
 #include <render/IntersectManager/IntersectManager.h>
@@ -774,6 +777,9 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     }
 
     bool xrFrame = false;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SharOpenXR::Desktop::PumpCompositor();
+#endif
 #if defined(RAD_ANDROID)
     static bool xrInitializationAttempted = false;
     static bool xrAvailable = false;

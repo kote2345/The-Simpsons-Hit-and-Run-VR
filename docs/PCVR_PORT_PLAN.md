@@ -25,6 +25,9 @@ remains the production baseline and must keep building after every stage.
    - [x] Reuse `XR_KHR_vulkan_enable2` device selection.
    - [x] Create the Windows OpenXR instance without Android instance structures.
    - [x] Create a Win32 Vulkan session and local reference space.
+   - [x] Handle session READY/STOPPING events and frame timing.
+   - [x] Create a two-layer desktop stereo swapchain and submit projection layers.
+   - [ ] Replace the bootstrap clear with Pure3D eye rendering.
    - Share swapchain, view, frame timing, and action code with Quest.
 3. **Renderer integration**
    - Enable the Vulkan PDDI backend on Windows.
