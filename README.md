@@ -50,8 +50,10 @@
   Vulkan is selected by default; no renderer option is required.
 
   The work-in-progress PCVR target uses a vcpkg manifest for its Win64
-  dependencies. Run `build-pcvr.bat` from an x64 Visual Studio developer
-  prompt after setting `VCPKG_ROOT`. The target currently initializes and
+  dependencies. Set `VCPKG_ROOT` (or clone vcpkg into the repository as
+  `vcpkg`) and run `build-pcvr.bat`; the script locates Visual Studio, installs
+  the manifest dependencies, configures, and builds the Win64 target. It
+  currently initializes and
   submits OpenXR stereo frames; gameplay swapchain rendering is still under
   development.
 

@@ -96,6 +96,8 @@ bool GetActiveRadarProjection(rmt::Matrix*,int*,int*) { return false; }
 bool GetActiveMovieProjection(rmt::Matrix*,int*,int*) { return false; }
 bool GetActiveFrontendProjection(rmt::Matrix*,int*,int*) { return false; }
 bool GetLatestCullingCamera(rmt::Matrix*) { return false; }
+bool GetMultiviewMatrices(rmt::Matrix*,rmt::Matrix*) { return false; }
+void SetMultiviewTargetActive(bool) {}
 bool GetEyeCamera(unsigned eye,tCamera* base,rmt::Matrix* out) { if(eye>1||!base||!out)return false;const XrPosef& pose=Desktop::currentViews[eye].pose;rmt::Quaternion q(pose.orientation.w,-pose.orientation.x,-pose.orientation.y,pose.orientation.z);rmt::Matrix local;local.Identity();local.FillRotation(q);local.Row(3).Set(pose.position.x,pose.position.y,-pose.position.z);out->Mult(local,base->GetCameraToWorldMatrix());return true; }
 bool IsEmbeddedHudRendering() { return false; }
 bool IsRadarRendering() { return false; }
