@@ -155,6 +155,7 @@ set(SRR2_SOURCES
 	"main/win32main.cpp"
 	"vr/openxrmanager.cpp"
 	"vr/openxr_platform_loader.cpp"
+	"vr/openxr_platform_instance.cpp"
 	"main/win32platform.cpp"
 	"memory/classsizetracker.cpp"
 	"memory/createheap.cpp"
@@ -592,6 +593,11 @@ target_link_libraries(${SRR2_TARGET}
 	sim
 	Threads::Threads
 )
+
+if(SRR2_ENABLE_OPENXR AND NOT ANDROID)
+	find_path(SRR2_OPENXR_INCLUDE_DIR openxr/openxr.h REQUIRED)
+	target_include_directories(${SRR2_TARGET} PRIVATE ${SRR2_OPENXR_INCLUDE_DIR})
+endif()
 
 # --- Android: OpenAL + libs del sistema ---
 if(ANDROID)

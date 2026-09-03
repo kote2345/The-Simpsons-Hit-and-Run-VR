@@ -17,6 +17,7 @@
 
 #include <vr/openxrmanager.h>
 #include <vr/openxr_platform_loader.h>
+#include <vr/openxr_platform_instance.h>
 #if defined(SRR2_VR_RENDERER_VULKAN)
 #include <vr/vulkan/openxr_vulkan_context.h>
 #endif
@@ -2085,42 +2086,64 @@ bool Initialize()
     g.getProc=reinterpret_cast<PFN_xrGetInstanceProcAddr>(
         SharOpenXR::Platform::GetLoaderSymbol(g.loader,"xrGetInstanceProcAddr"));
     if (!g.getProc) { XRERR("xrGetInstanceProcAddr unavailable"); return false; }
-    PFN_xrInitializeLoaderKHR initLoader=NULL;
-    g.getProc(XR_NULL_HANDLE,"xrInitializeLoaderKHR",reinterpret_cast<PFN_xrVoidFunction*>(&initLoader));
-    if (initLoader)
+    if(!SharOpenXR::Platform::InitializeOpenXRLoader(g.getProc))
     {
-        XrLoaderInitInfoAndroidKHR li={XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR};
-        JNIEnv* env=static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
-        jobject activity=static_cast<jobject>(SDL_AndroidGetActivity());
-        JavaVM* vm=NULL;
-        if (!env || !activity || env->GetJavaVM(&vm)!=JNI_OK) return false;
-        li.applicationVM=vm;
-        li.applicationContext=activity;
-        if (XR_FAILED(initLoader(reinterpret_cast<XrLoaderInitInfoBaseHeaderKHR*>(&li)))) return false;
+        XRERR("platform loader initialization failed");
+        return false;
     }
-    const char* extensions[]={XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME,
-                              XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
+
+    PFN_xrEnumerateInstanceExtensionProperties enumerateExtensions=NULL;
+    g.getProc(XR_NULL_HANDLE,"xrEnumerateInstanceExtensionProperties",
+        reinterpret_cast<PFN_xrVoidFunction*>(&enumerateExtensions));
+    if(!enumerateExtensions) return false;
+    uint32_t extensionCount=0;
+    if(XR_FAILED(enumerateExtensions(NULL,0,&extensionCount,NULL))) return false;
+    std::vector<XrExtensionProperties> availableExtensions(
+        extensionCount,{XR_TYPE_EXTENSION_PROPERTIES});
+    if(XR_FAILED(enumerateExtensions(NULL,extensionCount,&extensionCount,
+                                     availableExtensions.data()))) return false;
+    const auto hasExtension=[&availableExtensions](const char* name)
+    {
+        for(size_t i=0;i<availableExtensions.size();++i)
+            if(std::strcmp(availableExtensions[i].extensionName,name)==0) return true;
+        return false;
+    };
+    std::vector<const char*> extensions;
+    SharOpenXR::Platform::AppendRequiredInstanceExtensions(extensions);
 #if defined(SRR2_VR_RENDERER_VULKAN)
-                              "XR_KHR_vulkan_enable2",
-                              XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME,
-                              XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME,
-                              XR_FB_FOVEATION_EXTENSION_NAME,
-                              XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
-                              XR_FB_FOVEATION_VULKAN_EXTENSION_NAME,
+    extensions.push_back(XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME);
+#else
+    extensions.push_back(XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME);
 #endif
-                              XR_FB_COLOR_SPACE_EXTENSION_NAME,
-                              XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME};
-    XrInstanceCreateInfoAndroidKHR androidInfo={XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR};
-    JNIEnv* env=static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
-    JavaVM* vm=NULL; env->GetJavaVM(&vm); androidInfo.applicationVM=vm;
-    androidInfo.applicationActivity=static_cast<jobject>(SDL_AndroidGetActivity());
-    XrInstanceCreateInfo ci={XR_TYPE_INSTANCE_CREATE_INFO}; ci.next=&androidInfo;
+    const char* optionalExtensions[]={
+#if defined(SRR2_VR_RENDERER_VULKAN)
+        XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME,
+        XR_FB_SWAPCHAIN_UPDATE_STATE_EXTENSION_NAME,
+        XR_FB_FOVEATION_EXTENSION_NAME,
+        XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
+        XR_FB_FOVEATION_VULKAN_EXTENSION_NAME,
+#endif
+        XR_FB_COLOR_SPACE_EXTENSION_NAME,
+        XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME};
+    for(size_t i=0;i<sizeof(optionalExtensions)/sizeof(optionalExtensions[0]);++i)
+        if(hasExtension(optionalExtensions[i])) extensions.push_back(optionalExtensions[i]);
+    for(size_t i=0;i<extensions.size();++i)
+    {
+        if(!hasExtension(extensions[i]))
+        {
+            XRERR("required instance extension unavailable: %s",extensions[i]);
+            return false;
+        }
+    }
+
+    XrInstanceCreateInfo ci={XR_TYPE_INSTANCE_CREATE_INFO};
+    if(!SharOpenXR::Platform::PrepareInstanceCreateInfo(&ci)) return false;
     std::strncpy(ci.applicationInfo.applicationName,"The Simpsons Hit & Run VR",XR_MAX_APPLICATION_NAME_SIZE-1);
     ci.applicationInfo.applicationVersion=1;
     std::strncpy(ci.applicationInfo.engineName,"Pure3D",XR_MAX_ENGINE_NAME_SIZE-1);
     ci.applicationInfo.engineVersion=1; ci.applicationInfo.apiVersion=XR_CURRENT_API_VERSION;
-    ci.enabledExtensionCount=sizeof(extensions)/sizeof(extensions[0]);
-    ci.enabledExtensionNames=extensions;
+    ci.enabledExtensionCount=static_cast<uint32_t>(extensions.size());
+    ci.enabledExtensionNames=extensions.data();
     PFN_xrCreateInstance createInstance=NULL;
     g.getProc(XR_NULL_HANDLE,"xrCreateInstance",reinterpret_cast<PFN_xrVoidFunction*>(&createInstance));
     if (!createInstance || XR_FAILED(createInstance(&ci,&g.instance))) { XRERR("xrCreateInstance failed"); return false; }

@@ -20,6 +20,8 @@ remains the production baseline and must keep building after every stage.
      `SRR2_OPENXR_PLATFORM_ANDROID/WIN32` for actual platform differences.
    - Add a desktop OpenXR lifecycle entry point without changing Quest startup.
 2. **Desktop Vulkan session**
+   - [x] Move Android loader/instance chaining into a platform backend.
+   - [x] Request optional Meta extensions only when the active runtime supports them.
    - Reuse `XR_KHR_vulkan_enable2` device selection.
    - Create the Windows OpenXR instance without Android instance structures.
    - Share swapchain, view, frame timing, and action code with Quest.
