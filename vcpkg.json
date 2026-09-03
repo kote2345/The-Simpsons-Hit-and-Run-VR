@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "simpsons-hit-and-run-vr",
+  "version-string": "0.61",
+  "dependencies": [
+    "ffmpeg",
+    "libpng",
+    "openal-soft",
+    "openxr-loader",
+    "zlib"
+  ]
+}

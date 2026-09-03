@@ -32,7 +32,8 @@ remains the production baseline and must keep building after every stage.
 3. **Renderer integration**
    - [x] Enable the Vulkan PDDI backend on Windows.
    - [x] Use the vendored SDL2 revision for reproducible Win64 VR builds.
-   - [ ] Supply Win64 ZLIB/libpng, OpenAL, and FFmpeg dependencies.
+   - [x] Define Win64 OpenXR, ZLIB/libpng, OpenAL, and FFmpeg dependencies
+     in a vcpkg manifest and provide `build-pcvr.bat`.
    - [ ] Expose the acquired desktop swapchain image to Vulkan PDDI.
    - Create the SDL desktop window as a mirror/diagnostic surface.
    - Keep Quest multiview and mobile extensions behind capability checks.
