@@ -10,13 +10,13 @@
 #include <GLES3/gl32.h>
 #include <GLES2/gl2ext.h>
 #include <jni.h>
-#include <dlfcn.h>
 #include <SDL.h>
 #include <SDL_system.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
 #include <vr/openxrmanager.h>
+#include <vr/openxr_platform_loader.h>
 #if defined(SRR2_VR_RENDERER_VULKAN)
 #include <vr/vulkan/openxr_vulkan_context.h>
 #endif
@@ -2080,9 +2080,10 @@ bool Initialize()
         SDL_free(preferencePath);
     }
     XRLOG("saved gameplay mode: %s",g.vrModeEnabled?"VR":"Original");
-    g.loader=dlopen("libopenxr_loader.so", RTLD_NOW|RTLD_LOCAL);
-    if (!g.loader) { XRERR("loader unavailable: %s", dlerror()); return false; }
-    g.getProc=reinterpret_cast<PFN_xrGetInstanceProcAddr>(dlsym(g.loader,"xrGetInstanceProcAddr"));
+    g.loader=SharOpenXR::Platform::OpenLoader();
+    if (!g.loader) { XRERR("loader unavailable: %s", SharOpenXR::Platform::GetLoaderError()); return false; }
+    g.getProc=reinterpret_cast<PFN_xrGetInstanceProcAddr>(
+        SharOpenXR::Platform::GetLoaderSymbol(g.loader,"xrGetInstanceProcAddr"));
     if (!g.getProc) { XRERR("xrGetInstanceProcAddr unavailable"); return false; }
     PFN_xrInitializeLoaderKHR initLoader=NULL;
     g.getProc(XR_NULL_HANDLE,"xrInitializeLoaderKHR",reinterpret_cast<PFN_xrVoidFunction*>(&initLoader));
@@ -2270,7 +2271,8 @@ void Shutdown()
 #if defined(SRR2_VR_RENDERER_VULKAN)
     gVulkanContext.Shutdown();
 #endif
-    if(g.instance) g.DestroyInstance(g.instance); if(g.loader) dlclose(g.loader);
+    if(g.instance) g.DestroyInstance(g.instance);
+    if(g.loader) SharOpenXR::Platform::CloseLoader(g.loader);
     g = State();
 }
 

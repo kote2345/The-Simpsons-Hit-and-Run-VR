@@ -154,6 +154,7 @@ set(SRR2_SOURCES
 	"main/tuidunaligned.cpp"
 	"main/win32main.cpp"
 	"vr/openxrmanager.cpp"
+	"vr/openxr_platform_loader.cpp"
 	"main/win32platform.cpp"
 	"memory/classsizetracker.cpp"
 	"memory/createheap.cpp"
@@ -545,7 +546,7 @@ set(SRR2_SOURCES
 	"worldsim/worldobject.cpp"
 	"worldsim/worldphysicsmanager.cpp"
 )
-if(ANDROID AND SRR2_VR_RENDERER STREQUAL "VULKAN")
+if(SRR2_ENABLE_OPENXR AND SRR2_VR_RENDERER STREQUAL "VULKAN")
 	list(APPEND SRR2_SOURCES
 		"vr/vulkan/openxr_vulkan_context.cpp"
 		"vr/vulkan/material_pipeline.cpp"

@@ -33,7 +33,7 @@
 
   ## Project Status
 
-  The port is actively developed. Core gameplay, VR rendering, menus, HUD, and controller support have been adapted for Quest 3. PCVR version in plans.
+  The port is actively developed. Core gameplay, VR rendering, menus, HUD, and controller support have been adapted for Quest 3. PCVR development has started; see the [PCVR port plan](docs/PCVR_PORT_PLAN.md).
 
   ## Vulkan renderer
 

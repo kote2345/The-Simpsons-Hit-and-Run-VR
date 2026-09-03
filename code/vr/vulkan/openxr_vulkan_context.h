@@ -1,7 +1,7 @@
 #ifndef SHAR_OPENXR_VULKAN_CONTEXT_H
 #define SHAR_OPENXR_VULKAN_CONTEXT_H
 
-#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#if defined(SRR2_OPENXR) && defined(SRR2_VR_RENDERER_VULKAN)
 
 #include <openxr/openxr.h>
 #include <vulkan/vulkan.h>

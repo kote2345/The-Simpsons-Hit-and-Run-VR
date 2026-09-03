@@ -1,8 +1,10 @@
-#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#if defined(SRR2_OPENXR) && defined(SRR2_VR_RENDERER_VULKAN)
 
-#define XR_USE_PLATFORM_ANDROID
 #define XR_USE_GRAPHICS_API_VULKAN
+#if defined(SRR2_OPENXR_PLATFORM_ANDROID)
+#define XR_USE_PLATFORM_ANDROID
 #include <jni.h>
+#endif
 #include <vulkan/vulkan.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
