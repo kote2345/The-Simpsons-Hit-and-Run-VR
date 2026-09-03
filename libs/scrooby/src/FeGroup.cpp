@@ -12,7 +12,7 @@
 #endif
 
 #if defined(RAD_ANDROID)
-enum { VR_MISSION_HUD_GROUP_COUNT=14 };
+enum { VR_MISSION_HUD_GROUP_COUNT=19 };
 enum { VR_HUD_GROUP_INSTANCES=8 };
 static Scrooby::Group* gVrRadarGroup[VR_HUD_GROUP_INSTANCES]={NULL};
 static Scrooby::Group* gVrMissionHudGroup[VR_MISSION_HUD_GROUP_COUNT][VR_HUD_GROUP_INSTANCES]={{NULL}};

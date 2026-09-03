@@ -105,12 +105,12 @@ MEMTRACK_PUSH_GROUP( "CGuiScreenDisplay" );
     FeText* style=VrMenuBuilder::FindStyleText(pPage);rAssert(style);
     VrMenuBuilder::RememberGraphicsStyle(style);
     const char* const toggle[]={"Off","On"};
-    const char* const materials[]={"Off","Phong","PBR","NPR Toon"};
+    const char* const materials[]={"Original","Phong","PBR","NPR Toon"};
     const char* const lights[]={"Off","Optimized","Max"};
     const char* const reflections[]={"Off","Static","Dynamic"};
     const char* const rates[]={"72 Hz","90 Hz","120 Hz"};
     const char* const scales[]={"50%","60%","70%","80%","90%","100%","110%","120%"};
-    const char* const labels[]={"CSM Shadows","Custom Materials","Enhanced Materials","Vehicle Lights","Reflections","Refresh Rate","Render Scale"};
+    const char* const labels[]={"CSM Shadows","Custom Materials","Render","Vehicle Lights","Reflections","Refresh Rate","Render Scale"};
     const char* const* values[]={toggle,toggle,materials,lights,reflections,rates,scales};
     const int counts[]={2,2,4,3,3,3,8};
     for(int i=0;i<NUM_MENU_ITEMS;++i){

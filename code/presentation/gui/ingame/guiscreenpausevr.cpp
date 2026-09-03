@@ -10,7 +10,7 @@
 #include <FeText.h>
 
 namespace {
-const char* const Labels[6]={"Mode","Seated Mode","Turn Mode","Turn Speed","Vehicle Control","Developer Menus"};
+const char* const Labels[7]={"Mode","Seated Mode","Turn Mode","Turn Speed","Vehicle Control","Vehicle Comfort","Developer Menus"};
 const float SmoothSpeeds[5]={45,90,120,180,240},SnapAngles[5]={15,30,45,60,90};
 const char* const ModeValues[]={"Original","VR"};
 const char* const ToggleValues[]={"Off","On"};
@@ -22,9 +22,9 @@ int Closest(const float* v,float x){int b=0;for(int i=1;i<5;++i)if(rmt::Fabs(v[i
 }
 
 CGuiScreenPauseVR::CGuiScreenPauseVR(Scrooby::Screen* screen,CGuiEntity* parent)
-:CGuiScreen(screen,parent,GUI_SCREEN_ID_VR),m_pMenu(NULL),m_pPage(NULL),m_numRows(6),m_frontendLayout(false)
+:CGuiScreen(screen,parent,GUI_SCREEN_ID_VR),m_pMenu(NULL),m_pPage(NULL),m_numRows(7),m_frontendLayout(false)
 {
-    for(int i=0;i<6;++i){m_pRows[i]=NULL;m_pLabels[i]=NULL;m_pValues[i]=NULL;}
+    for(int i=0;i<7;++i){m_pRows[i]=NULL;m_pLabels[i]=NULL;m_pValues[i]=NULL;}
     m_numericValues[0]=0;
     m_numericValues[1]=0;
     m_pPage=m_pScroobyScreen->GetPage("PauseSettings");
@@ -33,10 +33,10 @@ CGuiScreenPauseVR::CGuiScreenPauseVR(Scrooby::Screen* screen,CGuiEntity* parent)
     Scrooby::Group* authored=m_pPage->GetGroup("Menu");if(authored)authored->SetVisible(false);
     FeText* style=VrMenuBuilder::FindStyleText(m_pPage);rAssert(style);
     m_pMenu=new CGuiMenu(this,m_numRows);
-    const char* const* values[6]={ModeValues,ToggleValues,TurnValues,SmoothSpeedValues,VehicleValues,ToggleValues};
-    const int counts[6]={2,2,2,5,3,2};
-    for(int i=0;i<6;++i){
-        VrMenuBuilder::Row row=VrMenuBuilder::AddRow(m_pPage,style,"CleanVR",i,Labels[i],values[i],counts[i],94,48,true);
+    const char* const* values[7]={ModeValues,ToggleValues,TurnValues,SmoothSpeedValues,VehicleValues,ToggleValues,ToggleValues};
+    const int counts[7]={2,2,2,5,3,2,2};
+    for(int i=0;i<7;++i){
+        VrMenuBuilder::Row row=VrMenuBuilder::AddRow(m_pPage,style,"CleanVR",i,Labels[i],values[i],counts[i],82,43,true);
         m_pRows[i]=row.group;m_pLabels[i]=row.label;m_pValues[i]=row.value;rAssert(row.label&&row.value);
         m_pMenu->AddMenuItem(row.label,row.value,NULL,NULL,NULL,NULL,SELECTION_ENABLED|VALUES_WRAPPED|TEXT_OUTLINE_ENABLED);
         m_pMenu->SetSelectionValueCount(i,counts[i]);
@@ -59,14 +59,15 @@ void CGuiScreenPauseVR::HandleMessage(eGuiMessage message,unsigned int param1,un
             else if(param1==2){SharOpenXR::SetSnapTurnEnabled(param2!=0);UpdateNumericValue(3);}
             else if(param1==3&&param2<5){const int mode=SharOpenXR::IsSnapTurnEnabled()?1:0;m_numericValues[mode]=param2;if(mode)SharOpenXR::SetSnapTurnAngle(SnapAngles[param2]);else SharOpenXR::SetSmoothTurnSpeed(SmoothSpeeds[param2]);}
             else if(param1==4)SharOpenXR::SetVehicleControlMode(static_cast<int>(param2));
-            else if(param1==5)SharOpenXR::SetDeveloperMenusEnabled(param2!=0);
+            else if(param1==5)SharOpenXR::SetVehicleComfortEnabled(param2!=0);
+            else if(param1==6)SharOpenXR::SetDeveloperMenusEnabled(param2!=0);
         }
         if(m_pMenu)m_pMenu->HandleMessage(message,param1,param2);
     }
     CGuiScreen::HandleMessage(message,param1,param2);
 }
-void CGuiScreenPauseVR::SetVrLayoutVisible(bool visible){for(int i=0;i<6;++i)SetRowVisible(i,visible);}
-void CGuiScreenPauseVR::SetRowVisible(int row,bool visible){if(row>=0&&row<6&&m_pRows[row])m_pRows[row]->SetVisible(visible);}
+void CGuiScreenPauseVR::SetVrLayoutVisible(bool visible){for(int i=0;i<7;++i)SetRowVisible(i,visible);}
+void CGuiScreenPauseVR::SetRowVisible(int row,bool visible){if(row>=0&&row<7&&m_pRows[row])m_pRows[row]->SetVisible(visible);}
 void CGuiScreenPauseVR::UpdateNumericValue(int row){
     if(row!=3)return;
     const bool snap=SharOpenXR::IsSnapTurnEnabled();
@@ -79,7 +80,9 @@ void CGuiScreenPauseVR::InitIntro(){
     m_numericValues[0]=Closest(SmoothSpeeds,SharOpenXR::GetSmoothTurnSpeed());m_numericValues[1]=Closest(SnapAngles,SharOpenXR::GetSnapTurnAngle());
     SetVrLayoutVisible(true);m_pMenu->SetSelectionValue(0,SharOpenXR::IsVrModeEnabled()?1:0);
     m_pMenu->SetSelectionValue(1,SharOpenXR::IsSeatedMode()?1:0);m_pMenu->SetSelectionValue(2,SharOpenXR::IsSnapTurnEnabled()?1:0);
-    m_pMenu->SetSelectionValue(4,SharOpenXR::GetVehicleControlMode());m_pMenu->SetSelectionValue(5,SharOpenXR::IsDeveloperMenusEnabled()?1:0);
+    m_pMenu->SetSelectionValue(4,SharOpenXR::GetVehicleControlMode());
+    m_pMenu->SetSelectionValue(5,SharOpenXR::IsVehicleComfortEnabled()?1:0);
+    m_pMenu->SetSelectionValue(6,SharOpenXR::IsDeveloperMenusEnabled()?1:0);
     UpdateNumericValue(3);
 }
 void CGuiScreenPauseVR::InitRunning(){}

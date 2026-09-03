@@ -130,6 +130,8 @@ namespace SharOpenXR
     bool IsVrSteeringWheelEnabled();
     void SetVehicleControlMode(int mode);
     int GetVehicleControlMode();
+    void SetVehicleComfortEnabled(bool enabled);
+    bool IsVehicleComfortEnabled();
     bool IsThirdPersonVehicleMode();
     bool GetVrSteeringWheelValue(float* value);
     void SetRenderScale(float scale);

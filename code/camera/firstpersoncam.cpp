@@ -71,6 +71,7 @@ static float ClampVrVehicleTilt(float angle)
 static void BuildVrStabilizedVehicleTransform(const rmt::Matrix& vehicleTransform,
                                                float deltaSeconds,
                                                bool initialize,
+                                               bool smoothTilt,
                                                float* filteredPitch,
                                                float* filteredRoll,
                                                rmt::Matrix* stabilized)
@@ -89,7 +90,7 @@ static void BuildVrStabilizedVehicleTransform(const rmt::Matrix& vehicleTransfor
         rmt::ATan2(vehicleTransform.Row(0).y,vehicleTransform.Row(1).y)*
         VR_VEHICLE_TILT_SCALE);
 
-    if(initialize)
+    if(initialize || !smoothTilt)
     {
         *filteredPitch=desiredPitch;
         *filteredRoll=desiredRoll;
@@ -399,6 +400,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
         }
         BuildVrStabilizedVehicleTransform(vehicle->GetTransform(),
             static_cast<float>(milliseconds)/1000.0f,!mVrVehicleTiltValid,
+            SharOpenXR::IsVehicleComfortEnabled(),
             &mVrVehiclePitch,&mVrVehicleRoll,&vrVehicleTransform);
         mVrVehicleTiltValid=true;
         vrVehicleTransformValid=true;

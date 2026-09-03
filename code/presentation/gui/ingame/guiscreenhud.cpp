@@ -364,6 +364,16 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "MissionComplete" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_MISSION_COMPLETE ] = pGroup;
+#ifdef RAD_ANDROID
+    // Central transient notifications were the remaining mono HUD elements.
+    // Keep each authored group intact so text, backing art and animation are
+    // captured and presented to both eyes together.
+    ScroobySetVrMissionHudGroup( 14, pGroup );
+    ScroobySetVrMissionHudGroup( 15, pPage->GetGroup( "MissionProgress" ) );
+    ScroobySetVrMissionHudGroup( 16, pPage->GetGroup( "HitNRun" ) );
+    ScroobySetVrMissionHudGroup( 17, pPage->GetGroup( "ItemDropped" ) );
+    ScroobySetVrMissionHudGroup( 18, pPage->GetGroup( "WaspsDestroyed" ) );
+#endif
 
     // get 'mission complete' text
     //

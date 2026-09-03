@@ -149,7 +149,7 @@ struct State
     int radarRect[4];
     int radarMapRect[4];
     bool radarCropValid;
-    enum { MISSION_HUD_COUNT=14 };
+    enum { MISSION_HUD_COUNT=19 };
 #if defined(SRR2_VR_RENDERER_VULKAN)
     VkImage vulkanRadarImage;
     VkDeviceMemory vulkanRadarMemory;
@@ -210,6 +210,7 @@ struct State
     bool enhancedUiConvergence;
     bool vrModeEnabled;
     bool seatedMode, snapTurnEnabled, csmEnabled, enhancedMaterialsEnabled, gtaoEnabled;
+    bool vehicleComfortEnabled;
     bool customMaterialsEnabled;
     int enhancedMaterialModel;
     bool spatialHudEnabled;
@@ -394,14 +395,15 @@ static void SaveVrSettings()
     std::string filename(path); filename+="vrsettings.cfg";
     if(FILE* file=std::fopen(filename.c_str(),"wb"))
     {
-        std::fprintf(file,"seated=%d\nsnap=%d\nsmooth=%.1f\nangle=%.1f\ncsm=%d\nenhancedMaterials=%d\ngtao=%d\nrenderScale=%.3f\nrefreshRate=%.0f\nvrSteeringWheel=%d\nvehicleLights=%d\nspatialHud=%d\ndeveloperMenus=%d\nmaterialModel=%d\nreflectionMode=%d\npbrDebugMode=%d\ncustomMaterials=%d\n",
+        std::fprintf(file,"seated=%d\nsnap=%d\nsmooth=%.1f\nangle=%.1f\ncsm=%d\nenhancedMaterials=%d\ngtao=%d\nrenderScale=%.3f\nrefreshRate=%.0f\nvrSteeringWheel=%d\nvehicleLights=%d\nspatialHud=%d\ndeveloperMenus=%d\nmaterialModel=%d\nreflectionMode=%d\npbrDebugMode=%d\ncustomMaterials=%d\nvehicleComfort=%d\n",
                      g.seatedMode?1:0,g.snapTurnEnabled?1:0,
                      g.smoothTurnSpeed,g.snapTurnAngle,g.csmEnabled?1:0,
                      g.enhancedMaterialsEnabled?1:0,g.gtaoEnabled?1:0,
                      g.renderScale,g.refreshRate,g.vehicleControlMode,
                      g.vehicleLightMode,g.spatialHudEnabled?1:0,
                      g.developerMenusEnabled?1:0,g.enhancedMaterialModel,g.reflectionMode,
-                     g.pbrDebugMode,g.customMaterialsEnabled?1:0);
+                     g.pbrDebugMode,g.customMaterialsEnabled?1:0,
+                     g.vehicleComfortEnabled?1:0);
         std::fclose(file);
     }
     SDL_free(path);
@@ -1783,6 +1785,12 @@ void SetVehicleControlMode(int mode)
     SaveVrSettings();
 }
 int GetVehicleControlMode(){ return g.vehicleControlMode; }
+void SetVehicleComfortEnabled(bool enabled)
+{
+    g.vehicleComfortEnabled=enabled;
+    SaveVrSettings();
+}
+bool IsVehicleComfortEnabled(){ return g.vehicleComfortEnabled; }
 bool IsThirdPersonVehicleMode(){ return g.vehicleControlMode==2; }
 bool GetVrSteeringWheelValue(float* value)
 {
@@ -1992,6 +2000,7 @@ bool Initialize()
     g.appliedRenderScale=1.0f;
     g.refreshRate=72.0f;
     g.vehicleControlMode=0;
+    g.vehicleComfortEnabled=true;
     g.vehicleLightMode=1;
     g.reflectionMode=0;
     g.pbrDebugMode=0;
@@ -2058,6 +2067,9 @@ bool Initialize()
                                 int customMaterials=1;
                                 if(std::fscanf(file,"\ncustomMaterials=%d",&customMaterials)==1)
                                     g.customMaterialsEnabled=customMaterials!=0;
+                                int vehicleComfort=1;
+                                if(std::fscanf(file,"\nvehicleComfort=%d",&vehicleComfort)==1)
+                                    g.vehicleComfortEnabled=vehicleComfort!=0;
                             }
                         }
                     }
@@ -4118,15 +4130,25 @@ static void DrawMissionHudPlanes()
         if(wheelCentre.MagnitudeSqr()<0.0001f) wheelCentre=kVrWheelCentre;
         base.Identity();base.Row(3)=wheelCentre;
         const rmt::Matrix local=base;base.Mult(local,g.cullingBaseCamera);}
-    else{if(!g.handPoseValid[0]) return;
-        const rmt::Matrix hand=PoseToGame(RelativePose(g.origin,g.handPoses[0]));
-        rmt::Matrix handWorld;handWorld.Mult(hand,g.cullingBaseCamera);
-        objectiveHandPoint=handWorld.Row(3);
-        objectiveHandPointValid=true;
+    else{
         base.Identity();base.Row(0)=eyeWorld.Row(0);base.Row(1)=eyeWorld.Row(1);
         base.Row(2)=eyeWorld.Row(2);
-        const rmt::Vector towardElbow=handWorld.Row(1)*0.10f;
-        base.Row(3)=handWorld.Row(3)+towardElbow;}
+        if(g.handPoseValid[0])
+        {
+            const rmt::Matrix hand=PoseToGame(RelativePose(g.origin,g.handPoses[0]));
+            rmt::Matrix handWorld;handWorld.Mult(hand,g.cullingBaseCamera);
+            objectiveHandPoint=handWorld.Row(3);
+            objectiveHandPointValid=true;
+            const rmt::Vector towardElbow=handWorld.Row(1)*0.10f;
+            base.Row(3)=handWorld.Row(3)+towardElbow;
+        }
+        else
+        {
+            // Central notifications must remain visible even while controller
+            // tracking is unavailable. Wrist-bound items will skip below.
+            base.Row(3)=g.cullingBaseCamera.Row(3)+
+                g.cullingBaseCamera.Row(2)*0.85f;
+        }}
 #if !defined(SRR2_VR_RENDERER_VULKAN)
     GLint oldProgram=0,oldArray=0,oldTexture=0,oldActive=0;
     glGetIntegerv(GL_CURRENT_PROGRAM,&oldProgram);glGetIntegerv(GL_ARRAY_BUFFER_BINDING,&oldArray);
@@ -4189,6 +4211,19 @@ static void DrawMissionHudPlanes()
         const float drawHeight=timerSlot?0.0425f:
             std::max(1.0f,cropPixels)*hudPixelScale;
         rmt::Matrix anchor=base;
+        const bool centreNotification=slot>=14 && slot<=18;
+        if(centreNotification)
+        {
+            // Transient announcements belong in front of the player rather
+            // than on either wrist.  Anchor them once in the game-camera
+            // space; the two eye projections then provide real stereo.
+            anchor.Identity();
+            anchor.Row(0)=g.cullingBaseCamera.Row(0);
+            anchor.Row(1)=g.cullingBaseCamera.Row(1);
+            anchor.Row(2)=g.cullingBaseCamera.Row(2);
+            anchor.Row(3)=g.cullingBaseCamera.Row(3)+
+                g.cullingBaseCamera.Row(2)*0.85f;
+        }
         if((slot==0 || slot==1) && g.missionObjectiveFrameRectValid)
         {
             const rmt::Vector frameAttachment=objectiveHandPointValid?
@@ -4342,7 +4377,7 @@ static void DrawMissionHudPlanes()
             // the bitmap digits rather than the empty texture rectangle.
             anchor.Row(3)=anchor.Row(3)-anchor.Row(1)*0.010f;
         }
-        if(fixedToVehicle)
+        if(fixedToVehicle && !centreNotification)
         {
             // Keep both position and orientation rigidly fixed to the car.
             // Build an explicitly orthonormal yaw-only basis: copying camera

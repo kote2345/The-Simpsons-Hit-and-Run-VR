@@ -322,6 +322,14 @@ void CGuiScreenIrisWipe::InitRunning()
 //===========================================================================
 void CGuiScreenIrisWipe::InitOutro()
 {
+#if defined(RAD_ANDROID)
+    // A mission restart leaves the authored iris closed while switching to
+    // the mission-loading screen (DoNotOpenOnNextOutro).  The OpenXR cover is
+    // separate from that animation, though, and must be released whenever we
+    // leave this screen.  Otherwise its target remains opaque until another
+    // iris transition, such as exiting a vehicle, happens to clear it.
+    SharOpenXR::SetIrisBlackout( false );
+#endif
     if( m_loadingText != NULL )
     {
         // hide loading text
@@ -335,11 +343,6 @@ void CGuiScreenIrisWipe::InitOutro()
     }
     else
     {
-#if defined(RAD_ANDROID)
-        // Release the full-eye cover at the exact point where the authored
-        // circular iris begins its opening half.
-        SharOpenXR::SetIrisBlackout( false );
-#endif
         g_IsIrisClosed = false;
         if( !m_isIrisActive )
         {
