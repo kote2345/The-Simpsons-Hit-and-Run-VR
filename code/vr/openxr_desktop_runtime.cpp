@@ -8,7 +8,9 @@
 #include <vr/openxr_platform_loader.h>
 #include <vr/openxr_platform_instance.h>
 #include <vr/vulkan/openxr_vulkan_context.h>
+#include <p3d/camera.hpp>
 #include <SDL.h>
+#include <cmath>
 #include <cstring>
 #include <vector>
 namespace SharOpenXR { namespace Desktop { namespace {
@@ -16,8 +18,11 @@ void* loader=NULL; PFN_xrGetInstanceProcAddr getProc=NULL;
 XrInstance instance=XR_NULL_HANDLE; XrSystemId system=XR_NULL_SYSTEM_ID;
 XrSession session=XR_NULL_HANDLE; XrSpace space=XR_NULL_HANDLE;
 XrSwapchain swapchain=XR_NULL_HANDLE; int32_t eyeWidth=0,eyeHeight=0;
+VkFormat swapchainFormat=VK_FORMAT_R8G8B8A8_UNORM;
 std::vector<XrSwapchainImageVulkanKHR> images; std::vector<unsigned char> initialized;
 XrSessionState sessionState=XR_SESSION_STATE_UNKNOWN; bool running=false;
+XrFrameState currentFrame={XR_TYPE_FRAME_STATE};XrView currentViews[2]={{XR_TYPE_VIEW},{XR_TYPE_VIEW}};
+uint32_t currentImage=0,currentEye=0;bool frameActive=false,imageAcquired=false,eyeActive=false;
 PFN_xrDestroySpace destroySpace=NULL; PFN_xrDestroySession destroySession=NULL; PFN_xrDestroyInstance destroyInstance=NULL;
 PFN_xrPollEvent pollEvent=NULL;PFN_xrBeginSession beginSession=NULL;PFN_xrEndSession endSession=NULL;
 PFN_xrWaitFrame waitFrame=NULL;PFN_xrBeginFrame beginFrame=NULL;PFN_xrEndFrame endFrame=NULL;
@@ -54,7 +59,7 @@ bool InitializeRuntime(){
  std::vector<XrViewConfigurationView> views(viewCount,{XR_TYPE_VIEW_CONFIGURATION_VIEW});
  if(viewCount!=2||XR_FAILED(enumerateViews(instance,system,XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,viewCount,&viewCount,views.data()))){ShutdownRuntime();return false;}
  uint32_t formatCount=0;enumerateFormats(session,0,&formatCount,NULL);std::vector<int64_t> formats(formatCount);enumerateFormats(session,formatCount,&formatCount,formats.data());
- int64_t format=formats.empty()?VK_FORMAT_R8G8B8A8_UNORM:formats[0];for(size_t i=0;i<formats.size();++i)if(formats[i]==VK_FORMAT_R8G8B8A8_SRGB){format=formats[i];break;}
+ int64_t format=formats.empty()?VK_FORMAT_R8G8B8A8_UNORM:formats[0];for(size_t i=0;i<formats.size();++i)if(formats[i]==VK_FORMAT_R8G8B8A8_SRGB){format=formats[i];break;}swapchainFormat=static_cast<VkFormat>(format);
  eyeWidth=static_cast<int32_t>(views[0].recommendedImageRectWidth);eyeHeight=static_cast<int32_t>(views[0].recommendedImageRectHeight);
  XrSwapchainCreateInfo swapInfo={XR_TYPE_SWAPCHAIN_CREATE_INFO};swapInfo.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT;swapInfo.format=format;swapInfo.sampleCount=1;swapInfo.width=eyeWidth;swapInfo.height=eyeHeight;swapInfo.faceCount=1;swapInfo.arraySize=2;swapInfo.mipCount=1;
  if(XR_FAILED(createSwapchain(session,&swapInfo,&swapchain))){ShutdownRuntime();return false;}
@@ -63,37 +68,40 @@ bool InitializeRuntime(){
  SDL_Log("PCVR: OpenXR Vulkan session ready (%dx%d)",eyeWidth,eyeHeight);return true;}
 void ShutdownRuntime(){running=false;if(swapchain!=XR_NULL_HANDLE&&destroySwapchain)destroySwapchain(swapchain);swapchain=XR_NULL_HANDLE;images.clear();initialized.clear();if(space!=XR_NULL_HANDLE&&destroySpace)destroySpace(space);space=XR_NULL_HANDLE;if(session!=XR_NULL_HANDLE&&destroySession)destroySession(session);session=XR_NULL_HANDLE;GetVulkanContext().Shutdown();if(instance!=XR_NULL_HANDLE&&destroyInstance)destroyInstance(instance);instance=XR_NULL_HANDLE;if(loader)Platform::CloseLoader(loader);loader=NULL;getProc=NULL;system=XR_NULL_SYSTEM_ID;}
 bool IsRuntimeReady(){return session!=XR_NULL_HANDLE;}
-void PumpCompositor(){
- if(!IsRuntimeReady())return;XrEventDataBuffer event={XR_TYPE_EVENT_DATA_BUFFER};
+bool BeginFrame(){
+ if(!IsRuntimeReady())return false;XrEventDataBuffer event={XR_TYPE_EVENT_DATA_BUFFER};
  while(pollEvent(instance,&event)==XR_SUCCESS){if(event.type==XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED){XrEventDataSessionStateChanged* changed=reinterpret_cast<XrEventDataSessionStateChanged*>(&event);sessionState=changed->state;if(sessionState==XR_SESSION_STATE_READY){XrSessionBeginInfo begin={XR_TYPE_SESSION_BEGIN_INFO};begin.primaryViewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;running=XR_SUCCEEDED(beginSession(session,&begin));}else if(sessionState==XR_SESSION_STATE_STOPPING){endSession(session);running=false;}}event={XR_TYPE_EVENT_DATA_BUFFER};}
- if(!running)return;XrFrameWaitInfo wait={XR_TYPE_FRAME_WAIT_INFO};XrFrameState state={XR_TYPE_FRAME_STATE};if(XR_FAILED(waitFrame(session,&wait,&state)))return;XrFrameBeginInfo begin={XR_TYPE_FRAME_BEGIN_INFO};if(XR_FAILED(beginFrame(session,&begin)))return;
- XrView xrViews[2]={{XR_TYPE_VIEW},{XR_TYPE_VIEW}};XrViewState viewState={XR_TYPE_VIEW_STATE};uint32_t viewCount=0;XrViewLocateInfo locate={XR_TYPE_VIEW_LOCATE_INFO};locate.viewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;locate.displayTime=state.predictedDisplayTime;locate.space=space;
- bool submit=state.shouldRender&&XR_SUCCEEDED(locateViews(session,&locate,&viewState,2,&viewCount,xrViews))&&viewCount==2;uint32_t index=0;
- if(submit){XrSwapchainImageAcquireInfo acquire={XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};submit=XR_SUCCEEDED(acquireImage(swapchain,&acquire,&index));}
- if(submit){XrSwapchainImageWaitInfo imageWait={XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};imageWait.timeout=XR_INFINITE_DURATION;submit=XR_SUCCEEDED(waitImage(swapchain,&imageWait));}
- if(submit){submit=GetVulkanContext().ClearImage(images[index].image,!initialized[index]);initialized[index]=1;XrSwapchainImageReleaseInfo release={XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};releaseImage(swapchain,&release);}
- XrCompositionLayerProjectionView projectionViews[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};for(uint32_t i=0;i<2;++i){projectionViews[i].pose=xrViews[i].pose;projectionViews[i].fov=xrViews[i].fov;projectionViews[i].subImage.swapchain=swapchain;projectionViews[i].subImage.imageRect.extent.width=eyeWidth;projectionViews[i].subImage.imageRect.extent.height=eyeHeight;projectionViews[i].subImage.imageArrayIndex=i;}
- XrCompositionLayerProjection layer={XR_TYPE_COMPOSITION_LAYER_PROJECTION};layer.space=space;layer.viewCount=2;layer.views=projectionViews;const XrCompositionLayerBaseHeader* layers[]={reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};
- XrFrameEndInfo end={XR_TYPE_FRAME_END_INFO};end.displayTime=state.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=submit?1:0;end.layers=submit?layers:NULL;endFrame(session,&end);}
+ if(!running)return false;XrFrameWaitInfo wait={XR_TYPE_FRAME_WAIT_INFO};currentFrame={XR_TYPE_FRAME_STATE};if(XR_FAILED(waitFrame(session,&wait,&currentFrame)))return false;XrFrameBeginInfo begin={XR_TYPE_FRAME_BEGIN_INFO};if(XR_FAILED(beginFrame(session,&begin)))return false;frameActive=true;
+ XrViewState viewState={XR_TYPE_VIEW_STATE};uint32_t viewCount=0;XrViewLocateInfo locate={XR_TYPE_VIEW_LOCATE_INFO};locate.viewConfigurationType=XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;locate.displayTime=currentFrame.predictedDisplayTime;locate.space=space;
+ if(!currentFrame.shouldRender||XR_FAILED(locateViews(session,&locate,&viewState,2,&viewCount,currentViews))||viewCount!=2){EndFrame();return false;}
+ XrSwapchainImageAcquireInfo acquire={XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};if(XR_FAILED(acquireImage(swapchain,&acquire,&currentImage))){EndFrame();return false;}
+ XrSwapchainImageWaitInfo imageWait={XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};imageWait.timeout=XR_INFINITE_DURATION;if(XR_FAILED(waitImage(swapchain,&imageWait))){EndFrame();return false;}
+ imageAcquired=true;return true;}
+bool BeginEye(unsigned eye){if(!frameActive||!imageAcquired||eye>1)return false;currentEye=eye;const bool firstUse=!initialized[currentImage];if(!GetVulkanContext().BeginPddiEye())return false;eyeActive=GetVulkanContext().ClearImageInPddiEye(images[currentImage].image,firstUse,eye);if(!eyeActive)GetVulkanContext().EndPddiEye();else initialized[currentImage]=1;return eyeActive;}
+void EndEye(unsigned){if(eyeActive)GetVulkanContext().EndPddiEye();eyeActive=false;}
+void EndFrame(){if(!frameActive)return;if(eyeActive)EndEye(currentEye);if(imageAcquired){XrSwapchainImageReleaseInfo release={XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};releaseImage(swapchain,&release);imageAcquired=false;}
+ XrCompositionLayerProjectionView projectionViews[2]={{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};for(uint32_t i=0;i<2;++i){projectionViews[i].pose=currentViews[i].pose;projectionViews[i].fov=currentViews[i].fov;projectionViews[i].subImage.swapchain=swapchain;projectionViews[i].subImage.imageRect.extent.width=eyeWidth;projectionViews[i].subImage.imageRect.extent.height=eyeHeight;projectionViews[i].subImage.imageArrayIndex=i;}
+ XrCompositionLayerProjection layer={XR_TYPE_COMPOSITION_LAYER_PROJECTION};layer.space=space;layer.viewCount=2;layer.views=projectionViews;const XrCompositionLayerBaseHeader* layers[]={reinterpret_cast<const XrCompositionLayerBaseHeader*>(&layer)};XrFrameEndInfo end={XR_TYPE_FRAME_END_INFO};end.displayTime=currentFrame.predictedDisplayTime;end.environmentBlendMode=XR_ENVIRONMENT_BLEND_MODE_OPAQUE;end.layerCount=currentFrame.shouldRender?1:0;end.layers=currentFrame.shouldRender?layers:NULL;endFrame(session,&end);frameActive=false;}
 } }
 
 namespace SharOpenXR
 {
 // Compatibility surface used by the shared Vulkan PDDI while the desktop
 // compositor is being connected to the full gameplay OpenXR manager.
-bool GetActiveVulkanEyeTarget(VulkanEyeTarget*) { return false; }
-bool GetActiveProjection(rmt::Matrix*,int*,int*) { return false; }
-bool GetActiveViewport(int*,int*) { return false; }
+bool GetActiveVulkanEyeTarget(VulkanEyeTarget* target) { if(!target||!Desktop::imageAcquired||!Desktop::eyeActive)return false;target->image=Desktop::images[Desktop::currentImage].image;target->format=Desktop::swapchainFormat;if(target->format==VK_FORMAT_R8G8B8A8_SRGB)target->format=VK_FORMAT_R8G8B8A8_UNORM;else if(target->format==VK_FORMAT_B8G8R8A8_SRGB)target->format=VK_FORMAT_B8G8R8A8_UNORM;target->width=Desktop::eyeWidth;target->height=Desktop::eyeHeight;target->arrayLayer=Desktop::currentEye;target->firstUse=false;return true; }
+bool GetActiveProjection(rmt::Matrix* projection,int* width,int* height) { if(!projection||!Desktop::eyeActive)return false;const XrFovf& fov=Desktop::currentViews[Desktop::currentEye].fov;const float l=std::tan(fov.angleLeft),r=std::tan(fov.angleRight),b=std::tan(fov.angleDown),t=std::tan(fov.angleUp),n=0.1f,f=1000.0f;projection->Identity();projection->Row4(0).Set(2.0f/(r-l),0,0,0);projection->Row4(1).Set(0,2.0f/(t-b),0,0);projection->Row4(2).Set(-(r+l)/(r-l),-(t+b)/(t-b),(f+n)/(f-n),1);projection->Row4(3).Set(0,0,(-2.0f*f*n)/(f-n),0);if(width)*width=Desktop::eyeWidth;if(height)*height=Desktop::eyeHeight;return true; }
+bool GetActiveViewport(int* width,int* height) { if(!Desktop::eyeActive)return false;if(width)*width=Desktop::eyeWidth;if(height)*height=Desktop::eyeHeight;return true; }
 bool GetActiveUiHorizontalOffset(float*) { return false; }
 bool GetActiveRadarProjection(rmt::Matrix*,int*,int*) { return false; }
 bool GetActiveMovieProjection(rmt::Matrix*,int*,int*) { return false; }
 bool GetActiveFrontendProjection(rmt::Matrix*,int*,int*) { return false; }
 bool GetLatestCullingCamera(rmt::Matrix*) { return false; }
+bool GetEyeCamera(unsigned eye,tCamera* base,rmt::Matrix* out) { if(eye>1||!base||!out)return false;const XrPosef& pose=Desktop::currentViews[eye].pose;rmt::Quaternion q(pose.orientation.w,-pose.orientation.x,-pose.orientation.y,pose.orientation.z);rmt::Matrix local;local.Identity();local.FillRotation(q);local.Row(3).Set(pose.position.x,pose.position.y,-pose.position.z);out->Mult(local,base->GetCameraToWorldMatrix());return true; }
 bool IsEmbeddedHudRendering() { return false; }
 bool IsRadarRendering() { return false; }
 bool IsMovieRendering() { return false; }
 bool IsFrontendPlaneRendering() { return false; }
-bool IsRightEyeRendering() { return false; }
+bool IsRightEyeRendering() { return Desktop::eyeActive&&Desktop::currentEye==1; }
 bool IsSpatialHudEnabled() { return false; }
 bool HasEnhancedUiConvergence() { return false; }
 bool AreCustomMaterialsEnabled() { return true; }

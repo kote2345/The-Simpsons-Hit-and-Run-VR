@@ -5,7 +5,10 @@ namespace SharOpenXR { namespace Desktop {
 bool InitializeRuntime();
 void ShutdownRuntime();
 bool IsRuntimeReady();
-void PumpCompositor();
+bool BeginFrame();
+bool BeginEye(unsigned eye);
+void EndEye(unsigned eye);
+void EndFrame();
 } }
 #endif
 #endif

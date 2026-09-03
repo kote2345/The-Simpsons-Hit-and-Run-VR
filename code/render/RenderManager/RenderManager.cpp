@@ -778,7 +778,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
     bool xrFrame = false;
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
-    SharOpenXR::Desktop::PumpCompositor();
+    xrFrame=SharOpenXR::Desktop::BeginFrame();
 #endif
 #if defined(RAD_ANDROID)
     static bool xrInitializationAttempted = false;
@@ -813,6 +813,9 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 #endif
 
     unsigned int renderPasses = 1;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(xrFrame) renderPasses=2;
+#endif
 #if defined(RAD_ANDROID)
     bool multiviewActive=false;
 #endif
@@ -866,6 +869,10 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     for (unsigned int renderPass = 0; renderPass < renderPasses; ++renderPass)
     {
         bool eyeActive = false;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        eyeActive=(renderPasses==2)&&SharOpenXR::Desktop::BeginEye(renderPass);
+        if(renderPasses==2&&!eyeActive) continue;
+#endif
 #if defined(RAD_ANDROID)
         eyeActive = (renderPasses == 2) && SharOpenXR::BeginEye(renderPass);
         if (renderPasses == 2 && !eyeActive)
@@ -911,6 +918,25 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
         if (ready)
         {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+            rmt::Matrix desktopOriginalCameras[MAX_PLAYERS];
+            bool desktopChangedCameras[MAX_PLAYERS]={false};
+            if(eyeActive)
+            {
+                for(unsigned int v=0;v<pLayer->GetNumViews();++v)
+                {
+                    tCamera* camera=pLayer->pCam(v);
+                    if(!camera) continue;
+                    desktopOriginalCameras[v]=camera->GetCameraToWorldMatrix();
+                    rmt::Matrix eyeCamera;
+                    if(SharOpenXR::GetEyeCamera(renderPass,camera,&eyeCamera))
+                    {
+                        camera->SetCameraMatrix(&eyeCamera);
+                        desktopChangedCameras[v]=true;
+                    }
+                }
+            }
+#endif
 #if defined(RAD_ANDROID)
             rmt::Matrix originalCameras[MAX_PLAYERS];
             bool changedCameras[MAX_PLAYERS] = { false };
@@ -952,6 +978,11 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
                 (radTimeGetMicroseconds64()-vrLayerStart)/1000.0);
 #endif
             END_PROFILE("Layers");
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+            for(unsigned int v=0;v<pLayer->GetNumViews();++v)
+                if(desktopChangedCameras[v]&&pLayer->pCam(v))
+                    pLayer->pCam(v)->SetCameraMatrix(&desktopOriginalCameras[v]);
+#endif
 #if defined(RAD_ANDROID)
             if (eyeActive || multiviewActive)
             {
@@ -973,6 +1004,9 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
             if(moviePlayer) moviePlayer->RenderCurrentVrEye();
         }
         if (eyeActive) SharOpenXR::EndEye(renderPass);
+#endif
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        if(eyeActive) SharOpenXR::Desktop::EndEye(renderPass);
 #endif
     }
 #if defined(RAD_ANDROID)
@@ -1097,6 +1131,9 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     p3d::context->EndFrame(false);
 #if defined(RAD_ANDROID)
     if (xrFrame) SharOpenXR::EndFrame();
+#endif
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(xrFrame) SharOpenXR::Desktop::EndFrame();
 #endif
 
 #ifdef DEBUGWATCH

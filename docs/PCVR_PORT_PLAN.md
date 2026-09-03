@@ -34,7 +34,8 @@ remains the production baseline and must keep building after every stage.
    - [x] Use the vendored SDL2 revision for reproducible Win64 VR builds.
    - [x] Define Win64 OpenXR, ZLIB/libpng, OpenAL, and FFmpeg dependencies
      in a vcpkg manifest and provide `build-pcvr.bat`.
-   - [ ] Expose the acquired desktop swapchain image to Vulkan PDDI.
+   - [x] Expose the acquired desktop swapchain image to Vulkan PDDI.
+   - [x] Render separate Pure3D passes with OpenXR eye transforms and FOV.
    - Create the SDL desktop window as a mirror/diagnostic surface.
    - Keep Quest multiview and mobile extensions behind capability checks.
 4. **Input and UX**
