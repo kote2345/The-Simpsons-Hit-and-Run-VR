@@ -17,6 +17,9 @@
 #if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
 #include <vr/openxrmanager.h>
 #endif
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxr_desktop_runtime.h>
+#endif
 // Standard Lib
 #include <stdlib.h>
 #include <string.h>
@@ -629,6 +632,9 @@ void Win32Platform::ShutdownMemory()
 void Win32Platform::InitializePlatform() 
 {
     HeapMgr()->PushHeap (GMA_PERSISTENT);
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SharOpenXR::Desktop::InitializeRuntime();
+#endif
 
 #if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
     // Vulkan PDDI needs the OpenXR-selected VkDevice before Pure3D asks the

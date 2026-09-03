@@ -22,8 +22,9 @@ remains the production baseline and must keep building after every stage.
 2. **Desktop Vulkan session**
    - [x] Move Android loader/instance chaining into a platform backend.
    - [x] Request optional Meta extensions only when the active runtime supports them.
-   - Reuse `XR_KHR_vulkan_enable2` device selection.
-   - Create the Windows OpenXR instance without Android instance structures.
+   - [x] Reuse `XR_KHR_vulkan_enable2` device selection.
+   - [x] Create the Windows OpenXR instance without Android instance structures.
+   - [x] Create a Win32 Vulkan session and local reference space.
    - Share swapchain, view, frame timing, and action code with Quest.
 3. **Renderer integration**
    - Enable the Vulkan PDDI backend on Windows.

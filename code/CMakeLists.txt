@@ -154,6 +154,7 @@ set(SRR2_SOURCES
 	"main/tuidunaligned.cpp"
 	"main/win32main.cpp"
 	"vr/openxrmanager.cpp"
+	"vr/openxr_desktop_runtime.cpp"
 	"vr/openxr_platform_loader.cpp"
 	"vr/openxr_platform_instance.cpp"
 	"main/win32platform.cpp"

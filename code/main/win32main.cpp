@@ -27,6 +27,9 @@
 #include <unistd.h>
 #include <vr/openxrmanager.h>
 #endif
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxr_desktop_runtime.h>
+#endif
 
 #ifdef __SWITCH__
 #include <switch.h>
@@ -232,6 +235,10 @@ extern "C" int main( int argc, char *argv[] )
     // Terminate the game (this frees all resources allocated by the game).
     //
     pGame->Terminate();
+
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SharOpenXR::Desktop::ShutdownRuntime();
+#endif
 
 #ifdef RAD_ANDROID
     // Destroy XR resources while the SDL EGL context is still current.
