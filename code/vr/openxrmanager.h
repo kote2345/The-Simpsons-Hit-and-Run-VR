@@ -146,6 +146,9 @@ namespace SharOpenXR
     bool GetControllerWorldPose(unsigned hand, tCamera* baseCamera,
                                 rmt::Matrix* controllerToWorld);
     bool GetControllerLocalPose(unsigned hand, rmt::Matrix* controllerPose);
+    // True briefly after a deliberate forward hand shove into an armed
+    // action volume (diagnostics / optional HUD feedback).
+    bool IsPhysicalInteractPulse();
     void RenderControllerHands(tCamera* baseCamera);
     void RecordPddiDraw(unsigned primitiveType,unsigned vertexCount,bool indexed,
                         double cpuMilliseconds);
