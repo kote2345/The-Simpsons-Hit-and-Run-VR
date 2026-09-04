@@ -154,6 +154,7 @@ public:
 
     // connection status
     bool IsConnected( void ) const; 
+    bool IsInputAvailable( void ) const { return IsConnected(); }
     void NotifyConnect( void );
     void NotifyDisconnect( void );
 

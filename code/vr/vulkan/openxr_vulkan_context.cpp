@@ -20,6 +20,9 @@
 #include <cstdio>
 #include <chrono>
 #include <vector>
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <png.h>
+#endif
 
 namespace SharOpenXR
 {
@@ -106,6 +109,10 @@ VulkanContext::VulkanContext()
       mFallbackPbrView(VK_NULL_HANDLE),
       mFallbackPbrSampler(VK_NULL_HANDLE),
       mFallbackPbrDescriptorSet(VK_NULL_HANDLE),
+      mStartupSplashBuffer(VK_NULL_HANDLE),
+      mStartupSplashMemory(VK_NULL_HANDLE),
+      mStartupSplashWidth(0),
+      mStartupSplashHeight(0),
       mPddiEyeActive(false),
       mPddiRenderPassActive(false),
       mColourClearMask(0),
@@ -529,7 +536,8 @@ bool VulkanContext::ClearImage(VkImage image,bool firstUse)
     return vkWaitForFences(mDevice,1,&mFence,VK_TRUE,XR_INFINITE_DURATION)==VK_SUCCESS;
 }
 
-bool VulkanContext::ClearImageInPddiEye(VkImage image,bool firstUse,uint32_t layer)
+bool VulkanContext::ClearImageInPddiEye(VkImage image,bool firstUse,uint32_t layer,
+                                        uint32_t targetWidth,uint32_t targetHeight)
 {
     if(!mPddiEyeActive || !image || mPddiRenderPassActive || layer>2) return false;
     VkImageMemoryBarrier toTransfer={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
@@ -558,6 +566,33 @@ bool VulkanContext::ClearImageInPddiEye(VkImage image,bool firstUse,uint32_t lay
     vkCmdClearColorImage(mCommandBuffer,image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                          &black,1,&toTransfer.subresourceRange);
 
+    // Scrooby's boot project is loaded asynchronously. On desktop that leaves
+    // several seconds with no render-ready layer, so put a native splash into
+    // the XR image instead of submitting an unexplained black frame. Any PDDI
+    // geometry recorded later in this command buffer naturally draws over it.
+    if(mStartupSplashBuffer && layer<2)
+    {
+        VkBufferImageCopy copy={};
+        copy.bufferRowLength=mStartupSplashWidth;
+        copy.bufferImageHeight=mStartupSplashHeight;
+        copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
+        copy.imageSubresource.mipLevel=0;
+        copy.imageSubresource.baseArrayLayer=layer;
+        copy.imageSubresource.layerCount=1;
+        const uint32_t copyWidth=targetWidth && targetWidth<mStartupSplashWidth?
+                                 targetWidth:mStartupSplashWidth;
+        const uint32_t copyHeight=targetHeight && targetHeight<mStartupSplashHeight?
+                                  targetHeight:mStartupSplashHeight;
+        copy.imageOffset.x=targetWidth>copyWidth?(targetWidth-copyWidth)/2:0;
+        copy.imageOffset.y=targetHeight>copyHeight?(targetHeight-copyHeight)/2:0;
+        copy.imageOffset.z=0;
+        copy.imageExtent.width=copyWidth;
+        copy.imageExtent.height=copyHeight;
+        copy.imageExtent.depth=1;
+        vkCmdCopyBufferToImage(mCommandBuffer,mStartupSplashBuffer,image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
+    }
+
     VkImageMemoryBarrier toColour=toTransfer;
     toColour.srcAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
     toColour.dstAccessMask=VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
@@ -567,6 +602,44 @@ bool VulkanContext::ClearImageInPddiEye(VkImage image,bool firstUse,uint32_t lay
         VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,0,0,NULL,0,NULL,1,&toColour);
     mColourClearMask=0;
     return true;
+}
+
+bool VulkanContext::LoadStartupSplash(const char* path,VkFormat targetFormat)
+{
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(!path || !IsInitialized()) return false;
+    png_image png={};
+    png.version=PNG_IMAGE_VERSION;
+    if(!png_image_begin_read_from_file(&png,path)) return false;
+    png.format=PNG_FORMAT_RGBA;
+    std::vector<unsigned char> pixels(PNG_IMAGE_SIZE(png));
+    if(!png_image_finish_read(&png,NULL,pixels.data(),0,NULL))
+    {
+        png_image_free(&png);
+        return false;
+    }
+    png_image_free(&png);
+    if(targetFormat==VK_FORMAT_B8G8R8A8_UNORM ||
+       targetFormat==VK_FORMAT_B8G8R8A8_SRGB)
+        for(size_t i=0;i+3<pixels.size();i+=4)
+        { unsigned char value=pixels[i]; pixels[i]=pixels[i+2]; pixels[i+2]=value; }
+    DestroyBuffer(mStartupSplashBuffer,mStartupSplashMemory);
+    mStartupSplashBuffer=VK_NULL_HANDLE;
+    mStartupSplashMemory=VK_NULL_HANDLE;
+    mStartupSplashWidth=png.width;
+    mStartupSplashHeight=png.height;
+    if(!CreateStaticBuffer(pixels.data(),pixels.size(),
+                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                           &mStartupSplashBuffer,&mStartupSplashMemory))
+    {
+        mStartupSplashWidth=mStartupSplashHeight=0;
+        return false;
+    }
+    return true;
+#else
+    (void)path; (void)targetFormat;
+    return false;
+#endif
 }
 
 bool VulkanContext::DrawSmokeTriangle(VkImage image,VkFormat format,
@@ -623,7 +696,10 @@ bool VulkanContext::BeginPddiEye()
             SDL_Log("Vulkan CSM depth c%u: min=%08x max=%08x clearLow=%.2f%% clearHigh=%.2f%% nonzero=%.2f%%",
                     cascadeIndex,minimum,maximum,100.0*clearLow/pixels,
                     100.0*clearHigh/pixels,100.0*nonZero/pixels);
-            const char* externalPath=SDL_AndroidGetExternalStoragePath();
+            const char* externalPath=NULL;
+#if defined(RAD_ANDROID)
+            externalPath=SDL_AndroidGetExternalStoragePath();
+#endif
             if(externalPath)
             {
                 const std::string path=std::string(externalPath)+"/csm_depth_"+
@@ -1590,6 +1666,18 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
         material.scissorHeight*scissorScaleY+0.5f));
     drawScissor.extent.width=sx<width?std::min(width-sx,scaledScissorWidth):0;
     drawScissor.extent.height=sy<height?std::min(height-sy,scaledScissorHeight):0;
+    static bool desktopFirstEyeDrawLogged=false;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(!desktopFirstEyeDrawLogged && !vehicleCubeTarget)
+    {
+        SDL_Log("PCVR draw: target=%ux%u layer=%u format=%d viewport=%.1f,%.1f %.1fx%.1f scissor=%d,%d %ux%u",
+            width,height,arrayLayer,static_cast<int>(format),drawViewport.x,
+            drawViewport.y,drawViewport.width,drawViewport.height,
+            drawScissor.offset.x,drawScissor.offset.y,
+            drawScissor.extent.width,drawScissor.extent.height);
+        desktopFirstEyeDrawLogged=true;
+    }
+#endif
     if(!mDynamicStateValid || std::memcmp(&mBoundViewport,&drawViewport,
                                           sizeof(drawViewport))!=0)
     {
@@ -2354,6 +2442,9 @@ void VulkanContext::Shutdown()
         if(mDrawUniformMemory) vkFreeMemory(mDevice,mDrawUniformMemory,NULL);
         mDrawUniformBuffer=VK_NULL_HANDLE; mDrawUniformMemory=VK_NULL_HANDLE;
         ReleaseDeferredResources();
+        DestroyBuffer(mStartupSplashBuffer,mStartupSplashMemory);
+        mStartupSplashBuffer=VK_NULL_HANDLE; mStartupSplashMemory=VK_NULL_HANDLE;
+        mStartupSplashWidth=0; mStartupSplashHeight=0;
         DestroyTexture(mFallbackImage,mFallbackMemory,mFallbackView,
                        mFallbackSampler,mFallbackDescriptorSet);
         mFallbackImage=VK_NULL_HANDLE; mFallbackMemory=VK_NULL_HANDLE;

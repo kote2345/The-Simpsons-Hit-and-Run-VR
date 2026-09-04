@@ -72,8 +72,13 @@ template < class T > class radLinkedClass
 		T * m_pLinkedClassNext;
 		T * m_pLinkedClassPrev;
 
+#if defined(_WIN32) && !defined(ANDROID)
+    static T* s_pLinkedClassHead;
+    static T* s_pLinkedClassTail;
+#else
     inline static T* s_pLinkedClassHead = nullptr;
     inline static T* s_pLinkedClassTail = nullptr;
+#endif
 
 };
 

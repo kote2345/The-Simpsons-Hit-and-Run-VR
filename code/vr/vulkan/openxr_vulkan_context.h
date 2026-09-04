@@ -41,8 +41,10 @@ public:
     VkQueue GetQueue() const { return mQueue; }
     uint32_t GetQueueFamilyIndex() const { return mQueueFamilyIndex; }
     bool ClearImage(VkImage image, bool firstUse);
+    bool LoadStartupSplash(const char* path, VkFormat targetFormat);
     // layer is 0/1 for a conventional stereo pass and 2 for multiview.
-    bool ClearImageInPddiEye(VkImage image, bool firstUse, uint32_t layer);
+    bool ClearImageInPddiEye(VkImage image, bool firstUse, uint32_t layer,
+                             uint32_t targetWidth=0, uint32_t targetHeight=0);
     bool BeginPddiEye();
     bool EndPddiEye();
     void ClearPddiBuffers(uint32_t bufferMask);
@@ -245,6 +247,10 @@ private:
     VkImageView mFallbackPbrView;
     VkSampler mFallbackPbrSampler;
     VkDescriptorSet mFallbackPbrDescriptorSet;
+    VkBuffer mStartupSplashBuffer;
+    VkDeviceMemory mStartupSplashMemory;
+    uint32_t mStartupSplashWidth;
+    uint32_t mStartupSplashHeight;
     bool mPddiEyeActive;
     bool mPddiRenderPassActive;
     uint32_t mColourClearMask;

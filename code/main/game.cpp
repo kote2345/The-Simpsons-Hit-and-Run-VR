@@ -40,6 +40,7 @@
 #include <main/commandlineoptions.h>
 #include <main/game.h>
 #include <main/platform.h>
+#include <loading/loadingmanager.h>
 
 #ifdef RAD_GAMECUBE
 #include <main/gamecube_extras/gcmanager.h>
@@ -961,7 +962,23 @@ void Game::Run()
         // Spin Pure3D async loading.
         //
         DEMOPROFILE( g_DemoProfiler.Start(PROFILE_CHANNEL_LOAD); )
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        // radLoad's desktop worker performs P3D reads as many small async file
+        // operations. Each operation needs both the load thread and
+        // radFileService() to run. Servicing that handshake only once per XR
+        // frame made a 5 KB cursor file take ~600 frames. Pump it for a small,
+        // bounded slice so boot/game loads advance without stalling OpenXR.
+        const radTime64 pcvrLoadSliceStart=radTimeGetMicroseconds64();
+        do
+        {
+            p3d::loadManager->SwitchTask();
+            ::radFileService();
+        }
+        while(GetLoadingManager()->IsLoading() &&
+              radTimeGetMicroseconds64()-pcvrLoadSliceStart<2000);
+#else
         p3d::loadManager->SwitchTask();
+#endif
         DEMOPROFILE( g_DemoProfiler.Stop(PROFILE_CHANNEL_LOAD); )
 
         ++mFrameCount;

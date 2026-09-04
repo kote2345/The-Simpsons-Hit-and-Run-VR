@@ -26,6 +26,7 @@
 #include <presentation/gui/guimanager.h>
 #include <presentation/gui/guiwindow.h>
 #include <presentation/presentation.h>
+#include <presentation/fmvplayer/fmvplayer.h>
 #include <gameflow/gameflow.h>
 #include <contexts/contextenum.h>
 #include <contexts/gameplay/gameplaycontext.h>
@@ -35,7 +36,6 @@
 #include <input/inputmanager.h>
 #endif
 #ifdef RAD_ANDROID
-#include <presentation/fmvplayer/fmvplayer.h>
 #include <input/touch/touchhudrenderer.h>
 #include <vr/openxrmanager.h>
 #endif

@@ -33,7 +33,10 @@
 #include <render/RenderManager/RenderLayer.h>
 #include <render/Culling/WorldScene.h>
 #include <render/RenderManager/RenderManager.h>
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <SDL.h>
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #include <p3d/camera.hpp>
 #endif
@@ -798,6 +801,30 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     p3d::context->BeginFrame();
     END_PROFILE("Begin Frame");
 
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // Until the desktop port has a mirror window, a black headset gives no
+    // clue whether OpenXR, GameFlow, the movie decoder, or render-layer
+    // scheduling stopped. Keep this low-rate diagnostic close to the point
+    // where the engine decides what can actually draw.
+    static unsigned int desktopVrDiagnosticFrames=0;
+    if((++desktopVrDiagnosticFrames%240u)==0u)
+    {
+        unsigned int readyMask=0;
+        for(int layerIndex=0;layerIndex<RenderEnums::numLayers;++layerIndex)
+            if(mpRenderLayers[layerIndex] && mpRenderLayers[layerIndex]->IsRenderReady())
+                readyMask|=1u<<layerIndex;
+        PresentationManager* diagnosticPresentation=GetPresentationManager();
+        FMVPlayer* diagnosticMovie=diagnosticPresentation?
+            diagnosticPresentation->GetFMVPlayer():NULL;
+        SDL_Log("PCVR render: context=%d next=%d layers=%08x fmv=%d decoder=%d xr=%d",
+            static_cast<int>(GetGameFlow()->GetCurrentContext()),
+            static_cast<int>(GetGameFlow()->GetNextContext()),readyMask,
+            diagnosticMovie && diagnosticMovie->IsPlaying()?1:0,
+            diagnosticMovie && diagnosticMovie->IsDecoderPlaying()?1:0,
+            xrFrame?1:0);
+    }
+#endif
+
     #if defined(RAD_ANDROID)
     {
     PresentationManager* pm = GetPresentationManager();
@@ -896,6 +923,11 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 #endif
 
         RenderLayer *pLayer = mpRenderLayers[i];
+
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        if(eyeActive)
+            SharOpenXR::SetWorldRendering(i>=RenderEnums::PresentationSlot);
+#endif
 
 #if defined(RAD_ANDROID)
         if (eyeActive || multiviewActive)
@@ -1006,7 +1038,13 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
         if (eyeActive) SharOpenXR::EndEye(renderPass);
 #endif
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
-        if(eyeActive) SharOpenXR::Desktop::EndEye(renderPass);
+        if(eyeActive)
+        {
+            PresentationManager* moviePresentation=GetPresentationManager();
+            FMVPlayer* moviePlayer=moviePresentation?moviePresentation->GetFMVPlayer():NULL;
+            if(moviePlayer) moviePlayer->RenderCurrentVrEye();
+            SharOpenXR::Desktop::EndEye(renderPass);
+        }
 #endif
     }
 #if defined(RAD_ANDROID)

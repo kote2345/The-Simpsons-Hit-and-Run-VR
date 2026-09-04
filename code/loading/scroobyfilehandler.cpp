@@ -16,6 +16,9 @@
 #include <raddebug.hpp>
 #include <radtime.hpp>
 #include <string.h>
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <SDL.h>
+#endif
 
 //========================================
 // Project Includes
@@ -118,6 +121,9 @@ void ScroobyFileHandler::LoadFile
 //==============================================================================
 void ScroobyFileHandler::OnProjectLoadComplete( Scrooby::Project* pProject )
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR Scrooby callback: project=%p",pProject);
+#endif
     rAssert( mpCallback );
 
     // notify GUI system that the project is loaded

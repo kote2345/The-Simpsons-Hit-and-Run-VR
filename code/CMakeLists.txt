@@ -120,17 +120,6 @@ set(SRR2_SOURCES
 	#"input/usercontrollerWin32.cpp"
 	#"input/virtualinputs.cpp"
 	#"input/wheelrumble.cpp"
-	"input/touch/touchactionregistry.cpp"
-	"input/touch/touchinputmodemanager.cpp"
-	"input/touch/touchinputadapter.cpp"
-	"input/touch/touchcontextresolver.cpp"
-	"input/touch/touchhudsystem.cpp"
-	"input/touch/touchassetextractor.cpp"
-	"input/touch/touchassetmanager.cpp"
-	"input/touch/touchhudrenderer.cpp"
-	"input/touch/touchcameracontroller.cpp"
-	"input/touch/touchinteractionresolver.cpp"
-	"input/touch/touchcontrolsconfigurationmanager.cpp"
 	"interiors/interiormanager.cpp"
 	"loading/cameradataloader.cpp"
 	"loading/cementfilehandler.cpp"
@@ -548,6 +537,44 @@ set(SRR2_SOURCES
 	"worldsim/worldobject.cpp"
 	"worldsim/worldphysicsmanager.cpp"
 )
+if(ANDROID)
+	list(APPEND SRR2_SOURCES
+		"input/touch/touchactionregistry.cpp"
+		"input/touch/touchinputmodemanager.cpp"
+		"input/touch/touchinputadapter.cpp"
+		"input/touch/touchcontextresolver.cpp"
+		"input/touch/touchhudsystem.cpp"
+		"input/touch/touchassetextractor.cpp"
+		"input/touch/touchassetmanager.cpp"
+		"input/touch/touchhudrenderer.cpp"
+		"input/touch/touchcameracontroller.cpp"
+		"input/touch/touchinteractionresolver.cpp"
+		"input/touch/touchcontrolsconfigurationmanager.cpp"
+	)
+endif()
+if(WIN32 AND NOT ANDROID)
+	list(REMOVE_ITEM SRR2_SOURCES "input/usercontroller.cpp")
+	list(REMOVE_ITEM SRR2_SOURCES "presentation/gui/frontend/guiscreencontroller.cpp")
+	list(APPEND SRR2_SOURCES
+		"camera/pccam.cpp"
+		"data/config/configstring.cpp"
+		"data/config/gameconfigmanager.cpp"
+		"input/basedamper.cpp"
+		"input/constanteffect.cpp"
+		"input/FEMouse.cpp"
+		"input/forceeffect.cpp"
+		"input/Gamepad.cpp"
+		"input/Keyboard.cpp"
+		"input/Mouse.cpp"
+		"input/SteeringWheel.cpp"
+		"input/steeringspring.cpp"
+		"input/usercontrollerWin32.cpp"
+		"input/virtualinputs.cpp"
+		"input/wheelrumble.cpp"
+		"input/touch/touchinputmodemanager.cpp"
+		"presentation/gui/frontend/guiscreencontrollerWin32.cpp"
+	)
+endif()
 if(SRR2_ENABLE_OPENXR AND SRR2_VR_RENDERER STREQUAL "VULKAN")
 	list(APPEND SRR2_SOURCES
 		"vr/vulkan/openxr_vulkan_context.cpp"
@@ -595,9 +622,48 @@ target_link_libraries(${SRR2_TARGET}
 	Threads::Threads
 )
 
+if(WIN32 AND NOT ANDROID AND TARGET SDL2::SDL2)
+	add_custom_command(TARGET ${SRR2_TARGET} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"$<TARGET_FILE:SDL2::SDL2>"
+			"$<TARGET_FILE_DIR:${SRR2_TARGET}>"
+		COMMENT "Copying SDL2 runtime next to ${SRR2_TARGET}"
+	)
+endif()
+
 if(SRR2_ENABLE_OPENXR AND NOT ANDROID)
 	find_path(SRR2_OPENXR_INCLUDE_DIR openxr/openxr.h REQUIRED)
 	target_include_directories(${SRR2_TARGET} PRIVATE ${SRR2_OPENXR_INCLUDE_DIR})
+	target_link_libraries(${SRR2_TARGET} PNG::PNG)
+	add_custom_command(TARGET ${SRR2_TARGET} POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			"${CMAKE_SOURCE_DIR}/logos/startup.png"
+			"$<TARGET_FILE_DIR:${SRR2_TARGET}>/startup.png"
+		COMMENT "Copying the PCVR startup splash next to ${SRR2_TARGET}"
+	)
+	if(WIN32)
+		find_file(SRR2_OPENXR_LOADER_DLL
+			NAMES openxr_loader.dll
+			PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+			NO_DEFAULT_PATH
+			REQUIRED
+		)
+		find_file(SRR2_JSONCPP_DLL
+			NAMES jsoncpp.dll
+			PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
+			NO_DEFAULT_PATH
+			REQUIRED
+		)
+		add_custom_command(TARGET ${SRR2_TARGET} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				"${SRR2_OPENXR_LOADER_DLL}"
+				"$<TARGET_FILE_DIR:${SRR2_TARGET}>"
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				"${SRR2_JSONCPP_DLL}"
+				"$<TARGET_FILE_DIR:${SRR2_TARGET}>"
+			COMMENT "Copying OpenXR loader dependencies next to ${SRR2_TARGET}"
+		)
+	endif()
 endif()
 
 # --- Android: OpenAL + libs del sistema ---

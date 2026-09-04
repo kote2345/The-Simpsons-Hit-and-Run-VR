@@ -1,7 +1,7 @@
 #ifndef VRMENUBUILDER_H
 #define VRMENUBUILDER_H
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(RAD_PC)
 
 #include <Page.h>
 #include <Text.h>

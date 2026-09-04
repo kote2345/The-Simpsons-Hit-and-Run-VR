@@ -45,7 +45,7 @@ class InputManager : public IRadControllerConnectionChangeCallback,
                      public GameDataHandler
 {
 public:
-#if defined(RAD_XBOX) || defined(RAD_CONSOLE) && defined(RAD_WIN32)
+#if defined(RAD_XBOX) || (defined(RAD_CONSOLE) && defined(RAD_WIN32) && !defined(RAD_PC))
     enum eButtonMap
     {
         DPadUp,

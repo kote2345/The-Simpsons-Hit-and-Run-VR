@@ -51,8 +51,9 @@ if(ANDROID)
 	# si añadiste openal-soft con add_subdirectory, normalmente el target es "OpenAL"
 	target_link_libraries(radsound PUBLIC OpenAL)
 else()
-	target_include_directories(radsound PRIVATE ${OPENAL_INCLUDE_DIR})
-	target_link_libraries(radsound PUBLIC ${OPENAL_LIBRARY})
+	get_filename_component(SRR2_OPENAL_INCLUDE_ROOT "${OPENAL_INCLUDE_DIR}" DIRECTORY)
+	target_include_directories(radsound PRIVATE "${SRR2_OPENAL_INCLUDE_ROOT}")
+	target_link_libraries(radsound PUBLIC OpenAL::OpenAL)
 endif()
 
 
@@ -71,24 +72,3 @@ if(SRR2_BUILD_TESTS AND NOT ANDROID)
 		vita_create_self(simplesound.self simplesound)
 	endif()
 endif()
-
-
-
-
-
-
-#  OpenAL fuera de Android (en Android no se usa por ahora)
-if(NOT ANDROID)
-	target_include_directories(radsound PRIVATE ${OPENAL_INCLUDE_DIR})
-	target_link_libraries(radsound
-	radcore
-)
-endif()
-
-target_link_libraries(radsound PUBLIC radcore)
-
-#  OpenAL fuera de Android (en Android no se linkea por ahora)
-if(NOT ANDROID)
-	target_link_libraries(radsound ${OPENAL_LIBRARY})
-endif()
-

@@ -649,6 +649,15 @@ void Win32Platform::InitializePlatform()
     //
     GetGameConfigManager()->RegisterConfig(this);
     GetGameConfigManager()->LoadConfigFile();
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // The desktop window is only a diagnostic companion for the headset.
+    // Never let a saved retail fullscreen setting turn it into a borderless
+    // monitor-sized black surface while the real image is submitted to XR.
+    mFullscreen = false;
+    SDL_SetWindowFullscreen(mWnd,0);
+    SDL_SetWindowSize(mWnd,1280,720);
+    SDL_SetWindowPosition(mWnd,SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED);
+#endif
 #endif
 
     //
@@ -671,6 +680,10 @@ void Win32Platform::InitializePlatform()
     // Show in fullscreen if fullscreen flag is set.
     //
     SDL_SetWindowFullscreen( mWnd, mFullscreen ? SDL_WINDOW_FULLSCREEN : 0 );
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_SetWindowSize(mWnd,1280,720);
+    SDL_SetWindowPosition(mWnd,SDL_WINDOWPOS_CENTERED,SDL_WINDOWPOS_CENTERED);
+#endif
 #endif
 
     //

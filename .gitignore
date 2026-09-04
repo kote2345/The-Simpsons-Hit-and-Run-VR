@@ -45,6 +45,8 @@ APKs/
 
 # Local device profiling/cache artifacts
 binary_cache/
+vcpkg/
+vcpkg_installed/
 **/__pycache__/
 *.pyc
 

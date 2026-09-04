@@ -40,7 +40,7 @@
 #include <events/eventmanager.h>
 
 #include <render/RenderManager/RenderManager.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 #include <p3d/utility.hpp>
@@ -668,7 +668,7 @@ void FMVPlayer::IterateLoop( IRadMoviePlayer2* pIRadMoviePlayer )
     p3d::pddi->SetZCompare(PDDI_COMPARE_ALWAYS);
 #endif
 
-#if !defined(RAD_ANDROID)
+#if !defined(RAD_ANDROID) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     pIRadMoviePlayer->Render();
 #endif
 
@@ -766,7 +766,7 @@ void FMVPlayer::IterateLoop( IRadMoviePlayer2* pIRadMoviePlayer )
     mFrameReady = true;
 }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 bool FMVPlayer::IsDecoderPlaying()
 {
     return m_refIRadMoviePlayer &&

@@ -29,6 +29,9 @@
 #include <radtextdisplay.hpp>
 #include <main/game.h>
 #include <p3d/utility.hpp>
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <SDL.h>
+#endif
 
 #include <cheats/cheatinputsystem.h>
 
@@ -292,6 +295,10 @@ void LoadingManager::OnLoadFileComplete( void* pUserData )
 {
     // Display some debug info.
     LoadingRequest& request = mRequests[mRequestHead ];
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR load done: %s (%u ms)",request.filename,
+            radTimeGetMilliseconds()-request.startTime);
+#endif
     rAssert( pUserData == &request );
     
     extern bool gLoadingSpew;
@@ -617,6 +624,10 @@ void LoadingManager::ProcessNextRequest()
 
                 request.startTime = radTimeGetMilliseconds();
                 mLoading = true;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+                SDL_Log("PCVR load begin: %s (queued=%d)",request.filename,
+                        GetNumCurrentRequests());
+#endif
                 GameMemoryAllocator heap = request.heap;
 
 #ifndef RAD_RELEASE

@@ -36,6 +36,18 @@
 
 #include <SDL.h>
 
+#if defined(_WIN32) && !defined(ANDROID)
+static int s_SdlVirtualKeyToIndex[256];
+struct SdlVirtualKeyTableInitializer
+{
+    SdlVirtualKeyTableInitializer()
+    {
+        for(unsigned i=0;i<256;++i) s_SdlVirtualKeyToIndex[i]=-1;
+    }
+} s_SdlVirtualKeyTableInitializer;
+const int* VirtualKeyToIndex=&s_SdlVirtualKeyToIndex[-1];
+#endif
+
 #if defined(RAD_ANDROID)
 #include <SDL_system.h>
 #include <jni.h>
@@ -516,7 +528,11 @@ class radControllerOutputPointSDL
 
     // FIXME
     long GetOffset() const { return 0; }
+#ifdef WIN32
+    void UpdateEffect(const DIEFFECT*) {}
+#else
     void UpdateEffect(const SDL_HapticEffect*) {}
+#endif
     void Start() {}
     void Stop() {}
     void ReleaseEffect() {}

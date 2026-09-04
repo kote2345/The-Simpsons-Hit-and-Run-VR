@@ -29,6 +29,11 @@
 
 #include <raddebug.hpp> // Foundation
 
+#ifdef RAD_PC
+#include <p3d/drawable.hpp>
+#include <p3d/utility.hpp>
+#endif
+
 //===========================================================================
 // Global Data, Local Data, Local Classes
 //===========================================================================

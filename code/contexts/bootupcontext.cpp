@@ -41,6 +41,9 @@
 // Project Includes
 //========================================
 #include <contexts/bootupcontext.h>
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <SDL.h>
+#endif
 
 #include <atc/atcmanager.h>
 #include <cards/cardgallery.h>
@@ -145,6 +148,15 @@ BootupContext* BootupContext::GetInstance()
 //=============================================================================
 void BootupContext::StartMovies()
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // The desktop PCVR renderer has no working presentation/FMV path yet.
+    // Queuing the retail logo movies leaves the GUI layer chilled forever:
+    // no decoder starts, OnPresentationEventEnd is never delivered, and the
+    // game remains in CONTEXT_BOOTUP while OpenXR submits empty frames. Enter
+    // the frontend directly until desktop movie composition is implemented.
+    GetGameFlow()->SetContext(CONTEXT_FRONTEND);
+    return;
+#endif
 #ifndef FINAL
     if( CommandLineOptions::Get( CLO_SKIP_FE ) )
     {
@@ -284,6 +296,9 @@ void BootupContext::LoadConfig()
 //==============================================================================
 void BootupContext::OnStart( ContextEnum previousContext )
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR boot: OnStart begin previous=%d",static_cast<int>(previousContext));
+#endif
     SetMemoryIdentification( "BootupContext" );
     HeapMgr()->PrepareHeapsFeCleanup();
     HeapMgr()->PrepareHeapsFeSetup();
@@ -351,6 +366,9 @@ void BootupContext::OnStart( ContextEnum previousContext )
     // Address any loading requests that the managers have queued up
     //
     GetLoadingManager()->AddCallback( this );
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR boot: OnStart queued all startup work");
+#endif
 
 #if defined( RAD_PC ) && defined( SHOW_MOVIES )
     GetInputManager()->GetFEMouse()->SetInGameMode( true );
@@ -407,8 +425,17 @@ void BootupContext::OnUpdate( unsigned int elapsedTime )
 {
     if( m_elapsedTime != -1 )
     {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        // Desktop audio initialization can complete after the boot artwork.
+        // Do not hold the license/language/frontend state machine (and thus
+        // the only render-ready layer) behind that unrelated async callback.
+        const bool bootupServicesReady = m_bootupLoadCompleted;
+#else
+        const bool bootupServicesReady =
+            m_bootupLoadCompleted && m_soundLoadCompleted;
+#endif
         if( m_elapsedTime > MINIMUM_LICENSE_SCREEN_DISPLAY_TIME &&
-            m_bootupLoadCompleted && m_soundLoadCompleted )
+            bootupServicesReady )
         {
             // Tell GUI system to quit out of the boot-up state
             GetGuiSystem()->HandleMessage( GUI_MSG_QUIT_BOOTUP );
@@ -490,6 +517,9 @@ void BootupContext::OnHandleEvent( EventEnum id, void* pEventData )
 //=============================================================================
 void BootupContext::OnProcessRequestsComplete( void* pUserData )
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR boot callback: kind=%s",pUserData==GetSoundManager()?"sound":"main");
+#endif
     if( pUserData == GetSoundManager() )
     {
         // set flag indicating all sound loads have completed

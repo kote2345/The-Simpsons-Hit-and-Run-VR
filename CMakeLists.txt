@@ -203,6 +203,9 @@ add_definitions(
 	-DRAD_WIN32
 	-DRAD_SDL
 )
+if(WIN32 AND NOT ANDROID)
+	add_definitions(-DRAD_PC)
+endif()
 
 if(SRR2_REGION STREQUAL "PAL")
 	add_definitions(-DPAL)

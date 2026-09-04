@@ -517,7 +517,11 @@ void SuperCamCentral::Init( bool shutdown )
                 // and wrap back to controller 0
                 //
                 int secondaryControllerID = (controllerID + 1) % NUM_CONTROLLERS;
+#ifdef RAD_PC
+                while ( !(GetInputManager()->GetController( secondaryControllerID )->IsConnected()) )
+#else
                 while ( !(GetInputManager()->GetController( secondaryControllerID )->IsInputAvailable()) )
+#endif
                 {
                     secondaryControllerID = (secondaryControllerID + 1) % NUM_CONTROLLERS;
                     if ( secondaryControllerID == controllerID )

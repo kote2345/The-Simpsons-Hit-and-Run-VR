@@ -18,6 +18,9 @@
 // Includes
 //===========================================================================
 #include <presentation/gui/guisystem.h>
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <SDL.h>
+#endif
 #include <presentation/gui/guitextbible.h>
 #include <presentation/gui/bootup/guimanagerlanguage.h>
 #include <presentation/gui/bootup/guimanagerbootup.h>
@@ -817,6 +820,9 @@ void CGuiSystem::HandleMessage
 //===========================================================================
 void CGuiSystem::OnProjectLoadComplete( Scrooby::Project* pProject )
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR GUI project ready: state=%d project=%p",static_cast<int>(m_state),pProject);
+#endif
     //LOGI("GUI: OnProjectLoadComplete entered. pProject=%p state=%d", pProject, (int)m_state);
 MEMTRACK_PUSH_GROUP( "CGUISystem" );
 	rAssert( pProject != NULL );
@@ -1249,6 +1255,9 @@ CGuiSystem::ResetData()
 //===========================================================================
 void CGuiSystem::OnInitBootUp()
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR GUI: queueing bootup assets");
+#endif
     char languageDir[ 16 ];
     languageDir[ 0 ] = '\0';
 

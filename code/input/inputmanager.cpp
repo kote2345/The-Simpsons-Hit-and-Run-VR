@@ -615,7 +615,11 @@ void InputManager::Update( unsigned int timeinms )
     bool resetting = false;
     for ( i = 0; i < Input::MaxControllers; i++ )
     {
+#ifdef RAD_PC
+        if(mControllerArray[i].IsConnected())
+#else
         if(mControllerArray[i].IsInputAvailable())
+#endif
         {
             mControllerArray[i].Update(timeinms);
 
@@ -936,7 +940,7 @@ void InputManager::EnumerateControllers( void )
 
             char szLocation[ 256 ];
 
-#if defined(RAD_CONSOLE) && !defined( RAD_GC )
+#if defined(RAD_CONSOLE) && !defined(RAD_GC) && !defined(RAD_PC)
             sprintf( szLocation, "Port%d\\Slot%d", port, slot );
 #elif defined(RAD_PC)
             char szJoystickLoc[ 256 ];

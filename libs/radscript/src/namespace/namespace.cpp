@@ -42,8 +42,10 @@
 
 // I comment this because i put in radnamespace.hpp
 //one day later,i put here again
-//template<> IRadNameSpace* radLinkedClass< IRadNameSpace >::s_pLinkedClassHead = NULL;
-//template<> IRadNameSpace* radLinkedClass< IRadNameSpace >::s_pLinkedClassTail = NULL;
+#if defined(_WIN32) && !defined(ANDROID)
+template<> IRadNameSpace* radLinkedClass< IRadNameSpace >::s_pLinkedClassHead = NULL;
+template<> IRadNameSpace* radLinkedClass< IRadNameSpace >::s_pLinkedClassTail = NULL;
+#endif
 
 // Definición genérica de los estáticos del template:
 

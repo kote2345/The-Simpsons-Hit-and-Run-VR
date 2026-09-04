@@ -11,7 +11,14 @@ if errorlevel 1 (
 )
 
 where cl.exe >nul 2>nul
-if errorlevel 1 (
+if errorlevel 1 goto :setup_msvc
+where rc.exe >nul 2>nul
+if errorlevel 1 goto :setup_msvc
+where mt.exe >nul 2>nul
+if errorlevel 1 goto :setup_msvc
+goto :msvc_ready
+
+:setup_msvc
     set "VSWHERE=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
     if not exist "%VSWHERE%" (
         echo ERROR: Visual Studio 2022 Build Tools were not found.
@@ -29,7 +36,8 @@ if errorlevel 1 (
         popd
         exit /b 1
     )
-)
+
+:msvc_ready
 
 if "%VCPKG_ROOT%"=="" (
     if exist "%~dp0vcpkg\scripts\buildsystems\vcpkg.cmake" (
@@ -64,6 +72,7 @@ if errorlevel 1 (
 
 cmake -S . -B build\pcvr -G "NMake Makefiles" ^
     -DCMAKE_BUILD_TYPE=RelWithDebInfo ^
+    -DCMAKE_CXX_STANDARD=17 ^
     -DCMAKE_TOOLCHAIN_FILE="%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" ^
     -DVCPKG_TARGET_TRIPLET=x64-windows ^
     -DSRR2_ENABLE_OPENXR=ON ^
@@ -75,7 +84,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-cmake --build build\pcvr --config RelWithDebInfo
+cmake --build build\pcvr --config RelWithDebInfo --parallel
 if errorlevel 1 (
     popd
     exit /b 1

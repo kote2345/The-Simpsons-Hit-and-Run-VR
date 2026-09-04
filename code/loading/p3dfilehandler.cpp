@@ -17,6 +17,9 @@
 #include <p3d/utility.hpp>
 // Foundation Tech
 #include <raddebug.hpp>
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <SDL.h>
+#endif
 
 //========================================
 // Project Includes
@@ -117,6 +120,10 @@ void P3DFileHandler::LoadFile
 //==============================================================================
 void P3DFileHandler::Done( tLoadStatus status, tLoadRequest *load )
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR P3D callback: status=%d file=%s",static_cast<int>(status),
+            load && load->GetFilename()?load->GetFilename():"<unknown>");
+#endif
     //
     // Percolate the callback up to the client.
     //
