@@ -203,6 +203,18 @@ public:
 
     virtual Type GetType( void ) { return OTHER; };
 
+    // VR physical push-to-interact: exclude vehicles, phones, and (via
+    // overrides) NPC talk. Everything else (doors, gags, collectibles, etc.)
+    // remains pushable.
+    virtual bool AllowPhysicalInteract( void ) const
+    {
+        ButtonHandler* self = const_cast<ButtonHandler*>( this );
+        const Type t = self->GetType();
+        return t != GET_IN_CAR
+            && t != GET_IN_USER_CAR
+            && t != SUMMON_PHONE;
+    }
+
     virtual bool IsInstanceEnabled()const { return true; }
 
 protected:
@@ -310,6 +322,11 @@ public:
     }
 
     virtual Type GetType() { return GET_IN_CAR; };
+
+    virtual bool AllowPhysicalInteract( void ) const
+    {
+        return false;
+    }
 
 protected:
     virtual bool OnButtonPressed( Character* pCharacter, Sequencer* pSeq );
@@ -678,6 +695,11 @@ public:
     {
         return new (GMA_LEVEL_OTHER) PrankPhone( pActionEventLocator );  
     }  
+
+    virtual bool AllowPhysicalInteract( void ) const
+    {
+        return false;
+    }
 protected:
     virtual bool OnButtonPressed( Character* pCharacter, Sequencer* pSeq );
     virtual void SetAnimation( Character* pCharacter, Sequencer* pSeq );
@@ -715,6 +737,11 @@ public:
     virtual bool Create( tEntityStore* inStore = 0 );  
 
     virtual Type GetType( void ) { return ButtonHandler::SUMMON_PHONE; };
+
+    virtual bool AllowPhysicalInteract( void ) const
+    {
+        return false;
+    }
 
     virtual bool UsesActionButton() const;
 
@@ -1229,6 +1256,13 @@ public:
     void* GetEventData() { return mEventData; };
 
     virtual Type GetType( void ) { return MISSION_OBJECTIVE; };
+
+    // Mission TalkToObjective arms EVENT_TALK_TO_NPC; do not start
+    // conversations via a physical hand push.
+    virtual bool AllowPhysicalInteract( void ) const
+    {
+        return mEvent != EVENT_TALK_TO_NPC;
+    }
 
 protected:
     EventLocator* mpEventLocator;
