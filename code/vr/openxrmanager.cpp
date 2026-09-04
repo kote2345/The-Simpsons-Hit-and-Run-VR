@@ -31,6 +31,7 @@
 #include <worldsim/character/character.h>
 #include <worldsim/character/charactercontroller.h>
 #include <worldsim/character/charactermanager.h>
+#include <ai/actionbuttonhandler.h>
 #include <worldsim/coins/coinmanager.h>
 #include <worldsim/traffic/trafficmanager.h>
 #include <camera/supercam.h>
@@ -299,6 +300,13 @@ struct State
     XrSpace handSpaces[2];
     XrPosef handPoses[2];
     bool handPoseValid[2];
+    // Physical push-to-interact: track prior hand positions to detect a
+    // deliberate forward shove into an action volume (phones, doors, gags,
+    // collectibles). Cars and NPC talk are filtered separately.
+    rmt::Vector physicalPushPrevHandPos[2];
+    bool physicalPushPrevValid[2];
+    float physicalPushCooldown;
+    int physicalInteractPulseFrames;
     XrPath leftHand, rightHand;
     bool keyState[SDL_NUM_SCANCODES];
     bool mouseState[6];
@@ -1915,6 +1923,169 @@ static void FireHaptic(unsigned hand, float amplitude, float durationMs, float f
     g.ApplyHapticFeedback(g.session, &info, reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
 }
 
+// Deliberate forward hand shove -> short synthetic DoAction (Y/A) while the
+// player stands in an action volume. Excludes cars and NPC talk handlers.
+static void UpdatePhysicalPushInteract()
+{
+    // Tuned for "intentional but not picky": a clear shove registers even when
+    // the controller isn't aimed perfectly straight into the prop.
+    static const float kPushMinSpeed = 0.80f;       // m/s (was 1.05)
+    static const float kPushForwardDot = 0.28f;     // ~74 deg cone (was 0.62 / ~52 deg)
+    static const float kPushCooldownSec = 0.40f;
+    static const int kPushPulseFrames = 2;
+
+    if (g.physicalPushCooldown > 0.0f)
+    {
+        static Uint32 s_cooldownTicks = 0;
+        const Uint32 now = SDL_GetTicks();
+        float dt = (s_cooldownTicks == 0) ? 0.016f : (now - s_cooldownTicks) * 0.001f;
+        s_cooldownTicks = now;
+        if (dt < 0.0f || dt > 0.1f) dt = 0.016f;
+        g.physicalPushCooldown = std::max(0.0f, g.physicalPushCooldown - dt);
+    }
+
+    if (!g.vrModeEnabled || !g.originValid)
+    {
+        g.physicalPushPrevValid[0] = g.physicalPushPrevValid[1] = false;
+        return;
+    }
+
+    Character* player = GetCharacterManager()->GetCharacter(0);
+    if (!player || player->IsInCar() || !player->GetController() ||
+        !player->GetController()->IsActive())
+    {
+        g.physicalPushPrevValid[0] = g.physicalPushPrevValid[1] = false;
+        return;
+    }
+
+    // No armed interactable -> never synthesize DoAction from a random shove.
+    ActionButton::ButtonHandler* handler = player->GetActionButtonHandler();
+    if (!handler || !handler->AllowPhysicalInteract())
+    {
+        // Still track poses so the first frame inside a valid volume has a
+        // clean velocity sample instead of a teleport delta.
+        for (unsigned hand = 0; hand < 2; ++hand)
+        {
+            if (!g.handPoseValid[hand])
+            {
+                g.physicalPushPrevValid[hand] = false;
+                continue;
+            }
+            const rmt::Matrix pose = PoseToGame(RelativePose(g.origin, g.handPoses[hand]));
+            g.physicalPushPrevHandPos[hand] = pose.Row(3);
+            g.physicalPushPrevValid[hand] = true;
+        }
+        return;
+    }
+
+    static Uint32 s_prevTicks = 0;
+    const Uint32 now = SDL_GetTicks();
+    float dt = (s_prevTicks == 0) ? 0.016f : (now - s_prevTicks) * 0.001f;
+    s_prevTicks = now;
+    if (dt < 0.001f || dt > 0.1f) dt = 0.016f;
+
+    for (unsigned hand = 0; hand < 2; ++hand)
+    {
+        if (!g.handPoseValid[hand])
+        {
+            g.physicalPushPrevValid[hand] = false;
+            continue;
+        }
+
+        // Skip hands currently locked to the steering wheel / yoke.
+        if (g.wheelGrabbed[hand])
+        {
+            g.physicalPushPrevValid[hand] = false;
+            continue;
+        }
+
+        const rmt::Matrix pose = PoseToGame(RelativePose(g.origin, g.handPoses[hand]));
+        const rmt::Vector pos = pose.Row(3);
+
+        if (!g.physicalPushPrevValid[hand])
+        {
+            g.physicalPushPrevHandPos[hand] = pos;
+            g.physicalPushPrevValid[hand] = true;
+            continue;
+        }
+
+        rmt::Vector delta = pos;
+        delta.Sub(g.physicalPushPrevHandPos[hand]);
+        g.physicalPushPrevHandPos[hand] = pos;
+
+        const float speed = delta.Magnitude() / dt;
+        if (speed < kPushMinSpeed || g.physicalPushCooldown > 0.0f ||
+            g.physicalInteractPulseFrames > 0)
+            continue;
+
+        rmt::Vector velDir = delta;
+        if (velDir.NormalizeSafe() < 0.0001f)
+            continue;
+
+        // Accept a shove that is roughly outward from either the hand or the
+        // head. Matching head-look covers the common case where you push
+        // toward the prop while the controller is rotated slightly off-axis.
+        rmt::Vector handForward;
+        pose.RotateVector(rmt::Vector(0.0f, 0.0f, 1.0f), &handForward);
+        const float handLen = handForward.NormalizeSafe();
+
+        rmt::Vector headForward(0.0f, 0.0f, 1.0f);
+        bool haveHead = false;
+        {
+            const XrPosef headRel = RelativePose(g.origin, g.eyes[0].view.pose);
+            const rmt::Matrix headPose = PoseToGame(headRel);
+            headPose.RotateVector(rmt::Vector(0.0f, 0.0f, 1.0f), &headForward);
+            if (headForward.NormalizeSafe() > 0.0001f)
+                haveHead = true;
+        }
+
+        float bestAlign = -1.0f;
+        if (handLen > 0.0001f)
+        {
+            const float a = velDir.x * handForward.x +
+                            velDir.y * handForward.y +
+                            velDir.z * handForward.z;
+            if (a > bestAlign) bestAlign = a;
+        }
+        if (haveHead)
+        {
+            const float a = velDir.x * headForward.x +
+                            velDir.y * headForward.y +
+                            velDir.z * headForward.z;
+            if (a > bestAlign) bestAlign = a;
+        }
+
+        // Also accept a mostly-horizontal outward shove (ignore pure vertical
+        // flails and pure downward drops).
+        rmt::Vector horiz = velDir;
+        horiz.y = 0.0f;
+        const float horizLen = horiz.NormalizeSafe();
+        float horizAlign = -1.0f;
+        if (horizLen > 0.35f && haveHead)
+        {
+            rmt::Vector headHoriz = headForward;
+            headHoriz.y = 0.0f;
+            if (headHoriz.NormalizeSafe() > 0.0001f)
+            {
+                horizAlign = horiz.x * headHoriz.x + horiz.z * headHoriz.z;
+                if (horizAlign > bestAlign)
+                    bestAlign = horizAlign;
+            }
+        }
+
+        if (bestAlign < kPushForwardDot)
+            continue;
+
+        // Intentional button-push feel: pulse DoAction and a short haptic.
+        g.physicalInteractPulseFrames = kPushPulseFrames;
+        g.physicalPushCooldown = kPushCooldownSec;
+        FireHaptic(hand, 0.75f, 45.0f, 140.0f);
+        XRLOG("physical push interact hand=%u speed=%.2f align=%.2f",
+              hand, speed, bestAlign);
+        break;
+    }
+}
+
 
 static bool CreateInputActions()
 {
@@ -2057,10 +2228,16 @@ static void SyncInputActions()
     const float attack=boolean(g.attackAction)?1.0f:0.0f;
     const float use=boolean(g.useAction)?1.0f:0.0f;
     const float menu=boolean(g.menuAction)?1.0f:0.0f;
-    set("A",select); set("B",back); set("X",attack);
+    // Physical push-to-interact synthesizes a short DoAction edge on Y (and
+    // A in VR on-foot mapping). Consume one pulse frame per input sync.
+    const bool physicalPush = g.physicalInteractPulseFrames > 0;
+    if (physicalPush)
+        --g.physicalInteractPulseFrames;
+    set("A", (select > 0.0f || physicalPush) ? 1.0f : 0.0f);
+    set("B",back); set("X",attack);
     // A is confirm in front-end screens and also acts as DoAction in 3D
     // interaction screens; physical Y remains a dedicated action button.
-    set("Y",(select>0.0f||use>0.0f)?1.0f:0.0f); set("Start",menu);
+    set("Y",(select>0.0f||use>0.0f||physicalPush)?1.0f:0.0f); set("Start",menu);
     // Honor Roller yoke: push forward = gas, pull back = brake
     {
         Character* drivePlayer = GetCharacterManager()->GetCharacter(0);
@@ -2883,6 +3060,7 @@ bool BeginFrame()
         }
     }
     UpdateVrSteeringWheel();
+    UpdatePhysicalPushInteract();
     UpdateVrInCarCharacterVisibility();
     return true;
 }
@@ -5197,6 +5375,10 @@ bool GetControllerLocalPose(unsigned hand,rmt::Matrix* out)
     if(hand>=2 || !out || !g.originValid || !g.handPoseValid[hand]) return false;
     *out=PoseToGame(RelativePose(g.origin,g.handPoses[hand]));
     return true;
+}
+bool IsPhysicalInteractPulse()
+{
+    return g.physicalInteractPulseFrames > 0;
 }
 void RenderControllerHands(tCamera* base)
 {
