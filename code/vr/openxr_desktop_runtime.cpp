@@ -320,14 +320,6 @@ bool InitializeRuntime(){
  if(XR_FAILED(createSwapchain(session,&swapInfo,&swapchain))){ShutdownRuntime();return false;}
  uint32_t imageCount=0;enumerateImages(swapchain,0,&imageCount,NULL);images.resize(imageCount,{XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR});
  if(XR_FAILED(enumerateImages(swapchain,imageCount,&imageCount,reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())))){ShutdownRuntime();return false;}
- char* basePath=SDL_GetBasePath();
- std::string splashPath=basePath?basePath:"";
- if(basePath) SDL_free(basePath);
- splashPath+="startup.png";
- if(!GetVulkanContext().LoadStartupSplash(splashPath.c_str(),swapchainFormat))
-     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                  "PCVR: failed to load startup splash %s",splashPath.c_str());
- else SDL_Log("PCVR: startup splash ready");
  SDL_Log("PCVR: OpenXR Vulkan session ready (%dx%d, format=%d, images=%u)",eyeWidth,eyeHeight,static_cast<int>(swapchainFormat),imageCount);return true;}
 void ShutdownRuntime(){GetSharedVrMenu().Reset();ResetVirtualController();running=false;ShutdownSharedHud();if(swapchain!=XR_NULL_HANDLE&&destroySwapchain)destroySwapchain(swapchain);swapchain=XR_NULL_HANDLE;images.clear();for(unsigned hand=0;hand<2;++hand){if(handSpaces[hand]!=XR_NULL_HANDLE&&destroySpace)destroySpace(handSpaces[hand]);handSpaces[hand]=XR_NULL_HANDLE;handPoseValid[hand]=false;}if(space!=XR_NULL_HANDLE&&destroySpace)destroySpace(space);space=XR_NULL_HANDLE;if(session!=XR_NULL_HANDLE&&destroySession)destroySession(session);session=XR_NULL_HANDLE;if(inputActionSet!=XR_NULL_HANDLE&&destroyActionSet)destroyActionSet(inputActionSet);inputActionSet=XR_NULL_HANDLE;GetVulkanContext().Shutdown();if(instance!=XR_NULL_HANDLE&&destroyInstance)destroyInstance(instance);instance=XR_NULL_HANDLE;if(loader)Platform::CloseLoader(loader);loader=NULL;getProc=NULL;system=XR_NULL_SYSTEM_ID;}
 bool IsRuntimeReady(){return session!=XR_NULL_HANDLE;}

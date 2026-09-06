@@ -646,12 +646,6 @@ if(SRR2_ENABLE_OPENXR AND NOT ANDROID)
 	find_path(SRR2_OPENXR_INCLUDE_DIR openxr/openxr.h REQUIRED)
 	target_include_directories(${SRR2_TARGET} PRIVATE ${SRR2_OPENXR_INCLUDE_DIR})
 	target_link_libraries(${SRR2_TARGET} PNG::PNG dbghelp)
-	add_custom_command(TARGET ${SRR2_TARGET} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-			"${CMAKE_SOURCE_DIR}/logos/startup.png"
-			"$<TARGET_FILE_DIR:${SRR2_TARGET}>/startup.png"
-		COMMENT "Copying the PCVR startup splash next to ${SRR2_TARGET}"
-	)
 	if(WIN32)
 		find_file(SRR2_OPENXR_LOADER_DLL
 			NAMES openxr_loader.dll
