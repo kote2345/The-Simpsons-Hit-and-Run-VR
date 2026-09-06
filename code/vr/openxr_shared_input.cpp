@@ -58,10 +58,10 @@ void AdaptVrConsoleInput(const char* name,float value,bool desktop,
     const auto set=[&](const char* target,float v){sink(context,target,v);};
     if(!desktop){set(name,value);return;}
     if(!state)return;
-    if(!std::strcmp(name,"LeftStickX")){set("MoveRight",std::max(0.0f,value));set("MoveLeft",std::max(0.0f,-value));set("SteerRight",std::max(0.0f,value));set("SteerLeft",std::max(0.0f,-value));set("VrLeftStickX",value);}
-    else if(!std::strcmp(name,"LeftStickY")){set("MoveUp",std::max(0.0f,value));set("MoveDown",std::max(0.0f,-value));set("VrLeftStickY",value);}
-    else if(!std::strcmp(name,"RightStickX")){set("CameraRight",std::max(0.0f,value));set("CameraLeft",std::max(0.0f,-value));set("CameraCarRight",std::max(0.0f,value));set("CameraCarLeft",std::max(0.0f,-value));set("VrRightStickX",value);}
-    else if(!std::strcmp(name,"RightStickY")){set("CameraMoveIn",std::max(0.0f,value));set("CameraMoveOut",std::max(0.0f,-value));set("VrRightStickY",value);}
+    if(!std::strcmp(name,"LeftStickX")){set("MoveRight",std::max(0.0f,value));set("MoveLeft",std::max(0.0f,-value));set("SteerRight",std::max(0.0f,value));set("SteerLeft",std::max(0.0f,-value));set("feMouseRight",value);}
+    else if(!std::strcmp(name,"LeftStickY")){set("MoveUp",std::max(0.0f,value));set("MoveDown",std::max(0.0f,-value));set("feMouseUp",value);}
+    else if(!std::strcmp(name,"RightStickX")){set("CameraRight",std::max(0.0f,value));set("CameraLeft",std::max(0.0f,-value));set("CameraCarRight",std::max(0.0f,value));set("CameraCarLeft",std::max(0.0f,-value));set("feMouseLeft",value);}
+    else if(!std::strcmp(name,"RightStickY")){set("CameraMoveIn",std::max(0.0f,value));set("CameraMoveOut",std::max(0.0f,-value));set("feMouseDown",value);}
     else if(!std::strcmp(name,"A"))set("feSelect",value);
     else if(!std::strcmp(name,"B")){state->backButton=value;set("feBack",value);set("Jump",value);}
     else if(!std::strcmp(name,"X")){state->attackButton=value;set("feFunction1",value);set("Attack",value);}

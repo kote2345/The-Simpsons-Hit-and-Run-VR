@@ -135,10 +135,6 @@ public:
         P1_KBD_Nitro,
         P1_KBD_Left,
         P1_KBD_Right,
-        VrLeftStickX,
-        VrLeftStickY,
-        VrRightStickX,
-        VrRightStickY,
         Select = feBack,        // These are mappings to PS2 buttons, needed sometimes.
         Start = feSelect,
         DPadUp = MoveUp,

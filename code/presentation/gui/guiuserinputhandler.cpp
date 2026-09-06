@@ -105,11 +105,11 @@ const ControlMap GUI_CONTROL_MAP[] =
 
 #ifdef RAD_PC
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
-    // Feed PCVR controller axes through the same analog GUI path as Quest.
-    { "VrLeftStickX",  GuiInput::XAxis },
-    { "VrLeftStickY",  GuiInput::YAxis },
-    { "VrRightStickX", GuiInput::XAxisRight },
-    { "VrRightStickY", GuiInput::YAxisRight },
+    // PCVR carries signed analog axes through existing frontend slots.
+    { "feMouseRight",   GuiInput::XAxis },
+    { "feMouseUp",      GuiInput::YAxis },
+    { "feMouseLeft",    GuiInput::XAxisRight },
+    { "feMouseDown",    GuiInput::YAxisRight },
 #endif
     // Win32 controllers expose frontend inputs under fe* names.  PCVR keeps
     // this backend-name adapter, while dispatch/repeat semantics below use

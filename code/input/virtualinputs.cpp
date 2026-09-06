@@ -64,11 +64,7 @@ static const char* szVirtualInputs[] =
     "P1_KBD_EBrake",
     "P1_KBD_Nitro",
     "P1_KBD_Left",
-    "P1_KBD_Right",
-    "VrLeftStickX",
-    "VrLeftStickY",
-    "VrRightStickX",
-    "VrRightStickY"
+    "P1_KBD_Right"
 };
 
 //==============================================================================
@@ -150,12 +146,6 @@ eMapType VirtualInputs::GetType( int VirtualInput )
         case InputManager::feMouseUp:
         case InputManager::feMouseDown:
         case InputManager::feStart:
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-        case InputManager::VrLeftStickX:
-        case InputManager::VrLeftStickY:
-        case InputManager::VrRightStickX:
-        case InputManager::VrRightStickY:
-#endif
             return MAP_FRONTEND;
         default:
             {
