@@ -43,15 +43,17 @@ namespace Input
     #endif
 
     // Maximum number of physical buttons (in a UserController)
-    #ifdef RAD_WIN32
-    const static unsigned int MaxPhysicalButtons = 42 + NumExtraButtonsForSuperSprint;
+#ifdef RAD_WIN32
+    // Win32 also exposes the PCVR analog frontend axes as virtual inputs.
+    // Keep the fixed controller arrays large enough for those entries.
+    const static unsigned int MaxPhysicalButtons = 42 + NumExtraButtonsForSuperSprint + 8;
     #else
     const static unsigned int MaxPhysicalButtons = 40;
     #endif
 
     // Maximum number of logical buttons (in a UserController)
-    #ifdef RAD_WIN32
-    const static unsigned int MaxLogicalButtons = 42 + NumExtraButtonsForSuperSprint;
+#ifdef RAD_WIN32
+    const static unsigned int MaxLogicalButtons = 42 + NumExtraButtonsForSuperSprint + 8;
     #else
     const static unsigned int MaxLogicalButtons = 40;
     #endif
