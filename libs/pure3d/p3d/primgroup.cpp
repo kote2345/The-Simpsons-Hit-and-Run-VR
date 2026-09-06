@@ -21,7 +21,7 @@
 #endif
 
 #include <string.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/csmbridge.h>
 void pglSetEnhancedMaterialMode(int mode);
 void pglSetEnhancedSunDirection(float x,float y,float z);
@@ -90,12 +90,12 @@ void p3dSetCsmOpaqueReceiverOnly(bool enabled)
 void p3dSetCsmIntegratedVehicleReceiver(bool enabled)
 {
     gCsmIntegratedVehicleReceiver=enabled;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(!enabled) VrEnableSunShadowReceivers(p3d::pddi,false);
 #endif
 }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 static void SelectIntegratedVehicleReceiver(tShader* shader)
 {
     if(gCsmIntegratedVehicleReceiver)
@@ -107,7 +107,7 @@ static void SelectIntegratedVehicleReceiver(tShader* shader)
 void p3dSetEnhancedWorldMaterials(bool enabled)
 {
     gEnhancedWorldMaterials=enabled;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(!enabled && !gEnhancedVehicleMaterials) pglSetEnhancedMaterialMode(0);
 #endif
 }
@@ -115,14 +115,14 @@ void p3dSetEnhancedWorldMaterials(bool enabled)
 void p3dSetEnhancedCharacterMaterials(bool enabled)
 {
     gEnhancedCharacterMaterials=enabled;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(!enabled) pglSetEnhancedMaterialMode(gEnhancedWorldMaterials ? 1 : 0);
 #endif
 }
 
 void p3dSetEnhancedSunDirection(const rmt::Vector& direction)
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     pglSetEnhancedSunDirection(direction.x,direction.y,direction.z);
 #endif
 }
@@ -130,12 +130,12 @@ void p3dSetEnhancedSunDirection(const rmt::Vector& direction)
 void p3dSetEnhancedVehicleMaterials(bool enabled)
 {
     gEnhancedVehicleMaterials=enabled;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(!enabled) pglSetEnhancedMaterialMode(gEnhancedWorldMaterials ? 1 : 0);
 #endif
 }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 static int EnhancedMaterialMode(tShader* shader)
 {
     // mTranslucent is a conservative asset-level flag and is also set on a
@@ -303,7 +303,7 @@ void tPrimGroupOptimised::Display()
     if(SuppressVrVehicleDriver(mShader)) return;
     FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
     pglSetEnhancedMaterialMode(EnhancedMaterialMode(mShader));
 #endif
@@ -331,7 +331,7 @@ void tPrimGroupOptimised::Display()
 #else
     p3d::pddi->DrawPrimBuffer( shader, mBuffer );
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     pglSetEnhancedMaterialMode(gEnhancedWorldMaterials ? 1 : 0);
 #endif
 }
@@ -389,7 +389,7 @@ void tPrimGroupSkinnedOptimised::Display()
     if(SuppressVrVehicleDriver(mShader)) return;
     FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
     pglSetEnhancedMaterialMode(EnhancedMaterialMode(mShader));
 #endif
@@ -402,7 +402,7 @@ void tPrimGroupSkinnedOptimised::Display()
         hwSkin->SetMatrix(i, (pddiMatrix*)matrixPalette[i]);
     }
     hwSkin->DrawSkin(GetShader()->GetShader(),GetBuffer());
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     pglSetEnhancedMaterialMode(gEnhancedWorldMaterials ? 1 : 0);
 #endif
 }
@@ -449,7 +449,7 @@ void tPrimGroupStreamed::Display()
     if(SuppressVrVehicleDriver(mShader)) return;
     FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
     pglSetEnhancedMaterialMode(EnhancedMaterialMode(mShader));
 #endif
@@ -493,7 +493,7 @@ void tPrimGroupStreamed::Display()
         vp->SetStreamProgram(0);
     }
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     pglSetEnhancedMaterialMode(gEnhancedWorldMaterials ? 1 : 0);
 #endif
 }
@@ -723,7 +723,7 @@ void tPrimGroupSkinnedPC::Display(void)
 	if(SuppressVrVehicleDriver(mShader)) return;
 	FadeVrVehicleGlass(mShader);
 	if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
     pglSetEnhancedMaterialMode(EnhancedMaterialMode(mShader));
 #endif
@@ -746,7 +746,7 @@ void tPrimGroupSkinnedPC::Display(void)
     if(!paletteChanged)
     {
         p3d::pddi->DrawPrimBuffer(mShader->GetShader(), mBuffer);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         pglSetEnhancedMaterialMode(gEnhancedWorldMaterials ? 1 : 0);
 #endif
         return;
@@ -866,7 +866,7 @@ void tPrimGroupSkinnedPC::Display(void)
 	}
 	//buffer rendering
 	p3d::pddi->DrawPrimBuffer(mShader->GetShader(), mBuffer);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     pglSetEnhancedMaterialMode(gEnhancedWorldMaterials ? 1 : 0);
 #endif
 

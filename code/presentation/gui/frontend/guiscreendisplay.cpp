@@ -22,7 +22,7 @@
 #include <main/win32platform.h>
 #include <memory/srrmemory.h>
 #include <render/RenderFlow/renderflow.h>
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
 #include <vr/openxrmanager.h>
 #include <presentation/gui/ingame/vrmenubuilder.h>
 #endif
@@ -32,7 +32,7 @@
 #include <Page.h>
 #include <Group.h>
 #include <Text.h>
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
 #include <Sprite.h>
 #include <FePage.h>
 #include <FeGroup.h>
@@ -82,7 +82,7 @@ CGuiScreenDisplay::CGuiScreenDisplay
 :   CGuiScreen( pScreen, pParent, GUI_SCREEN_ID_DISPLAY ),
     m_pMenu( NULL ),
     m_changedGamma( false )
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
     , m_pRenderScaleLabel( NULL )
     , m_pRefreshRateLabel( NULL )
 #endif
@@ -100,7 +100,7 @@ MEMTRACK_PUSH_GROUP( "CGuiScreenDisplay" );
 
     // Add menu items
     //
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
     Scrooby::Group* authored=pPage->GetGroup("Menu");if(authored)authored->SetVisible(false);
     FeText* style=VrMenuBuilder::FindStyleText(pPage);rAssert(style);
     VrMenuBuilder::RememberGraphicsStyle(style);
@@ -225,7 +225,7 @@ void CGuiScreenDisplay::HandleMessage
 {
     if( m_state == GUI_WINDOW_STATE_RUNNING )
     {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
         // PauseDisplay's authored navigation has its vertical axis opposite
         // to PauseSettings (used by VR). Normalize it here so both screens
         // react identically to the Quest stick.
@@ -254,7 +254,7 @@ void CGuiScreenDisplay::HandleMessage
             {
                 switch( param1 )
                 {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
                     case MENU_ITEM_REFRESH_RATE:
                     {
                         const float current=SharOpenXR::GetRefreshRate();
@@ -280,7 +280,7 @@ void CGuiScreenDisplay::HandleMessage
 
                 switch( param1 )
                 {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
                     case MENU_ITEM_REFRESH_RATE:
                     {
                         const float rates[3]={72.0f,90.0f,120.0f};
@@ -331,7 +331,7 @@ void CGuiScreenDisplay::HandleMessage
                 }
                 break;
             }
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
             case GUI_MSG_MENU_SLIDER_NOT_CHANGING:
             {
                 if( param1 == MENU_ITEM_RENDER_SCALE )
@@ -371,7 +371,7 @@ void CGuiScreenDisplay::HandleMessage
 //===========================================================================
 void CGuiScreenDisplay::InitIntro()
 {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
     m_pMenu->SetSelectionValue( MENU_ITEM_CSM,
                                 SharOpenXR::IsCsmEnabled() ? 1 : 0 );
     m_pMenu->SetSelectionValue( MENU_ITEM_CUSTOM_MATERIALS,
@@ -440,7 +440,7 @@ void CGuiScreenDisplay::InitRunning()
 //===========================================================================
 void CGuiScreenDisplay::InitOutro()
 {
-#ifndef RAD_ANDROID
+#if !defined(SRR2_OPENXR)
     // Save the config if we've changed the gamma settings
     if( m_changedGamma )
     {
@@ -469,7 +469,7 @@ void CGuiScreenDisplay::InitOutro()
 //===========================================================================
 void CGuiScreenDisplay::ApplySettings()
 {
-#ifndef RAD_ANDROID
+#if !defined(SRR2_OPENXR)
     // Retrieve the settings.
     //
     Win32Platform::Resolution res = static_cast< Win32Platform::Resolution >( m_pMenu->GetSelectionValue( MENU_ITEM_RESOLUTION ) );
@@ -487,7 +487,7 @@ void CGuiScreenDisplay::ApplySettings()
 #endif
 }
 
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
 void CGuiScreenDisplay::UpdateVrDisplayLabels()
 {
     if( m_pRefreshRateLabel != NULL )

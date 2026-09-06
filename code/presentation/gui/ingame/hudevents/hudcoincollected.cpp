@@ -18,7 +18,7 @@
 #include <presentation/gui/guiscreen.h>
 
 #include <worldsim/coins/coinmanager.h>
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 namespace Scrooby { class Group; }
 void ScroobySetVrMissionHudGroup(unsigned slot,Scrooby::Group* group);
@@ -57,7 +57,7 @@ HudCoinCollected::HudCoinCollected( Scrooby::Page* pPage )
 
     m_itemsCount = pPage->GetGroup( "ItemsCount" );
     rAssert( m_itemsCount != NULL );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 3, m_itemsCount );
 #endif
 
@@ -122,7 +122,7 @@ HudCoinCollected::Start()
         rAssert( m_itemsCount != NULL );
         m_itemsCount->ResetTransformation();
         m_itemsCount->SetAlpha(
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             SharOpenXR::IsSpatialHudEnabled() ? 1.0f :
 #endif
             0.0f );
@@ -166,7 +166,7 @@ HudCoinCollected::Update( float elapsedTime )
 
                 rAssert( m_itemsCount != NULL );
 
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
                 if( SharOpenXR::IsSpatialHudEnabled() )
                 {
                     m_itemsCount->ResetTransformation();
@@ -282,7 +282,7 @@ HudCoinCollected::Update( float elapsedTime )
             {
                 const float COIN_TRANSITION_OUT_TIME = 200.0f;
 
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
                 if( SharOpenXR::IsSpatialHudEnabled() )
                 {
                     m_itemsCount->ResetTransformation();

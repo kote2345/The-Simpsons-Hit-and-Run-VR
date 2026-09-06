@@ -40,6 +40,13 @@ else()
 	message(STATUS "OpenXR support: disabled")
 endif()
 
+# The Quest distribution is the PAL/EFIGS game flow. PCVR is a port of that
+# build, not of the legacy NTSC Windows frontend: use the same language boot
+# project, license assets and frontend state machine by default.
+if(SRR2_ENABLE_OPENXR AND WIN32 AND NOT ANDROID)
+	set(SRR2_REGION "PAL" CACHE STRING "Select PAL for the EFIGS multi-language version" FORCE)
+endif()
+
 if(SRR2_VR_RENDERER STREQUAL "VULKAN")
 	add_definitions(-DSRR2_VR_RENDERER_VULKAN=1)
 	message(STATUS "OpenXR renderer: Vulkan (experimental)")

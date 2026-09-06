@@ -29,6 +29,7 @@
 #endif
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxr_desktop_runtime.h>
+#include <main/win32crashhandler.h>
 #endif
 
 #ifdef __SWITCH__
@@ -99,6 +100,9 @@ static void LogOutputFunction( void *userdata, int category, SDL_LogPriority pri
 //=============================================================================
 extern "C" int main( int argc, char *argv[] )
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    InstallWin32CrashHandler();
+#endif
 #ifdef __SWITCH__
 #ifdef RAD_DEBUG
     socketInitializeDefault();

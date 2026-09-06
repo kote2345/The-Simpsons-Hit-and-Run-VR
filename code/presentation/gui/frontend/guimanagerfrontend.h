@@ -73,7 +73,7 @@ private:
     bool m_isControllerReconnected : 1;
     bool m_wasFMVInputHandlerEnabled : 1;
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     bool m_quittingGame : 1;
 #endif
 

@@ -21,7 +21,7 @@
 #include <p3d/effects/particleloader.hpp>
 #include <pddi/pddiext.hpp>
 #include <float.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 void pglSetParticleRendering(bool enabled);
 #endif
@@ -794,7 +794,7 @@ void tSpriteEmitter::Display()
             }
         }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         pglSetParticleRendering(true);
 #endif
         pddiPrimStream* stream = p3d::pddi->BeginPrims(shader->GetShader(), PDDI_PRIM_TRIANGLES, PDDI_V_CT, 6 * numLiveParticles);
@@ -840,7 +840,7 @@ void tSpriteEmitter::Display()
             stream->Coord(currPos.x-x, currPos.y-y, currPos.z);
         }
         p3d::pddi->EndPrims(stream);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         pglSetParticleRendering(false);
 #endif
 

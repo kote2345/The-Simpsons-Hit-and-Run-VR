@@ -14,7 +14,7 @@
 // Includes
 //===========================================================================
 #include <presentation/gui/ingame/hudevents/hudcountdown.h>
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 namespace Scrooby { class Group; }
 void ScroobySetVrMissionHudGroup(unsigned slot,Scrooby::Group* group);
 #endif
@@ -53,7 +53,7 @@ HudCountDown::HudCountDown( Scrooby::Page* pPage )
 //    const float BITMAP_TEXT_SPACING = 0.8f;
 
     rAssert( pPage != NULL );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 9, pPage->GetGroup( "CountDown" ) );
 #endif
     m_countDownMessage = pPage->GetSprite( "CountDown" );
@@ -236,4 +236,3 @@ HudCountDown::GetNextSequenceUnit()
 
     m_nextSequenceIndex++;
 }
-

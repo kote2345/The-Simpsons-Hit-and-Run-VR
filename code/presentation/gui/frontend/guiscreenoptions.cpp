@@ -36,6 +36,8 @@
 
 #ifdef RAD_ANDROID
 #include <input/touch/touchhudsystem.h>
+#endif
+#if defined(SRR2_OPENXR)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -143,7 +145,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenOptions" );
     // On Android reuse the otherwise hidden two-value display-mode row for
     // the gameplay mode.  This avoids changing the binary Scrooby layout.
     //
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
     Scrooby::Text* graphicsLabel=pGroup->GetText("Display");
     if(graphicsLabel) graphicsLabel->SetString(0,"Graphics");
     Scrooby::Text* vrLabel=pGroup->GetText("Controller");
@@ -351,7 +353,7 @@ void CGuiScreenOptions::HandleMessage
             {
                 if( param1 == MENU_ITEM_DISPLAY_MODE )
                 {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
                     SharOpenXR::SetVrModeEnabled(param2==1);
 #else
                     if( param2 == 1 ) // progressive mode
@@ -377,7 +379,7 @@ void CGuiScreenOptions::HandleMessage
                 {
                     case MENU_ITEM_CONTROLLER:
                     {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
                         m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_VR );
 #else
                         m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_CONTROLLER );
@@ -390,7 +392,7 @@ void CGuiScreenOptions::HandleMessage
                     {
                         m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_SOUND );
 
-#ifndef RAD_ANDROID
+#if !defined(SRR2_OPENXR)
                         this->StartTransitionAnimation( 660, 690 );
 #endif
 

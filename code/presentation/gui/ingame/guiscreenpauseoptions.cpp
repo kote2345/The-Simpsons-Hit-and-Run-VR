@@ -127,7 +127,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenPauseOptions" );
                               pRArrow );
     }
 
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
     // The Android project does not instantiate the controller-options screen.
     // Reuse its otherwise hidden top-level row as the entry to VR settings.
     Scrooby::Text* vrEntry = menu->GetText( "Controller" );
@@ -246,7 +246,7 @@ void CGuiScreenPauseOptions::HandleMessage
             {
                 if( param1 == MENU_ITEM_CONTROLLER )
                 {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
                     m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_VR );
 #else
                     m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_CONTROLLER );
@@ -259,7 +259,7 @@ void CGuiScreenPauseOptions::HandleMessage
                 
                 else if( param1 == MENU_ITEM_SETTINGS )
                 {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
                      m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_DEBUG );
 #else
                      m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_SETTINGS );

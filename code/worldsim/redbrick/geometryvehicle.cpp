@@ -13,7 +13,7 @@
 #include <contexts/bootupcontext.h>
 #include <worldsim/character/characterrenderable.h>
 #include <worldsim/redbrick/geometryvehicle.h>
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 #include <vr/openxrmanager.h>
 extern int gPglCsmBillboardMode;
 #endif
@@ -36,7 +36,7 @@ extern int gPglCsmBillboardMode;
 #include <p3d/view.hpp>
 #include <p3d/effects/particlesystem.hpp>
 #include <pddi/pddi.hpp>
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 // Kept as a renderer boundary here so game code does not depend on GLES headers.
 void pglSetVehicleDeformation(const float* dents,int count);
 void pglSuppressVehicleRearLights(bool suppress);
@@ -747,7 +747,7 @@ BEGIN_PROFILE("GeometryVehicle::Display SetUp")
     mVehicleOwner->GetVelocity( &vehicleVelocity );
 
     bool generateParticles = true;
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         // Display is invoked for both stereo eyes and for every CSM caster
@@ -1099,7 +1099,7 @@ END_PROFILE("GeometryVehicle::Ghost")
 BEGIN_PROFILE("GeometryVehicle::CompDraw->Disp")
     if( smokeFirst )
     {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         // In VR the world layer submits sorted smoke once per eye. Rendering
         // the complete shared smoke array here repeated it for every visible
         // vehicle and multiplied transparent overdraw catastrophically.
@@ -1109,7 +1109,7 @@ BEGIN_PROFILE("GeometryVehicle::CompDraw->Disp")
     }
     if( sbDrawVehicle )
     {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         // Emergency-light billboards can cover much of the view from an
         // in-car VR camera.  Hide authored siren nodes only on the vehicle
         // occupied by the player.  Preserve animation visibility so external
@@ -1188,7 +1188,7 @@ BEGIN_PROFILE("GeometryVehicle::CompDraw->Disp")
         pglSetVehicleDeformation(dents,mDentCount);
 #endif
         mCompositeDrawable->Display();
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         p3dSetCsmIntegratedVehicleReceiver(false);
         p3dSetEnhancedVehicleMaterials(false);
         pglSuppressVehicleRearLights(false);
@@ -1201,7 +1201,7 @@ BEGIN_PROFILE("GeometryVehicle::CompDraw->Disp")
     }
     if( !smokeFirst )
     {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         if(!SharOpenXR::IsVrModeEnabled())
 #endif
             GetSparkleManager()->Render( Sparkle::SRM_SortedOnly );
@@ -1776,7 +1776,7 @@ void GeometryVehicle::FindHeadLightBillboardJoints()
         for( int i=0; i<VehicleCentral::NUM_HEADLIGHT_BBQGS; i++ )
         {
             rAssert( GetVehicleCentral()->mHeadLights[i] );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             // common.p3d groups 0/1 use LENS02/flarebase2: two monitor-
             // oriented lens effects which separate in stereo and lag behind
             // head rotation. Retain only group 2 (glowGroupShape2/glow2), the
@@ -1812,7 +1812,7 @@ void GeometryVehicle::FindHeadLightBillboardJoints()
         for( int i=0; i<VehicleCentral::NUM_HEADLIGHT_BBQGS; i++ )
         {
             rAssert( GetVehicleCentral()->mHeadLights[i] );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             if(i!=2) continue;
 #endif
             mCompositeDrawable->AddProp( GetVehicleCentral()->mHeadLights[i], right );
@@ -3342,7 +3342,7 @@ bool GeometryVehicle::GetRearLightWorldPositions(bool reverse,rmt::Vector positi
 
 void GeometryVehicle::AddCollisionDent(const rmt::Vector& worldPoint,float impact)
 {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     if(impact<0.075f) return;
     rmt::Matrix worldToCar=mVehicleOwner->GetTransform();
     worldToCar.Invert();
@@ -3390,7 +3390,7 @@ void GeometryVehicle::DisplayCsmReceiver()
     // or other stateful vehicle effects belong in the receiver overlay.
     if(sbDrawVehicle && mCompositeDrawable)
     {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         const bool suppressEmbeddedDriver=SharOpenXR::IsVrModeEnabled() &&
                                           mVehicleOwner->IsUserDrivingCar();
         p3dSetVrVehicleDriverSuppressed(suppressEmbeddedDriver);
@@ -3405,7 +3405,7 @@ void GeometryVehicle::DisplayCsmReceiver()
         pglSetVehicleDeformation(dents,mDentCount);
 #endif
         mCompositeDrawable->Display();
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         pglSetVehicleDeformation(NULL,0);
         p3dSetVrVehicleDriverSuppressed(false);
 #endif

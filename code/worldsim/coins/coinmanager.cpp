@@ -39,7 +39,7 @@
 #include <data/PersistentWorldManager.h>
 #include <mission/gameplaymanager.h>
 #include <mission/charactersheet/charactersheetmanager.h>
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -1029,7 +1029,7 @@ void CoinManager::RenderCsmCasters( void )
 
 void CoinManager::SetHUDCoin( int X, int Y, bool IsShowing )
 {
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::SetSpatialCoinAuthoredPosition( X, Y, IsShowing );
 #endif
     const static float ScreenWidthRatio  = 1.0f / 640.0f;

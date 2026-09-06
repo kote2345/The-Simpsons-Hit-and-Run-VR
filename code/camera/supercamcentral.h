@@ -246,7 +246,7 @@ private:
     bool mIsInvertedCameraEnabled : 1;
     bool mJumpCamsEnabled : 1;
     bool mCameraToggling : 1;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     bool mVrForcedCamera : 1;
 #endif
     bool mNastyHypeCamHackEnabled : 1;

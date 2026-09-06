@@ -1,5 +1,5 @@
 #include <worldsim/character/character.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -1572,7 +1572,7 @@ void Character::PreSimUpdate( float timeins )
         UpdateGroundPlane( timeins );
     }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // A fast tracked-controller sweep reuses the original kick damage/event
     // rules. One hit per hand is allowed per short swing, preventing a hand
     // resting inside a prop from dealing damage every simulation tick.

@@ -433,7 +433,7 @@ MEMTRACK_PUSH_GROUP( "CGUIManagerInGame" );
         pScreen = new CGuiScreenPauseSettings( pScroobyScreen, this );
         this->AddWindow( CGuiWindow::GUI_SCREEN_ID_SETTINGS, pScreen );
 
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
         pScreen = new CGuiScreenPauseVR( pScroobyScreen, this );
         this->AddWindow( CGuiWindow::GUI_SCREEN_ID_VR, pScreen );
 

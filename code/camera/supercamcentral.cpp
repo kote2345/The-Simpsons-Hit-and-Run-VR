@@ -30,7 +30,7 @@
 //========================================
 #include <camera/supercam.h>
 #include <camera/supercamcentral.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 #include <camera/animatedcam.h>
@@ -247,7 +247,7 @@ SuperCamCentral::SuperCamCentral() :
     mIsInvertedCameraEnabled( false ),
     mJumpCamsEnabled( true ),
     mCameraToggling( false ),
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     mVrForcedCamera( false ),
 #endif
     mNastyHypeCamHackEnabled( false )
@@ -660,7 +660,7 @@ void SuperCamCentral::UpdateCameraCollisionSphereRadius(float radius)
 //=============================================================================
 void SuperCamCentral::Update( unsigned int milliseconds, bool isFirstSubstep )
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // VR mode owns the normal on-foot camera, but leaves mission, animated,
     // conversation and other authored cameras alone.
     if(mTarget && mActiveSuperCam)
@@ -2341,7 +2341,7 @@ bool SuperCamCentral::IsLegalType( SuperCam::Type type )
          type == SuperCam::RAIL_CAM ||
          type == SuperCam::CONVERSATION_CAM ||
          (mTarget != NULL && !mTarget->IsCar() && type == SuperCam::FIRST_PERSON_CAM ) ||
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
          (mTarget != NULL && mTarget->IsCar() && type == SuperCam::FIRST_PERSON_CAM &&
           SharOpenXR::IsVrModeEnabled()) ||
 #endif

@@ -35,9 +35,11 @@
 #ifdef RAD_WIN32
 #include <input/inputmanager.h>
 #endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#endif
 #ifdef RAD_ANDROID
 #include <input/touch/touchhudrenderer.h>
-#include <vr/openxrmanager.h>
 #endif
 
 
@@ -115,7 +117,7 @@ FrontEndRenderLayer::~FrontEndRenderLayer()
 
 void FrontEndRenderLayer::DrawCoinObject()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Coins flying into the counter are rendered separately from Scrooby but
     // belong on the same converged head-locked UI plane.
     SharOpenXR::SetWorldRendering( false );
@@ -126,7 +128,7 @@ void FrontEndRenderLayer::DrawCoinObject()
     if((coinContext == CONTEXT_GAMEPLAY || coinContext == CONTEXT_PAUSE) &&
 	   (coinContext == CONTEXT_PAUSE || !GetPresentationManager()->IsBusy()))
 	{
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // Never submit the shared world coin drawable through a legacy
         // offscreen pass. Its GLES material selects a non-multiview program
         // and then makes every world coin disappear. The spatial counter has
@@ -149,7 +151,7 @@ void FrontEndRenderLayer::DrawCoinObject()
 #else
         GetCoinManager()->HUDRender();
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // Flying-to-counter coins and their sparkles use legacy screen
         // coordinates and become a head-locked duplicate in VR.
         if(!spatialCoinHud) GetSparkleManager()->HUDRender();
@@ -162,7 +164,7 @@ void FrontEndRenderLayer::DrawCoinObject()
 	{
         GetCoinManager()->ClearHUDCoins();
 	}
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::SetEnhancedUiConvergence( false );
 #endif
 
@@ -323,7 +325,7 @@ void FrontEndRenderLayer::Render()
     PresentationManager* pm = GetPresentationManager();
     if( pm && pm->GetFMVPlayer() )
     {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         fmvPlaying = pm->GetFMVPlayer()->IsDecoderPlaying();
 #else
         fmvPlaying = pm->GetFMVPlayer()->IsPlaying();
@@ -339,7 +341,7 @@ void FrontEndRenderLayer::Render()
         return;
     }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const ContextEnum guiContext=GetGameFlow()->GetCurrentContext();
     CGuiManager* guiManager=GetGuiSystem()->GetCurrentManager();
     const CGuiWindow::eGuiWindowID screenId=guiManager?
@@ -368,7 +370,9 @@ void FrontEndRenderLayer::Render()
         guiContext==CONTEXT_FRONTEND;
     SharOpenXR::SetFrontendPlaneActive(spatialFrontend);
     SharOpenXR::SetFrontendPlaneRendering(spatialFrontend);
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::SetPauseCoinVisible(pauseScreen);
+#endif
 #endif
 
     for( unsigned int view = 0; view < mNumViews; view++ )
@@ -384,7 +388,7 @@ void FrontEndRenderLayer::Render()
 
         HeapMgr()->PushHeap( GMA_TEMP );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // Gameplay is paused, but CoinManager keeps advancing its HUD angle.
         // Refresh the clean cached icon so the final EndEye overlay retains
         // the original rotating pause-menu coin animation.
@@ -425,7 +429,7 @@ void FrontEndRenderLayer::Render()
 
     END_PROFILE( "FE Render" );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::SetFrontendPlaneRendering(false);
 #endif
 

@@ -39,6 +39,9 @@
 #include <input/basedamper.h>
 #include <input/constanteffect.h>
 #include <input/wheelrumble.h>
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#endif
 #include <presentation/tutorialmanager.h>
 
 #include <console/fbstricmp.h>
@@ -183,6 +186,17 @@ m_bTutorialDisabled(true)
         mButtonDeadZones[ i ] = 0.10f;
         mButtonSticky[ i ] = false;
     }
+
+    // GetIdByName historically scanned the complete fixed-capacity arrays,
+    // including the two unused Win32 slots. Make those slots deterministic;
+    // PCVR performs substantially more name lookups every frame and must not
+    // inspect indeterminate radKey/dead-zone values.
+    for( ; i < static_cast<int>(Input::MaxPhysicalButtons); ++i )
+    {
+        mButtonNames[i] = 0;
+        mButtonDeadZones[i] = 0.10f;
+        mButtonSticky[i] = false;
+    }
 	
     // Set up the controllers for each type.
 	m_pController[GAMEPAD] = new Gamepad();
@@ -240,6 +254,60 @@ void UserController::NotifyDisconnect( void )
 bool UserController::IsConnected() const
 {
 	return mIsConnected;
+}
+
+namespace
+{
+    // Keep PCVR-only connection state outside UserController.  Changing this
+    // legacy class's size breaks code which stores controllers in fixed arrays.
+    bool sVirtualInputAvailable[Input::MaxControllers] = { false };
+    bool sVirtualInputActive[Input::MaxControllers][Input::MaxPhysicalButtons] = {};
+    bool sVirtualInputPending[Input::MaxControllers][Input::MaxPhysicalButtons] = {};
+    float sVirtualInputValue[Input::MaxControllers][Input::MaxPhysicalButtons] = {};
+}
+
+bool UserController::IsInputAvailable() const
+{
+    return IsConnected() || IsVirtualInputAvailable();
+}
+
+void UserController::SetVirtualInputAvailable(bool available)
+{
+    if(m_controllerId >= 0 && m_controllerId < static_cast<int>(Input::MaxControllers))
+        sVirtualInputAvailable[m_controllerId] = available;
+}
+
+bool UserController::IsVirtualInputAvailable() const
+{
+    return m_controllerId >= 0 &&
+           m_controllerId < static_cast<int>(Input::MaxControllers) &&
+           sVirtualInputAvailable[m_controllerId];
+}
+
+void UserController::SetVirtualInputValue(unsigned int index,float value,bool forceChange)
+{
+    if(m_controllerId<0 || m_controllerId>=static_cast<int>(Input::MaxControllers) ||
+       index>=static_cast<unsigned>(mNumButtons)) return;
+    const int controller=m_controllerId;
+    if(forceChange || sVirtualInputValue[controller][index]!=value)
+        sVirtualInputPending[controller][index]=true;
+    sVirtualInputValue[controller][index]=value;
+    sVirtualInputActive[controller][index]=(value!=0.0f);
+}
+
+void UserController::ClearVirtualInputs()
+{
+    if(m_controllerId<0 || m_controllerId>=static_cast<int>(Input::MaxControllers)) return;
+    const int controller=m_controllerId;
+    for(int i=0;i<mNumButtons;++i)
+    {
+        if(sVirtualInputActive[controller][i] || sVirtualInputValue[controller][i]!=0.0f)
+        {
+            sVirtualInputValue[controller][i]=0.0f;
+            sVirtualInputActive[controller][i]=false;
+            sVirtualInputPending[controller][i]=true;
+        }
+    }
 }
 
 void UserController::Create( int id )
@@ -577,6 +645,9 @@ bool UserController::IsRumbleOn( void ) const
 void UserController::PulseRumble()
 {
     mRumbleEffect.SetEffect( RumbleEffect::PULSE, 500 );
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SharOpenXR::ApplyControllerHaptics(0.75f,120);
+#endif
 }
 
 void UserController::ApplyEffect( RumbleEffect::Effect effect, unsigned int durationms )
@@ -584,6 +655,9 @@ void UserController::ApplyEffect( RumbleEffect::Effect effect, unsigned int dura
     if ( mbIsRumbleOn && !CommandLineOptions::Get( CLO_NO_HAPTIC ) )
     {
         mRumbleEffect.SetEffect( effect, durationms );
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        SharOpenXR::ApplyControllerHaptics(0.55f,durationms);
+#endif
     }
 }
 
@@ -592,12 +666,15 @@ void UserController::ApplyDynaEffect( RumbleEffect::DynaEffect effect, unsigned 
     if ( mbIsRumbleOn && !CommandLineOptions::Get( CLO_NO_HAPTIC ) )
     {
         mRumbleEffect.SetDynaEffect( effect, durationms, gain );
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        SharOpenXR::ApplyControllerHaptics(gain,durationms);
+#endif
     }
 }
 
 void UserController::Update( unsigned timeins )
 {
-    if(!IsConnected())
+    if(!IsInputAvailable())
         return;
 
 #ifdef CONTROLLER_DEBUG
@@ -656,6 +733,24 @@ void UserController::Update( unsigned timeins )
     // Reset any mouse inputs that have gone stale.
     ResetMouseAxes();
 
+    // OpenXR supplies a complete controller snapshot. Apply it after all
+    // DirectInput callbacks/mouse maintenance so a stale physical value cannot
+    // overwrite a VR release. Pending releases are kept until they have been
+    // dispatched to every mappable (the same contract as the Quest controller).
+    if(IsVirtualInputAvailable() && m_controllerId>=0 &&
+       m_controllerId<static_cast<int>(Input::MaxControllers))
+    {
+        const int controller=m_controllerId;
+        for(int i=0;i<mNumButtons;++i)
+        {
+            if(sVirtualInputActive[controller][i] || sVirtualInputPending[controller][i])
+            {
+                mButtonArray[i].SetValue(sVirtualInputValue[controller][i]);
+                if(sVirtualInputPending[controller][i]) mButtonArray[i].ForceChange();
+            }
+        }
+    }
+
     // update the logical controller button values
     for(unsigned int i = 0; i < Input::MaxPhysicalButtons; i++)
     {
@@ -663,7 +758,10 @@ void UserController::Update( unsigned timeins )
         // button mapping will screw up in some cases)
         unsigned int timesincechange = mButtonArray[ i ].TimeSinceChange();
         bool bIsDown = mButtonArray[ i ].IsDown();
-        if((timesincechange == 0) || bIsDown)
+        const bool virtualPending=IsVirtualInputAvailable() && m_controllerId>=0 &&
+            m_controllerId<static_cast<int>(Input::MaxControllers) &&
+            sVirtualInputPending[m_controllerId][i];
+        if(virtualPending || (timesincechange == 0) || bIsDown)
         {            
             for ( unsigned j = 0; j < Input::MaxMappables; j++ )
             {
@@ -672,6 +770,7 @@ void UserController::Update( unsigned timeins )
                     mMappable[ j ]->DispatchOnButton( m_controllerId, i, &mButtonArray[ i ] );
                 }
             }
+            if(virtualPending) sVirtualInputPending[m_controllerId][i]=false;
         }
     }
 
@@ -847,7 +946,7 @@ int UserController::GetIdByName( const char* pszName ) const
 {
     radKey key = radMakeKey(pszName);
     unsigned int i;
-    for( i = 0; i < Input::MaxPhysicalButtons; i++ )
+    for( i = 0; i < static_cast<unsigned int>(mNumButtons); i++ )
     {
         if (mButtonNames[i] == key)
         {

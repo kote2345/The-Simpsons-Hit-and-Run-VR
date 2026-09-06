@@ -53,7 +53,7 @@ private:
 private:
     enum eMenuItem
     {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
         MENU_ITEM_CSM,
         MENU_ITEM_CUSTOM_MATERIALS,
         MENU_ITEM_ENHANCED_MATERIALS,
@@ -74,7 +74,7 @@ private:
 
     CGuiMenu* m_pMenu;
     bool      m_changedGamma;
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
     Scrooby::Text* m_pRenderScaleLabel;
     Scrooby::Text* m_pRefreshRateLabel;
     void UpdateVrDisplayLabels();

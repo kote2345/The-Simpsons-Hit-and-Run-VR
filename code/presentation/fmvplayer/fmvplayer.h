@@ -69,6 +69,9 @@ public:
     void RenderCurrentVrEye();
     bool IsDecoderPlaying();
 #endif
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    void FlushDeferredClearData();
+#endif
 
     // reset all internal data
     virtual void ClearData();
@@ -106,6 +109,9 @@ private:
     bool mDriveFinished;
 	float mFadeOut;
 	float mMovieVolume;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    bool mDeferredClearData;
+#endif
 };
 
 

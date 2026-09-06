@@ -74,7 +74,7 @@ private:
         MAIN_MENU_CARD_GALLERY,
         MAIN_MENU_OPTIONS,
         MAIN_MENU_MINI_GAME,
-  #ifdef RAD_PC
+  #if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
         MAIN_MENU_QUIT_GAME,
   #endif
         MAIN_MENU_NEW_GAME,
@@ -94,7 +94,7 @@ private:
     void OnResumeGameSelected();
     void OnMiniGameSelected();
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     void OnQuitGameSelected();
 #endif
 

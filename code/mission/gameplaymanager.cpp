@@ -80,7 +80,7 @@
 
 #include <camera/supercammanager.h>
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -365,7 +365,7 @@ bool GameplayManager::TestPosInFrustrumOfPlayer( const rmt::Vector& pos, int pla
         pCam->SetFarPlane(250.0f);
     }
     bool r = pCam->SphereVisible(pos, radius);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         // The legacy point-camera frustum is narrower than the union of the

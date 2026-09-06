@@ -43,7 +43,7 @@
 #include <worldsim/redbrick/rootmatrixdriver.h>
 #include <p3d/billboardobject.hpp>
 #include <p3d/camera.hpp>
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 #include <vr/openxrmanager.h>
 #endif
 #include <p3d/matrixstack.hpp>
@@ -369,7 +369,7 @@ StatePropDSG::Display()
 #endif
     if(IS_DRAW_LONG) return;
     DSG_BEGIN_PROFILE(profileName)
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     // StateProp animation can restore authored visibility before every draw.
     // Hide the embedded legacy shadow before the composite itself is drawn,
     // otherwise it enters both the colour pass and the CSM caster pass before
@@ -844,7 +844,7 @@ StatePropDSG::CastsShadow()
 void 
 StatePropDSG::DisplaySimpleShadow()
 {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     // Large state-prop trees carry an authored shadow as a hidden composite
     // element. CSM replaces it; drawing that element exposes its flat model
     // and also bakes its rectangular carrier into the sun depth map.

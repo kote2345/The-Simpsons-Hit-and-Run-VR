@@ -154,9 +154,14 @@ public:
 
     // connection status
     bool IsConnected( void ) const; 
-    bool IsInputAvailable( void ) const { return IsConnected(); }
+    bool IsInputAvailable( void ) const;
     void NotifyConnect( void );
     void NotifyDisconnect( void );
+
+    void SetVirtualInputAvailable( bool available );
+    bool IsVirtualInputAvailable( void ) const;
+    void SetVirtualInputValue( unsigned int index, float value, bool forceChange = false );
+    void ClearVirtualInputs( void );
 
     // Returns the value stored by input point at index.
     float GetInputValue( unsigned int index ) const;

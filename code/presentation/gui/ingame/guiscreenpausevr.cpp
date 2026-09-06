@@ -5,6 +5,7 @@
 #include <raddebug.hpp>
 #include <Screen.h>
 #include <Page.h>
+#include <Layer.h>
 #include <Group.h>
 #include <Text.h>
 #include <FeText.h>
@@ -30,6 +31,27 @@ CGuiScreenPauseVR::CGuiScreenPauseVR(Scrooby::Screen* screen,CGuiEntity* parent)
     m_pPage=m_pScroobyScreen->GetPage("PauseSettings");
     if(!m_pPage){m_pPage=m_pScroobyScreen->GetPage("Controller");m_frontendLayout=true;}
     rAssert(m_pPage);
+    // The frontend has no dedicated VR page and supplies Controller only as a
+    // canvas. Hide every authored top-level drawable before adding the VR rows;
+    // hiding Menu alone leaves its title/help text visible behind this screen.
+    if(m_frontendLayout)
+    {
+        const char* const controllerPages[]={"ControllerPC","CharacterControls","VehicleControls","GameSettings",
+                                              "ControllerImage","ControllerImageS","ControllerGC","ControllerPS2","ControllerXBOX"};
+        for(unsigned pageIndex=0;pageIndex<sizeof(controllerPages)/sizeof(controllerPages[0]);++pageIndex)
+        {
+            Scrooby::Page* controllerPage=m_pScroobyScreen->GetPage(controllerPages[pageIndex]);
+            if(!controllerPage)continue;
+            for(int layer=0;layer<controllerPage->GetNumberOfLayers();++layer)
+                if(Scrooby::Layer* controllerLayer=controllerPage->GetLayerByIndex(layer))
+                    controllerLayer->SetVisible(false);
+        }
+        FePage* frontendPage=dynamic_cast<FePage*>(m_pPage);
+        if(frontendPage)
+            for(int child=0;child<frontendPage->GetChildrenCount();++child)
+                if(Scrooby::Drawable* drawable=frontendPage->GetChildDrawable(child))
+                    drawable->SetVisible(false);
+    }
     Scrooby::Group* authored=m_pPage->GetGroup("Menu");if(authored)authored->SetVisible(false);
     FeText* style=VrMenuBuilder::FindStyleText(m_pPage);rAssert(style);
     m_pMenu=new CGuiMenu(this,m_numRows);

@@ -35,7 +35,7 @@
 #include <worldsim/character/charactertarget.h>
 #include <worldsim/redbrick/vehicle.h>
 #include <worldsim/vehiclecentral.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -291,7 +291,7 @@ void CGuiScreenMultiHud::HandleMessage
         {
             // update HUD elements for all players
             this->UpdateElements( param1 );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             // Mission/cutscene transitions may re-enable this page after
             // ShowLetterBox. Keep embedded cinema bars out of all XR modes.
             m_LetterboxPage->SetVisible( false );
@@ -785,7 +785,7 @@ void CGuiScreenMultiHud::SetTutorialMessage( int index )
 //===========================================================================
 void CGuiScreenMultiHud::ShowLetterBox()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_LetterboxPage->SetVisible( false );
 #else
     m_LetterboxPage->SetVisible( true );

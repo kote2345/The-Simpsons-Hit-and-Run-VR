@@ -1,6 +1,6 @@
 #include <ai/sequencer/actioncontroller.h>
 #include <worldsim/character/charactercontroller.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 #include <worldsim/character/controllereventhandler.h>
@@ -356,7 +356,7 @@ void CameraRelativeCharacterController::GetDirection( rmt::Vector& outDirection 
 
     GetCharacterMappable( )->GetDirection( outDirection );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         rmt::Vector headForward;

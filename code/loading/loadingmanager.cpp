@@ -313,6 +313,7 @@ void LoadingManager::OnLoadFileComplete( void* pUserData )
     // Continue onto the next request.
     mRequestHead = (mRequestHead + 1) % MAX_REQUESTS;
     mLoading = false;
+    ++mCompletionSerial;
 
     if(request.pCallback)
     {
@@ -322,6 +323,26 @@ void LoadingManager::OnLoadFileComplete( void* pUserData )
     request.pFileHandler->Release();
 
     this->ProcessNextRequest();
+}
+
+void LoadingManager::ServiceAsyncLoading()
+{
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // Win32 radLoad exposes each small file operation as a separate task.
+    // Pump those backend operations, but stop at the first game-visible
+    // completion so callback ordering matches the Quest game tick.
+    const radTime64 sliceStart = radTimeGetMicroseconds64();
+    const unsigned int completion = mCompletionSerial;
+    do
+    {
+        p3d::loadManager->SwitchTask();
+        ::radFileService();
+    }
+    while( mLoading && mCompletionSerial == completion &&
+           radTimeGetMicroseconds64() - sliceStart < 2000 );
+#else
+    p3d::loadManager->SwitchTask();
+#endif
 }
 
 
@@ -550,6 +571,7 @@ LoadingManager::LoadingManager()
     mRequestHead( 0 ),
     mRequestTail( 0 ),
     mLoading(false),
+    mCompletionSerial(0),
     mCancellingLoads( false )
 {
     int i;

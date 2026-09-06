@@ -10,7 +10,7 @@
 #include <pddi/pddi.hpp>
 #include <camera/supercammanager.h>
 #include <contexts/bootupcontext.h>
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 #include <vr/openxrmanager.h>
 #include <p3d/primgroup.hpp>
 #endif
@@ -161,7 +161,7 @@ END_PROFILE("CharRender Cull")
     dist *= dist;
 
     bool hideForNearCamera=sqrDistFromCam<dist;
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     if(hideForNearCamera && SharOpenXR::IsVrModeEnabled())
     {
         // The original third-person renderer hides every character within
@@ -582,11 +582,11 @@ void CharacterRenderable::DisplayModel( tPose* pose )
         draw->ProcessShaders( blendAlpha );
         tShaderIntBroadcast emissiveFade( PDDI_SP_EMISSIVEALPHA, mFadeAlpha );
         draw->ProcessShaders( emissiveFade );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         p3dSetEnhancedCharacterMaterials(SharOpenXR::IsEnhancedMaterialsEnabled());
 #endif
         draw->Display( pose );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         p3dSetEnhancedCharacterMaterials(false);
 #endif
     }

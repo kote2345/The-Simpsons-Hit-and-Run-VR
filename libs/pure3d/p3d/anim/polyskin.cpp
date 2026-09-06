@@ -19,7 +19,7 @@
 #include <radmath/radmath.hpp>
 #include <pddi/pddiext.hpp>
 #include <p3d/anim/instancedgeometry.hpp>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #include <radtime.hpp>
 #endif
@@ -69,7 +69,7 @@ void tPolySkin::Display(tPose* p)
     {
         return;
     }
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const radTime64 vrSkinStart=radTimeGetMicroseconds64();
 #endif
 
@@ -106,7 +106,7 @@ void tPolySkin::Display(tPose* p)
     {
         hwSkin->End();
     }
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::RecordRenderSection(12,
         (radTimeGetMicroseconds64()-vrSkinStart)/1000.0);
 #endif

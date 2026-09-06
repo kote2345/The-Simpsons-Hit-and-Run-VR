@@ -11,7 +11,7 @@
 
 #include <radmath/radmath.hpp>
 #if defined(SRR2_VR_RENDERER_VULKAN)
-#include <vulkan/vulkan.h>
+#include <vr/openxr_shared_graphics.h>
 #endif
 
 class tCamera;
@@ -19,15 +19,6 @@ class tCamera;
 namespace SharOpenXR
 {
 #if defined(SRR2_VR_RENDERER_VULKAN)
-    struct VulkanEyeTarget
-    {
-        VkImage image;
-        VkFormat format;
-        uint32_t width;
-        uint32_t height;
-        uint32_t arrayLayer;
-        bool firstUse;
-    };
     bool GetActiveVulkanEyeTarget(VulkanEyeTarget* target);
 #endif
     bool Initialize();
@@ -140,6 +131,7 @@ namespace SharOpenXR
     bool IsVehicleComfortEnabled();
     bool IsThirdPersonVehicleMode();
     bool GetVrSteeringWheelValue(float* value);
+    void ApplyControllerHaptics(float amplitude,unsigned durationMs);
     void SetRenderScale(float scale);
     float GetRenderScale();
     void SetRefreshRate(float hz);

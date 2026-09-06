@@ -29,7 +29,7 @@
 #include <p3d/utility.hpp>
 
 #include <raddebug.hpp> // Foundation
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 void ScroobySetVrIrisPure3dObject(Scrooby::Pure3dObject* object);
 #endif
@@ -79,7 +79,7 @@ CGuiScreenIrisWipe::CGuiScreenIrisWipe
 
     m_pIris = pPage->GetPure3dObject( "p3d_iris" );
     rAssert( m_pIris );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrIrisPure3dObject( m_pIris );
 #endif
 
@@ -261,7 +261,7 @@ void CGuiScreenIrisWipe::HandleMessage
 //===========================================================================
 void CGuiScreenIrisWipe::InitIntro()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::SetIrisBlackout( true );
 #endif
     if( m_loadingText != NULL )
@@ -322,7 +322,7 @@ void CGuiScreenIrisWipe::InitRunning()
 //===========================================================================
 void CGuiScreenIrisWipe::InitOutro()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // A mission restart leaves the authored iris closed while switching to
     // the mission-loading screen (DoNotOpenOnNextOutro).  The OpenXR cover is
     // separate from that animation, though, and must be released whenever we

@@ -55,7 +55,7 @@ public:
     bool UpdateIcon();
 
 private:
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     void AlignSpatialIconToMessageBox();
 #endif
     enum eSubState

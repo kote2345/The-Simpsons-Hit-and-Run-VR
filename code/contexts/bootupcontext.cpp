@@ -21,7 +21,7 @@
 
 
 // COMO EL ARRANQUE DE CINEMATICAS INICIALES DA CRASH EN ANDROID POR AHORA LO SALTAMOS
-#if defined(RAD_RELEASE) && !defined(RAD_E3) && !defined(RAD_ANDROID)
+#if defined(RAD_RELEASE) && !defined(RAD_E3) && !defined(RAD_ANDROID) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     #define SHOW_MOVIES
 #endif
 
@@ -148,15 +148,6 @@ BootupContext* BootupContext::GetInstance()
 //=============================================================================
 void BootupContext::StartMovies()
 {
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-    // The desktop PCVR renderer has no working presentation/FMV path yet.
-    // Queuing the retail logo movies leaves the GUI layer chilled forever:
-    // no decoder starts, OnPresentationEventEnd is never delivered, and the
-    // game remains in CONTEXT_BOOTUP while OpenXR submits empty frames. Enter
-    // the frontend directly until desktop movie composition is implemented.
-    GetGameFlow()->SetContext(CONTEXT_FRONTEND);
-    return;
-#endif
 #ifndef FINAL
     if( CommandLineOptions::Get( CLO_SKIP_FE ) )
     {
@@ -425,15 +416,8 @@ void BootupContext::OnUpdate( unsigned int elapsedTime )
 {
     if( m_elapsedTime != -1 )
     {
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-        // Desktop audio initialization can complete after the boot artwork.
-        // Do not hold the license/language/frontend state machine (and thus
-        // the only render-ready layer) behind that unrelated async callback.
-        const bool bootupServicesReady = m_bootupLoadCompleted;
-#else
         const bool bootupServicesReady =
             m_bootupLoadCompleted && m_soundLoadCompleted;
-#endif
         if( m_elapsedTime > MINIMUM_LICENSE_SCREEN_DISPLAY_TIME &&
             bootupServicesReady )
         {

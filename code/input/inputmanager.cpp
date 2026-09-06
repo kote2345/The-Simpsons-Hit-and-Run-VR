@@ -616,7 +616,7 @@ void InputManager::Update( unsigned int timeinms )
     for ( i = 0; i < Input::MaxControllers; i++ )
     {
 #ifdef RAD_PC
-        if(mControllerArray[i].IsConnected())
+        if(mControllerArray[i].IsInputAvailable())
 #else
         if(mControllerArray[i].IsInputAvailable())
 #endif

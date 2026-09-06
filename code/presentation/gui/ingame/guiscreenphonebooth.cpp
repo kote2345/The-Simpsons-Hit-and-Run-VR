@@ -40,7 +40,7 @@
 #include <worldsim/character/character.h>
 #include <worldsim/coins/coinmanager.h>
 #include <worldsim/vehiclecentral.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -446,7 +446,7 @@ void CGuiScreenPhoneBooth::HandleMessage
     {
         if( message == GUI_MSG_CONTROLLER_L1 || message == GUI_MSG_CONTROLLER_R1 )
         {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             if(!SharOpenXR::IsDeveloperMenusEnabled())
             {
                 message=GUI_MSG_UPDATE;

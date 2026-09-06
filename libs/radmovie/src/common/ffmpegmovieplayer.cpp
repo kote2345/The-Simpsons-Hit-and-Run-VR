@@ -210,7 +210,7 @@ bool radMoviePlayer::Render( void )
     // The video frame has been used.  The next can be decoded
     //
 
-#if !defined(RAD_ANDROID)
+#if !defined(RAD_ANDROID) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_VideoFrameState = VideoFrame_Unlocked;
 #endif
 

@@ -3,7 +3,7 @@
 
 #include <pddi/pddi.hpp>
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 bool VrBeginSunShadowMap(pddiRenderContext* context,int cascadeIndex,
                          const pddiMatrix& eyeCameraToWorld,
                          pddiMatrix* lightWorldToCamera,

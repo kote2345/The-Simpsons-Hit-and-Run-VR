@@ -44,6 +44,7 @@ bool LoadXr(PFN_xrGetInstanceProcAddr getProc, XrInstance instance,
     return XR_SUCCEEDED(getProc(instance, name,
         reinterpret_cast<PFN_xrVoidFunction*>(function))) && *function;
 }
+
 }
 
 VulkanContext::VulkanContext()
@@ -113,7 +114,9 @@ VulkanContext::VulkanContext()
       mStartupSplashMemory(VK_NULL_HANDLE),
       mStartupSplashWidth(0),
       mStartupSplashHeight(0),
+      mStartupSplashVisible(true),
       mPddiEyeActive(false),
+      mEyeOwnsGraphicsMutex(false),
       mPddiRenderPassActive(false),
       mColourClearMask(0),
       mLastDrawStateIndex(static_cast<size_t>(-1)),
@@ -364,10 +367,15 @@ bool VulkanContext::Initialize(XrInstance xrInstance, XrSystemId systemId,
         if(timestampsReady) mTimestampPeriod=timestampProperties.limits.timestampPeriod;
     }
     std::vector<unsigned char> pipelineCacheData;
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
     char* prefPath=SDL_GetPrefPath("LucasArts","The Simpsons Hit & Run VR");
     if(prefPath)
     {
-        mPipelineCachePath=std::string(prefPath)+"vulkan_pipeline_cache.bin";
+        // Bump the cache generation whenever pipeline layouts or shader
+        // specialization change.  NVIDIA accepts some stale cache blobs at
+        // vkCreatePipelineCache and only trips over them later while creating
+        // a graphics pipeline.
+        mPipelineCachePath=std::string(prefPath)+"vulkan_pipeline_cache_v2.bin";
         SDL_free(prefPath);
         SDL_RWops* cacheFile=SDL_RWFromFile(mPipelineCachePath.c_str(),"rb");
         if(cacheFile)
@@ -383,6 +391,7 @@ bool VulkanContext::Initialize(XrInstance xrInstance, XrSystemId systemId,
             SDL_RWclose(cacheFile);
         }
     }
+#endif
     VkPipelineCacheCreateInfo pipelineCacheInfo={
         VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
     pipelineCacheInfo.initialDataSize=pipelineCacheData.size();
@@ -570,7 +579,7 @@ bool VulkanContext::ClearImageInPddiEye(VkImage image,bool firstUse,uint32_t lay
     // several seconds with no render-ready layer, so put a native splash into
     // the XR image instead of submitting an unexplained black frame. Any PDDI
     // geometry recorded later in this command buffer naturally draws over it.
-    if(mStartupSplashBuffer && layer<2)
+    if(mStartupSplashVisible && mStartupSplashBuffer && layer<2)
     {
         VkBufferImageCopy copy={};
         copy.bufferRowLength=mStartupSplashWidth;
@@ -653,7 +662,13 @@ bool VulkanContext::DrawSmokeTriangle(VkImage image,VkFormat format,
 
 bool VulkanContext::BeginPddiEye()
 {
-    if(!IsInitialized() || mPddiEyeActive) return false;
+    mGraphicsMutex.lock();
+    if(!IsInitialized() || mPddiEyeActive)
+    {
+        mGraphicsMutex.unlock();
+        return false;
+    }
+    mEyeOwnsGraphicsMutex=true;
     mFrameArenaIndex=(mFrameArenaIndex+1)%FrameArenaCount;
     mActiveFrameArena=&mFrameArenas[mFrameArenaIndex];
     if(mActiveFrameArena->submitted)
@@ -661,7 +676,11 @@ bool VulkanContext::BeginPddiEye()
         const std::chrono::steady_clock::time_point fenceStart=std::chrono::steady_clock::now();
         if(vkWaitForFences(mDevice,1,&mActiveFrameArena->fence,VK_TRUE,
                            XR_INFINITE_DURATION)!=VK_SUCCESS)
+        {
+            mEyeOwnsGraphicsMutex=false;
+            mGraphicsMutex.unlock();
             return false;
+        }
         mLastFenceWaitMilliseconds=
             std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-
                                                      fenceStart).count();
@@ -719,19 +738,23 @@ bool VulkanContext::BeginPddiEye()
         }
     }
     else mLastFenceWaitMilliseconds=0.0;
-    bool allArenasComplete=true;
-    for(uint32_t i=0;i<FrameArenaCount;++i)
-        if(mFrameArenas[i].submitted &&
-           vkGetFenceStatus(mDevice,mFrameArenas[i].fence)!=VK_SUCCESS)
-            allArenasComplete=false;
-    if(allArenasComplete) ReleaseDeferredResources();
+    // Keep retired Vulkan objects alive for the duration of the session.
+    // NVIDIA drivers may still retain internal references after a frame
+    // fence signals (OpenXR compositor work is outside our queue).  Draining
+    // here can corrupt the driver's heap during the next draw.  Everything
+    // is reclaimed after vkDeviceWaitIdle() in Shutdown().
     mCommandBuffer=mActiveFrameArena->commandBuffer;
     mTimestampQueryPool=mActiveFrameArena->timestampQueryPool;
     vkResetFences(mDevice,1,&mActiveFrameArena->fence);
     vkResetCommandBuffer(mCommandBuffer,0);
     VkCommandBufferBeginInfo begin={VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     begin.flags=VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if(vkBeginCommandBuffer(mCommandBuffer,&begin)!=VK_SUCCESS) return false;
+    if(vkBeginCommandBuffer(mCommandBuffer,&begin)!=VK_SUCCESS)
+    {
+        mEyeOwnsGraphicsMutex=false;
+        mGraphicsMutex.unlock();
+        return false;
+    }
     if(mTimestampQueryPool)
     {
         vkCmdResetQueryPool(mCommandBuffer,mTimestampQueryPool,0,2);
@@ -744,7 +767,13 @@ bool VulkanContext::BeginPddiEye()
     mTextureUploadOffset=uploadSegment*mFrameArenaIndex;
     mTextureUploadEnd=mFrameArenaIndex==FrameArenaCount-1?mTextureUploadSize:
                       uploadSegment*(mFrameArenaIndex+1);
-    if(!RecordPendingTextureUploads()) return false;
+    if(!RecordPendingTextureUploads())
+    {
+        mPddiEyeActive=false;
+        mEyeOwnsGraphicsMutex=false;
+        mGraphicsMutex.unlock();
+        return false;
+    }
     mColourClearMask=0;
     const VkDeviceSize transientSegment=mTransientVertexSize/FrameArenaCount;
     mTransientVertexOffset=transientSegment*mFrameArenaIndex;
@@ -773,18 +802,111 @@ void VulkanContext::SetFragmentDensityMap(VkImage image,uint32_t width,uint32_t 
 
 void VulkanContext::ReleaseDeferredResources()
 {
+    // Multiple caches may retire aliases of the same Vulkan handle.  Make
+    // destruction idempotent before handing the lists to the driver.
+    auto removeDuplicates=[](auto& values)
+    {
+        for(size_t i=0;i<values.size();++i)
+            for(size_t j=i+1;j<values.size();)
+                if(values[j]==values[i]) values.erase(values.begin()+j);
+                else ++j;
+    };
+    removeDuplicates(mDeferredPipelines);
+    removeDuplicates(mDeferredPipelineLayouts);
+    removeDuplicates(mDeferredShaderModules);
+    removeDuplicates(mDeferredFramebuffers);
+    removeDuplicates(mDeferredRenderPasses);
+    removeDuplicates(mDeferredViews);
+    removeDuplicates(mDeferredDescriptorSets);
+    removeDuplicates(mDeferredSamplers);
+    removeDuplicates(mDeferredImages);
+    removeDuplicates(mDeferredImageMemory);
+    removeDuplicates(mDeferredBuffers);
+    removeDuplicates(mDeferredBufferMemory);
     for(VkPipeline value:mDeferredPipelines) vkDestroyPipeline(mDevice,value,NULL);
     for(VkPipelineLayout value:mDeferredPipelineLayouts) vkDestroyPipelineLayout(mDevice,value,NULL);
     for(VkShaderModule value:mDeferredShaderModules) vkDestroyShaderModule(mDevice,value,NULL);
     for(VkFramebuffer value:mDeferredFramebuffers) vkDestroyFramebuffer(mDevice,value,NULL);
     for(VkRenderPass value:mDeferredRenderPasses) vkDestroyRenderPass(mDevice,value,NULL);
     for(VkImageView value:mDeferredViews) vkDestroyImageView(mDevice,value,NULL);
+    if(mTextureDescriptorPool)
+        for(VkDescriptorSet value:mDeferredDescriptorSets)
+            vkFreeDescriptorSets(mDevice,mTextureDescriptorPool,1,&value);
+    for(VkSampler value:mDeferredSamplers) vkDestroySampler(mDevice,value,NULL);
+    for(VkImage value:mDeferredImages) vkDestroyImage(mDevice,value,NULL);
+    for(VkDeviceMemory value:mDeferredImageMemory) vkFreeMemory(mDevice,value,NULL);
     for(VkBuffer value:mDeferredBuffers) vkDestroyBuffer(mDevice,value,NULL);
     for(VkDeviceMemory value:mDeferredBufferMemory) vkFreeMemory(mDevice,value,NULL);
     mDeferredPipelines.clear(); mDeferredPipelineLayouts.clear();
     mDeferredShaderModules.clear(); mDeferredFramebuffers.clear();
     mDeferredRenderPasses.clear(); mDeferredViews.clear();
+    mDeferredDescriptorSets.clear(); mDeferredSamplers.clear();
+    mDeferredImages.clear(); mDeferredImageMemory.clear();
     mDeferredBuffers.clear(); mDeferredBufferMemory.clear();
+}
+
+bool VulkanContext::HasSubmittedFrames() const
+{
+    if(mPddiEyeActive) return true;
+    for(uint32_t i=0;i<FrameArenaCount;++i)
+        if(mFrameArenas[i].submitted) return true;
+    return false;
+}
+
+void VulkanContext::RetireRenderTarget(VkImage image)
+{
+    if(!image) return;
+
+    // A PDDI texture may also be used as an offscreen HUD/FMV render target.
+    // Framebuffers and their attachment views must not outlive that image.
+    // Pipelines are shared between target records, so move ownership to a
+    // surviving alias before removing records for this target.
+    for(size_t removedIndex=0;removedIndex<mDrawStateCache.size();)
+    {
+        if(mDrawStateCache[removedIndex].image!=image)
+        { ++removedIndex; continue; }
+        const CachedDrawState removed=mDrawStateCache[removedIndex];
+        if(removed.ownsRenderTargets)
+        {
+            if(removed.framebuffer) mDeferredFramebuffers.push_back(removed.framebuffer);
+            if(removed.depthClearRenderPass) mDeferredRenderPasses.push_back(removed.depthClearRenderPass);
+            if(removed.clearRenderPass) mDeferredRenderPasses.push_back(removed.clearRenderPass);
+            if(removed.renderPass) mDeferredRenderPasses.push_back(removed.renderPass);
+            // The attachment view is owned by the texture and is queued by
+            // DestroyTexture below.  Do not enqueue it here as well: doing
+            // so leaves duplicate VkImageView handles in mDeferredViews and
+            // causes a driver crash when the queue is drained on the next
+            // frame.  Density views are likewise texture-owned.
+        }
+        if(removed.ownsPipeline)
+        {
+            CachedDrawState* successor=NULL;
+            for(CachedDrawState& candidate:mDrawStateCache)
+                if(candidate.image!=image && candidate.pipeline==removed.pipeline)
+                { successor=&candidate; break; }
+            if(successor) successor->ownsPipeline=true;
+            else
+            {
+                if(removed.pipeline) mDeferredPipelines.push_back(removed.pipeline);
+                if(removed.layout) mDeferredPipelineLayouts.push_back(removed.layout);
+                if(removed.fragmentModule) mDeferredShaderModules.push_back(removed.fragmentModule);
+                if(removed.vertexModule) mDeferredShaderModules.push_back(removed.vertexModule);
+            }
+        }
+        mDrawStateCache.erase(mDrawStateCache.begin()+removedIndex);
+    }
+    mDrawStateLookup.clear();
+    mLastDrawStateIndex=static_cast<size_t>(-1);
+
+    for(size_t i=0;i<mDepthTargetCache.size();)
+    {
+        const CachedDepthTarget& target=mDepthTargetCache[i];
+        if(target.colourImage!=image) { ++i; continue; }
+        if(target.view) mDeferredViews.push_back(target.view);
+        if(target.image) mDeferredImages.push_back(target.image);
+        if(target.memory) mDeferredImageMemory.push_back(target.memory);
+        mDepthTargetCache.erase(mDepthTargetCache.begin()+i);
+    }
 }
 
 bool VulkanContext::EndPddiEye()
@@ -800,7 +922,19 @@ bool VulkanContext::EndPddiEye()
                             mTimestampQueryPool,1);
     mPddiEyeActive=false;
     if(vkEndCommandBuffer(mCommandBuffer)!=VK_SUCCESS)
-    { ReleaseDeferredResources(); return false; }
+    {
+        // A previous frame may still be executing on the queue.  Retired
+        // objects must remain deferred until every frame fence has completed.
+        // Retired objects are reclaimed only from Shutdown(), after a full
+        // device idle.  Do not destroy them on an error path while the
+        // OpenXR compositor may still hold references.
+        if(mEyeOwnsGraphicsMutex)
+        {
+            mEyeOwnsGraphicsMutex=false;
+            mGraphicsMutex.unlock();
+        }
+        return false;
+    }
     VkSubmitInfo submit={VK_STRUCTURE_TYPE_SUBMIT_INFO};
     submit.commandBufferCount=1; submit.pCommandBuffers=&mCommandBuffer;
     const bool submitted=vkQueueSubmit(mQueue,1,&submit,mActiveFrameArena->fence)==VK_SUCCESS;
@@ -814,6 +948,11 @@ bool VulkanContext::EndPddiEye()
                 mShaderVariantDraws[4]);
         std::memset(mShaderVariantDraws,0,sizeof(mShaderVariantDraws));
         mShaderVariantFrames=0;
+    }
+    if(mEyeOwnsGraphicsMutex)
+    {
+        mEyeOwnsGraphicsMutex=false;
+        mGraphicsMutex.unlock();
     }
     return submitted;
 }
@@ -1070,8 +1209,13 @@ bool VulkanContext::BeginShadowCascade(uint32_t cascadeIndex,uint32_t size)
            vkBindImageMemory(mDevice,cascade.image,cascade.memory,0)!=VK_SUCCESS) return false;
         VkImageViewCreateInfo vi={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         vi.image=cascade.image; vi.viewType=VK_IMAGE_VIEW_TYPE_2D; vi.format=ii.format;
-        vi.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+        // Unlike a sampled depth view, a D24S8 render-pass attachment has to
+        // expose depth and stencil.  Using the sampling view here was accepted
+        // by some drivers but corrupts NVIDIA's framebuffer setup path.
+        vi.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
         vi.subresourceRange.levelCount=vi.subresourceRange.layerCount=1;
+        if(vkCreateImageView(mDevice,&vi,NULL,&cascade.attachmentView)!=VK_SUCCESS) return false;
+        vi.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
         if(vkCreateImageView(mDevice,&vi,NULL,&cascade.view)!=VK_SUCCESS) return false;
         VkSamplerCreateInfo si={VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
         si.magFilter=si.minFilter=VK_FILTER_LINEAR;
@@ -1097,7 +1241,7 @@ bool VulkanContext::BeginShadowCascade(uint32_t cascadeIndex,uint32_t size)
         ri.attachmentCount=1; ri.pAttachments=&attachment; ri.subpassCount=1; ri.pSubpasses=&sub;
         if(vkCreateRenderPass(mDevice,&ri,NULL,&cascade.renderPass)!=VK_SUCCESS) return false;
         VkFramebufferCreateInfo fi={VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        fi.renderPass=cascade.renderPass; fi.attachmentCount=1; fi.pAttachments=&cascade.view;
+        fi.renderPass=cascade.renderPass; fi.attachmentCount=1; fi.pAttachments=&cascade.attachmentView;
         fi.width=fi.height=size; fi.layers=1;
         if(vkCreateFramebuffer(mDevice,&fi,NULL,&cascade.framebuffer)!=VK_SUCCESS) return false;
         cascade.size=size;
@@ -1110,7 +1254,8 @@ bool VulkanContext::BeginShadowCascade(uint32_t cascadeIndex,uint32_t size)
     barrier.oldLayout=cascade.initialized?VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-    barrier.image=cascade.image; barrier.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+    barrier.image=cascade.image;
+    barrier.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
     barrier.subresourceRange.levelCount=barrier.subresourceRange.layerCount=1;
     vkCmdPipelineBarrier(mCommandBuffer,cascade.initialized?VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT:VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
         VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,0,0,NULL,0,NULL,1,&barrier);
@@ -1139,7 +1284,8 @@ bool VulkanContext::EndShadowCascade(uint32_t cascadeIndex)
     barrier.oldLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     barrier.newLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
     barrier.srcQueueFamilyIndex=barrier.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED;
-    barrier.image=cascade.image; barrier.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT;
+    barrier.image=cascade.image;
+    barrier.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
     barrier.subresourceRange.levelCount=barrier.subresourceRange.layerCount=1;
     vkCmdPipelineBarrier(mCommandBuffer,VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
@@ -1284,7 +1430,7 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     VkFramebuffer framebuffer=VK_NULL_HANDLE;
     VkShaderModule vertexModule=VK_NULL_HANDLE,fragmentModule=VK_NULL_HANDLE;
     VkPipelineLayout layout=VK_NULL_HANDLE; VkPipeline pipeline=VK_NULL_HANDLE;
-    bool success=false,cached=false;
+    bool success=false,cached=false,reusedRenderTargets=false,reusedPipeline=false;
     // Match GLES program selection by active material features. Variant 1 is
     // the minimal unlit path, variant 2 keeps lighting/fog but drops all
     // layer/reflection varyings and samplers, and variant 0 is the full path.
@@ -1306,6 +1452,7 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     hashStateValue(reinterpret_cast<uintptr_t>(foveated?mFragmentDensityMap:VK_NULL_HANDLE));
     hashStateValue(static_cast<uint64_t>(format));
     hashStateValue(width); hashStateValue(height); hashStateValue(arrayLayer);
+    hashStateValue(multiview);
     hashStateValue(static_cast<uint64_t>(topology));
     hashStateValue(material.blendMode); hashStateValue(effectiveCull);
     hashStateValue(material.colourWriteMask);
@@ -1322,6 +1469,7 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
            state.densityImage==(foveated?mFragmentDensityMap:VK_NULL_HANDLE) &&
            state.format==format && state.width==width &&
            state.height==height && state.arrayLayer==arrayLayer &&
+           state.multiview==multiview &&
            state.topology==topology && state.blendMode==material.blendMode &&
            state.cullMode==effectiveCull &&
            state.colourWriteMask==material.colourWriteMask &&
@@ -1370,8 +1518,61 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
             }
         }
 
+    // Image views, compatible render passes and the framebuffer belong to the
+    // render target, not to every material pipeline.  Reusing them avoids
+    // creating thousands of identical framebuffer objects while a level is
+    // warming its pipeline cache (which can corrupt the NVIDIA user-mode
+    // driver's heap on desktop).
+    if(!cached)
+        for(const CachedDrawState& state:mDrawStateCache)
+            if(state.image==image &&
+               state.densityImage==(foveated?mFragmentDensityMap:VK_NULL_HANDLE) &&
+               state.format==format && state.width==width && state.height==height &&
+               state.arrayLayer==arrayLayer && state.multiview==multiview)
+            {
+                view=state.view; densityView=state.densityView;
+                renderPass=state.renderPass; clearRenderPass=state.clearRenderPass;
+                depthClearRenderPass=state.depthClearRenderPass;
+                framebuffer=state.framebuffer; reusedRenderTargets=true;
+                break;
+            }
+
+    // Graphics pipelines are compatible with every framebuffer created from
+    // a compatible render pass.  In particular, the three OpenXR swapchain
+    // images must not each compile their own copy of every material pipeline.
+    // Besides wasting a large amount of driver memory, that object explosion
+    // eventually corrupts the NVIDIA user-mode heap while loading a level.
+    if(!cached)
+        for(const CachedDrawState& state:mDrawStateCache)
+            if(state.format==format && state.arrayLayer==arrayLayer &&
+               state.multiview==multiview &&
+               (state.densityImage!=VK_NULL_HANDLE)==foveated &&
+               state.topology==topology && state.blendMode==material.blendMode &&
+               state.cullMode==effectiveCull &&
+               state.colourWriteMask==material.colourWriteMask &&
+               state.depthTest==material.depthTest && state.depthWrite==material.depthWrite &&
+               state.shaderVariant==shaderVariant && state.materialModel==materialModel &&
+               state.alphaTest==material.alphaTest &&
+               state.depthBiasEnabled==(material.depthBias!=0.0f) &&
+               state.depthCompare==material.depthCompare &&
+               state.stencilTest==material.stencilTest &&
+               state.stencilCompare==material.stencilCompare &&
+               state.stencilFail==material.stencilFail &&
+               state.stencilDepthFail==material.stencilDepthFail &&
+               state.stencilPass==material.stencilPass)
+            {
+                vertexModule=state.vertexModule;
+                fragmentModule=state.fragmentModule;
+                layout=state.layout;
+                pipeline=state.pipeline;
+                reusedPipeline=true;
+                break;
+            }
+
     do {
     if(!cached)
+    {
+    if(!reusedRenderTargets)
     {
     VkImageViewCreateInfo vi={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     vi.image=image; vi.viewType=multiview?VK_IMAGE_VIEW_TYPE_2D_ARRAY:
@@ -1469,7 +1670,17 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     fi.renderPass=renderPass; fi.attachmentCount=foveated?3u:2u;
     fi.pAttachments=framebufferAttachments;
     fi.width=width; fi.height=height; fi.layers=1;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SDL_Log("PCVR Vulkan target create: image=%p layer=%u multiview=%d size=%ux%u renderPass=%p colourView=%p depthView=%p cachedStates=%u",
+        reinterpret_cast<void*>(image),arrayLayer,multiview?1:0,width,height,
+        reinterpret_cast<void*>(renderPass),reinterpret_cast<void*>(view),
+        reinterpret_cast<void*>(depthTarget->view),
+        static_cast<unsigned>(mDrawStateCache.size()));
+#endif
     if(vkCreateFramebuffer(mDevice,&fi,NULL,&framebuffer)!=VK_SUCCESS) break;
+    }
+    if(!reusedPipeline)
+    {
     VkShaderModuleCreateInfo smi={VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     const ShaderBinary vertexShader=GetMaterialVertexShader(materialPipeline,multiview);
     smi.codeSize=vertexShader.bytes; smi.pCode=vertexShader.words;
@@ -1594,7 +1805,26 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     pi.pDepthStencilState=&depthState; pi.pColorBlendState=&blend;
     pi.pDynamicState=&dynamic;
     pi.layout=layout; pi.renderPass=renderPass;
-    if(vkCreateGraphicsPipelines(mDevice,mPipelineCache,1,&pi,NULL,&pipeline)!=VK_SUCCESS) break;
+    // The NVIDIA OpenXR driver has corrupted its compiler heap while JITing
+    // the many first-use world material variants.  The unoptimised pipeline
+    // path is specification-defined and keeps the exact same shaders and
+    // rendering behaviour; it only trades startup compilation time for a
+    // stable PCVR driver path.
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    pi.flags=VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+#endif
+    // NVIDIA's desktop OpenXR/Vulkan driver has repeatedly reported heap
+    // corruption while consuming its pipeline cache during dynamic HUD target
+    // creation.  The regular in-process state cache below still prevents
+    // recompilation; simply do not hand the driver a persistent cache object
+    // on PCVR.  Quest retains the normal cache path.
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    const VkPipelineCache pipelineCache=VK_NULL_HANDLE;
+#else
+    const VkPipelineCache pipelineCache=mPipelineCache;
+#endif
+    if(vkCreateGraphicsPipelines(mDevice,pipelineCache,1,&pi,NULL,&pipeline)!=VK_SUCCESS) break;
+    }
     }
     if(mPipelinePrewarm) { success=true; break; }
     const bool batched=mPddiEyeActive;
@@ -1897,6 +2127,7 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
         state.densityImage=foveated?mFragmentDensityMap:VK_NULL_HANDLE;
         state.format=format; state.width=width;
         state.height=height; state.arrayLayer=arrayLayer; state.topology=topology;
+        state.multiview=multiview;
         state.blendMode=material.blendMode;
         state.cullMode=effectiveCull;
         state.colourWriteMask=material.colourWriteMask;
@@ -1915,8 +2146,10 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
         state.renderPass=renderPass; state.clearRenderPass=clearRenderPass;
         state.depthClearRenderPass=depthClearRenderPass;
         state.framebuffer=framebuffer;
+        state.ownsRenderTargets=!reusedRenderTargets;
         state.vertexModule=vertexModule; state.fragmentModule=fragmentModule;
         state.layout=layout; state.pipeline=pipeline;
+        state.ownsPipeline=!reusedPipeline;
         mDrawStateCache.push_back(state);
         mLastDrawStateIndex=mDrawStateCache.size()-1;
         mDrawStateLookup[stateHash]=mLastDrawStateIndex;
@@ -1925,6 +2158,10 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
         // while the initial/loading scenes are warming the cache, so entering
         // a streamed district does not call vkCreateGraphicsPipelines on the
         // render-critical frame.
+        // Desktop drivers compile quickly and may perform their own threaded
+        // compilation.  Recursive prewarming here used the live render target
+        // and has caused nvoglv64 heap corruption during district startup.
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
         if(!mPipelinePrewarm && mPrewarmedStateGroups<12)
         {
             ++mPrewarmedStateGroups;
@@ -1945,19 +2182,26 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
                 textureSet,reflectionSet,topTextureSet,lightMapSet,sibling);
             mPipelinePrewarm=false;
         }
+#endif
     }
     else if(!cached)
     {
-        if(pipeline) vkDestroyPipeline(mDevice,pipeline,NULL);
-        if(layout) vkDestroyPipelineLayout(mDevice,layout,NULL);
-        if(fragmentModule) vkDestroyShaderModule(mDevice,fragmentModule,NULL);
-        if(vertexModule) vkDestroyShaderModule(mDevice,vertexModule,NULL);
-        if(framebuffer) vkDestroyFramebuffer(mDevice,framebuffer,NULL);
-        if(depthClearRenderPass) vkDestroyRenderPass(mDevice,depthClearRenderPass,NULL);
-        if(clearRenderPass) vkDestroyRenderPass(mDevice,clearRenderPass,NULL);
-        if(renderPass) vkDestroyRenderPass(mDevice,renderPass,NULL);
-        if(densityView) vkDestroyImageView(mDevice,densityView,NULL);
-        if(view) vkDestroyImageView(mDevice,view,NULL);
+        if(!reusedPipeline)
+        {
+            if(pipeline) vkDestroyPipeline(mDevice,pipeline,NULL);
+            if(layout) vkDestroyPipelineLayout(mDevice,layout,NULL);
+            if(fragmentModule) vkDestroyShaderModule(mDevice,fragmentModule,NULL);
+            if(vertexModule) vkDestroyShaderModule(mDevice,vertexModule,NULL);
+        }
+        if(!reusedRenderTargets)
+        {
+            if(framebuffer) vkDestroyFramebuffer(mDevice,framebuffer,NULL);
+            if(depthClearRenderPass) vkDestroyRenderPass(mDevice,depthClearRenderPass,NULL);
+            if(clearRenderPass) vkDestroyRenderPass(mDevice,clearRenderPass,NULL);
+            if(renderPass) vkDestroyRenderPass(mDevice,renderPass,NULL);
+            if(densityView) vkDestroyImageView(mDevice,densityView,NULL);
+            if(view) vkDestroyImageView(mDevice,view,NULL);
+        }
     }
     return success;
 }
@@ -1987,6 +2231,7 @@ bool VulkanContext::CreateTexture2D(uint32_t width,uint32_t height,
                                     VkSampler* sampler,VkDescriptorSet* descriptorSet,
                                     VkFormat format,uint32_t filterMode)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!IsInitialized() || !width || !height || !mipLevels || !image ||
        !memory || !view || !sampler || !descriptorSet) return false;
     *image=VK_NULL_HANDLE; *memory=VK_NULL_HANDLE;
@@ -2027,6 +2272,7 @@ bool VulkanContext::CreateTexture2DArray(uint32_t width,uint32_t height,uint32_t
                                          VkImageView* view,VkSampler* sampler,
                                          VkDescriptorSet* descriptorSet)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!IsInitialized() || !width || !height || !layers) return false;
     *image=VK_NULL_HANDLE; *memory=VK_NULL_HANDLE; *view=VK_NULL_HANDLE;
     *sampler=VK_NULL_HANDLE; *descriptorSet=VK_NULL_HANDLE;
@@ -2070,6 +2316,7 @@ bool VulkanContext::CreateTextureSamplerDescriptor(VkImageView view,uint32_t mip
                                                     uint32_t uvMode,uint32_t filterMode,
                                                     VkSampler* sampler,VkDescriptorSet* descriptorSet)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!mDevice || !view || !sampler || !descriptorSet) return false;
     *sampler=VK_NULL_HANDLE; *descriptorSet=VK_NULL_HANDLE;
     const bool useMips=filterMode>=2 && mipLevels>1;
@@ -2106,7 +2353,17 @@ bool VulkanContext::CreateTextureSamplerDescriptor(VkImageView view,uint32_t mip
 
 void VulkanContext::DestroyTextureSamplerDescriptor(VkSampler sampler,VkDescriptorSet descriptorSet)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!mDevice) return;
+    // Descriptors and samplers can still be referenced by an in-flight eye
+    // submission.  Treat them exactly like texture destruction; freeing them
+    // immediately is invalid even when the CPU has finished issuing draws.
+    if(HasSubmittedFrames())
+    {
+        if(descriptorSet) mDeferredDescriptorSets.push_back(descriptorSet);
+        if(sampler) mDeferredSamplers.push_back(sampler);
+        return;
+    }
     if(descriptorSet && mTextureDescriptorPool)
         vkFreeDescriptorSets(mDevice,mTextureDescriptorPool,1,&descriptorSet);
     if(sampler) vkDestroySampler(mDevice,sampler,NULL);
@@ -2116,6 +2373,7 @@ bool VulkanContext::UploadTextureMip(VkImage image,uint32_t width,uint32_t heigh
                                      uint32_t mipLevel,const void* data,
                                      VkDeviceSize size)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!image || !width || !height || !data || !size) return false;
     PendingTextureUpload upload={};
     upload.image=image; upload.width=width; upload.height=height;
@@ -2130,6 +2388,7 @@ bool VulkanContext::UploadTextureMip(VkImage image,uint32_t width,uint32_t heigh
 bool VulkanContext::UploadTextureLayer(VkImage image,uint32_t width,uint32_t height,
                                        uint32_t layer,const void* data,VkDeviceSize size)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!UploadTextureMip(image,width,height,0,data,size)) return false;
     mPendingTextureUploads.back().arrayLayer=layer;
     return true;
@@ -2137,6 +2396,7 @@ bool VulkanContext::UploadTextureLayer(VkImage image,uint32_t width,uint32_t hei
 
 bool VulkanContext::HasPendingTextureUploads(VkImage image) const
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     for(const PendingTextureUpload& upload:mPendingTextureUploads)
         if(upload.image==image) return true;
     return false;
@@ -2144,6 +2404,7 @@ bool VulkanContext::HasPendingTextureUploads(VkImage image) const
 
 bool VulkanContext::PrepareTextureForSampling(VkImage image)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!image || !HasPendingTextureUploads(image)) return true;
     if(!mPddiEyeActive) return false;
     // A movie frame can be decoded after BeginPddiEye has already drained the
@@ -2157,6 +2418,7 @@ bool VulkanContext::PrepareTextureForSampling(VkImage image)
 
 bool VulkanContext::FlushTextureUploads()
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(mPendingTextureUploads.empty()) return true;
     // Initialization/shutdown-only drain. Runtime uploads are recorded into
     // frame command buffers by RecordPendingTextureUploads and never wait.
@@ -2285,6 +2547,7 @@ void VulkanContext::DestroyTexture(VkImage image,VkDeviceMemory memory,
                                    VkImageView view,VkSampler sampler,
                                    VkDescriptorSet descriptorSet)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!mDevice) return;
     mUploadedTextureImages.erase(image);
     for(auto it=mPendingTextureUploads.begin();it!=mPendingTextureUploads.end();)
@@ -2293,6 +2556,18 @@ void VulkanContext::DestroyTexture(VkImage image,VkDeviceMemory memory,
         { mPendingUploadBytes-=it->data.size(); it=mPendingTextureUploads.erase(it); }
         else ++it;
     }
+    RetireRenderTarget(image);
+    if(HasSubmittedFrames())
+    {
+        if(descriptorSet) mDeferredDescriptorSets.push_back(descriptorSet);
+        if(sampler) mDeferredSamplers.push_back(sampler);
+        if(view) mDeferredViews.push_back(view);
+        if(image) mDeferredImages.push_back(image);
+        if(memory) mDeferredImageMemory.push_back(memory);
+        return;
+    }
+    // Deferred resources remain alive until Shutdown() performs
+    // vkDeviceWaitIdle().
     if(descriptorSet && mTextureDescriptorPool)
         vkFreeDescriptorSets(mDevice,mTextureDescriptorPool,1,&descriptorSet);
     if(sampler) vkDestroySampler(mDevice,sampler,NULL);
@@ -2305,6 +2580,7 @@ bool VulkanContext::CreateBuffer(VkDeviceSize size,VkBufferUsageFlags usage,
                                  VkMemoryPropertyFlags properties,
                                  VkBuffer* buffer,VkDeviceMemory* memory)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!IsInitialized() || !size || !buffer || !memory) return false;
     *buffer=VK_NULL_HANDLE; *memory=VK_NULL_HANDLE;
     VkBufferCreateInfo bufferInfo={VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -2340,6 +2616,10 @@ bool VulkanContext::CreateStaticBuffer(const void* data,VkDeviceSize size,
                                        VkBufferUsageFlags usage,VkBuffer* buffer,
                                        VkDeviceMemory* memory)
 {
+    // Retained Pure3D geometry is also constructed by radLoadManager's worker
+    // thread. Wait for the active eye command buffer before reusing the upload
+    // command buffer, fence and Vulkan queue.
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!data || !size || mPddiEyeActive) return false;
     VkBuffer staging=VK_NULL_HANDLE; VkDeviceMemory stagingMemory=VK_NULL_HANDLE;
     if(!CreateBuffer(size,VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -2385,8 +2665,9 @@ bool VulkanContext::CreateStaticBuffer(const void* data,VkDeviceSize size,
 
 void VulkanContext::DestroyBuffer(VkBuffer buffer,VkDeviceMemory memory)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!mDevice) return;
-    if(mPddiEyeActive)
+    if(HasSubmittedFrames())
     {
         if(buffer) mDeferredBuffers.push_back(buffer);
         if(memory) mDeferredBufferMemory.push_back(memory);
@@ -2399,6 +2680,7 @@ void VulkanContext::DestroyBuffer(VkBuffer buffer,VkDeviceMemory memory)
 bool VulkanContext::UploadMemory(VkDeviceMemory memory,VkDeviceSize offset,
                                  const void* data,VkDeviceSize size)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!mDevice || !memory || !data || !size) return false;
     void* mapped=NULL;
     if(vkMapMemory(mDevice,memory,offset,size,0,&mapped)!=VK_SUCCESS) return false;
@@ -2410,6 +2692,7 @@ bool VulkanContext::UploadMemory(VkDeviceMemory memory,VkDeviceSize offset,
 bool VulkanContext::UploadTransientVertices(const void* data,VkDeviceSize size,
                                             VkBuffer* buffer,VkDeviceSize* offset)
 {
+    std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!data || !size || !buffer || !offset || !mTransientVertexMapped) return false;
     const VkDeviceSize aligned=(mTransientVertexOffset+15u)&~VkDeviceSize(15u);
     if(aligned+size>mTransientVertexEnd) return false;
@@ -2462,16 +2745,22 @@ void VulkanContext::Shutdown()
         mVehicleCubeDescriptor=VK_NULL_HANDLE;
         for(const CachedDrawState& state:mDrawStateCache)
         {
-            if(state.pipeline) vkDestroyPipeline(mDevice,state.pipeline,NULL);
-            if(state.layout) vkDestroyPipelineLayout(mDevice,state.layout,NULL);
-            if(state.fragmentModule) vkDestroyShaderModule(mDevice,state.fragmentModule,NULL);
-            if(state.vertexModule) vkDestroyShaderModule(mDevice,state.vertexModule,NULL);
-            if(state.framebuffer) vkDestroyFramebuffer(mDevice,state.framebuffer,NULL);
-            if(state.depthClearRenderPass) vkDestroyRenderPass(mDevice,state.depthClearRenderPass,NULL);
-            if(state.clearRenderPass) vkDestroyRenderPass(mDevice,state.clearRenderPass,NULL);
-            if(state.renderPass) vkDestroyRenderPass(mDevice,state.renderPass,NULL);
-            if(state.densityView) vkDestroyImageView(mDevice,state.densityView,NULL);
-            if(state.view) vkDestroyImageView(mDevice,state.view,NULL);
+            if(state.ownsPipeline)
+            {
+                if(state.pipeline) vkDestroyPipeline(mDevice,state.pipeline,NULL);
+                if(state.layout) vkDestroyPipelineLayout(mDevice,state.layout,NULL);
+                if(state.fragmentModule) vkDestroyShaderModule(mDevice,state.fragmentModule,NULL);
+                if(state.vertexModule) vkDestroyShaderModule(mDevice,state.vertexModule,NULL);
+            }
+            if(state.ownsRenderTargets)
+            {
+                if(state.framebuffer) vkDestroyFramebuffer(mDevice,state.framebuffer,NULL);
+                if(state.depthClearRenderPass) vkDestroyRenderPass(mDevice,state.depthClearRenderPass,NULL);
+                if(state.clearRenderPass) vkDestroyRenderPass(mDevice,state.clearRenderPass,NULL);
+                if(state.renderPass) vkDestroyRenderPass(mDevice,state.renderPass,NULL);
+                if(state.densityView) vkDestroyImageView(mDevice,state.densityView,NULL);
+                if(state.view) vkDestroyImageView(mDevice,state.view,NULL);
+            }
         }
         mDrawStateCache.clear();
         mDrawStateLookup.clear();
@@ -2493,6 +2782,7 @@ void VulkanContext::Shutdown()
             if(cascade.readbackBuffer) vkDestroyBuffer(mDevice,cascade.readbackBuffer,NULL);
             if(cascade.readbackMemory) vkFreeMemory(mDevice,cascade.readbackMemory,NULL);
             if(cascade.view) vkDestroyImageView(mDevice,cascade.view,NULL);
+            if(cascade.attachmentView) vkDestroyImageView(mDevice,cascade.attachmentView,NULL);
             if(cascade.image) vkDestroyImage(mDevice,cascade.image,NULL);
             if(cascade.memory) vkFreeMemory(mDevice,cascade.memory,NULL);
             std::memset(&cascade,0,sizeof(cascade));

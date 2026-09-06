@@ -394,7 +394,7 @@ void CGuiScreenSound::HandleMessage
             }
             case GUI_MSG_CONTROLLER_BACK:
             {
-#ifndef RAD_ANDROID
+#if !defined(SRR2_OPENXR)
                 this->StartTransitionAnimation( 690, 720 );
 #endif
 
@@ -433,7 +433,7 @@ void CGuiScreenSound::HandleMessage
 //===========================================================================
 void CGuiScreenSound::InitIntro()
 {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
     // Frontend menu transitions move the authored 3D camera.  In VR the
     // frontend panel is head-relative, so even one residual controller frame
     // makes the world jump away and the menu disappear briefly.

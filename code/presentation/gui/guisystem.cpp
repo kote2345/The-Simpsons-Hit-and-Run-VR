@@ -248,7 +248,7 @@ const char* PROJECT_FILE_MINIGAME = PROJECT_DRIVE_SPEC "art\\frontend\\scrooby\\
 const char* PROJECT_FILE_INGAME = PROJECT_DRIVE_SPEC "art\\frontend\\scrooby\\ingame.p3d";
 
 #define LICENSE_SCREEN_IMAGE_DIR "art\\frontend\\dynaload\\images\\license\\"
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
 #define MOUSE_CURSOR_DIR "art\\frontend\\dynaload\\images\\"
 #endif
 
@@ -1312,7 +1312,7 @@ void CGuiSystem::OnInitBootUp()
              LICENSE_SCREEN_IMAGE_DIR,
              languageDir );
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     //Load the mouse cursor
     GetLoadingManager()->AddRequest( FILEHANDLER_PURE3D,
                                      MOUSE_CURSOR_DIR "mouse_cursor.p3d",

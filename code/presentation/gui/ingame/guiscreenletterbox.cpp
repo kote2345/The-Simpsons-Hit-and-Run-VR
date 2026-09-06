@@ -29,7 +29,7 @@
 #include <Page.h>
 #include <Pure3dObject.h>
 #include <Screen.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 //===========================================================================
@@ -37,7 +37,7 @@
 //===========================================================================
 
 const float BAR_SLIDING_TIME = 500.0f; // in msec
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 // The complete legacy GUI is scaled to 40% for a comfortable VR HUD.  A
 // letterbox translated by the original 240 pixels would therefore remain
 // half-visible.  Compensate only its fully-open (off-screen) position; the
@@ -99,7 +99,7 @@ CGuiScreenLetterBox::CGuiScreenLetterBox
     //
     m_topBar = m_Page->GetGroup( "TopBar" );
     m_bottomBar = m_Page->GetGroup( "BottomBar" );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_topBar->SetVisible( false );
     m_bottomBar->SetVisible( false );
 #endif
@@ -262,7 +262,7 @@ void CGuiScreenLetterBox::HandleMessage
         ResetMovableObjects();
         float deltaT = static_cast< float >( param1 );
         UpdateTransitions( deltaT );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // Letterbox transitions explicitly make these groups visible again.
         // OpenXR never needs 2D cinema bars, in either VR or Original mode.
         m_topBar->SetVisible( false );
@@ -391,7 +391,7 @@ void CGuiScreenLetterBox::InitIntro()
     m_Iris->SetVisible( false );
     m_topBar->SetVisible( true );
     m_bottomBar->SetVisible( true );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_topBar->SetVisible( false );
     m_bottomBar->SetVisible( false );
 #endif

@@ -115,6 +115,9 @@ FMVPlayer::FMVPlayer() :
     m_refIRadMoviePlayer( NULL ),
     mElapsedTime( 0.0f ),
 	mFadeOut(-1.0f)
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    ,mDeferredClearData(false)
+#endif
 {
     m_UserInputHandler = new FMVUserInputHandler;
     m_UserInputHandler->AddRef();
@@ -259,7 +262,7 @@ void FMVPlayer::Play()
     {
         AnimationPlayer::Play();
 
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // En Android NO queremos overlay negro al iniciar el vídeo
         // Alpha 1.0 = transparente
         FadeScreen(1.0f);
@@ -274,7 +277,7 @@ void FMVPlayer::Play()
 #ifdef FINAL
         m_UserInputHandler->SetEnabled(GetSkippable());
 #endif
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // Preserve the original Android behaviour: the FMV handler used to
         // remain enabled independently of the desktop FINAL build flag.
         m_UserInputHandler->SetEnabled(true);
@@ -299,7 +302,7 @@ void FMVPlayer::Play()
         m_refIRadMoviePlayer->SetVolume(mMovieVolume);
 
         m_refIRadMoviePlayer->Play();
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         SharOpenXR::BeginMoviePlane();
 #endif
     }
@@ -392,7 +395,11 @@ void FMVPlayer::Stop()
     GetSoundManager()->ResumeAfterMovie();
     AnimationPlayer::Stop();
 
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    mDeferredClearData=true;
+#else
     ClearData();
+#endif
 
     mFadeOut = -1.0f;
 }
@@ -415,7 +422,7 @@ void FMVPlayer::Stop()
          (int)GetState(), (int)this->IsPlaying(), (void*)m_refIRadMoviePlayer);
 
     // En Android: NO hacer SwapBuffers aquí (lo controla RenderManager::ContextUpdate)
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     FadeScreen(0.0f);
 #else
     FadeScreen(0.0f);
@@ -442,7 +449,7 @@ void FMVPlayer::Stop()
 //ULTIMA PRUEBA 
 void FMVPlayer::Stop()
 {
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::EndMoviePlane();
 #endif
     // Evitar doble stop
@@ -457,7 +464,7 @@ void FMVPlayer::Stop()
    // LOGI("FMV: Stop() EXEC state=%d playing=%d player=%p",
      //    (int)GetState(), (int)this->IsPlaying(), (void*)m_refIRadMoviePlayer);
 
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // En Android NO tapar la pantalla con negro
     FadeScreen(1.0f);
 #else
@@ -478,7 +485,11 @@ void FMVPlayer::Stop()
 
     AnimationPlayer::Stop();
 
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    mDeferredClearData=true;
+#else
     ClearData();
+#endif
 
     mFadeOut = -1.0f;
 }
@@ -495,6 +506,9 @@ void FMVPlayer::Stop()
 #ifdef RAD_WIN32
 void FMVPlayer::ForceStop()
 { 
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SharOpenXR::EndMoviePlane();
+#endif
     // Force a clear screen.
     if( this->IsPlaying() && m_refIRadMoviePlayer != NULL )
     {
@@ -506,8 +520,21 @@ void FMVPlayer::ForceStop()
         GetSoundManager()->ResumeAfterMovie();
         AnimationPlayer::Stop();
 
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        mDeferredClearData=true;
+#else
         ClearData();
+#endif
     }
+}
+#endif
+
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+void FMVPlayer::FlushDeferredClearData()
+{
+    if(!mDeferredClearData) return;
+    mDeferredClearData=false;
+    ClearData();
 }
 #endif
 
@@ -601,7 +628,7 @@ void FMVPlayer::DoRender()
 
     mFrameReady = false;
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Service timestamps without waiting for the encoded frame interval.
     // radMoviePlayer keeps the currently due texture locked/presentable until
     // its PTS window expires, so the OpenXR loop may continue at 90 Hz while
@@ -659,7 +686,7 @@ void FMVPlayer::IterateLoop( IRadMoviePlayer2* pIRadMoviePlayer )
 
     rAssert( pIRadMoviePlayer != NULL );
 // NEW LINES 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // --- FORCE STATES FOR MOVIE DRAW (debug) ---
     bool oldZWrite = p3d::pddi->GetZWrite();
     pddiCompareMode oldZComp = p3d::pddi->GetZCompare();
@@ -672,7 +699,7 @@ void FMVPlayer::IterateLoop( IRadMoviePlayer2* pIRadMoviePlayer )
     pIRadMoviePlayer->Render();
 #endif
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // --- RESTORE STATES ---
     p3d::pddi->SetZCompare(oldZComp);
     p3d::pddi->SetZWrite(oldZWrite);
@@ -719,7 +746,7 @@ void FMVPlayer::IterateLoop( IRadMoviePlayer2* pIRadMoviePlayer )
     rAssert( pIRadMoviePlayer != NULL );
 
     // NEW LINES 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // --- FORCE STATES FOR MOVIE DRAW (definitive) ---
     // En Android/GLES algunos estados de depth (ZCompare/ZWrite) quedan “sucios” del render 3D,
     // y el quad fullscreen del vídeo puede FALLAR el depth test => vídeo “invisible” y se ve negro/GUI.
@@ -736,12 +763,12 @@ void FMVPlayer::IterateLoop( IRadMoviePlayer2* pIRadMoviePlayer )
     // Android submits this decoded texture from RenderCurrentVrEye() after
     // the corresponding OpenXR framebuffer has been bound. Drawing it here
     // would target the legacy wide surface and split it between both eyes.
-#if !defined(RAD_ANDROID)
+#if !defined(RAD_ANDROID) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     pIRadMoviePlayer->Render();
 #endif
 
     // NEW LINES 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // --- RESTORE STATES ---
     p3d::pddi->SetZCompare(oldZComp);
     p3d::pddi->SetZWrite(oldZWrite);
@@ -825,6 +852,11 @@ void FMVPlayer::RenderCurrentVrEye()
 //=============================================================================
 void FMVPlayer::ClearData()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // Disable the spatial surface before releasing the decoded texture.  The
+    // next XR eye must start from its normal clear/layers, not the last frame.
+    SharOpenXR::EndMoviePlane();
+#endif
     //
     // Free up the radmovie movie player stuff
     //

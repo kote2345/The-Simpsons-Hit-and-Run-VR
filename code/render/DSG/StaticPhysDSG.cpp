@@ -25,7 +25,7 @@
 #include <render/Particles/particlemanager.h>
 #include <render/breakables/breakablesmanager.h>
 #include <render/IntersectManager/IntersectManager.h>
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -514,7 +514,7 @@ void StaticPhysDSG::RecomputeShadowPositionNoIntersect( float height, const rmt:
 
 void StaticPhysDSG::DisplaySimpleShadow()
 {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     if(SharOpenXR::IsCsmEnabled()) return;
 #endif
     p3d::pddi->SetZWrite(false);

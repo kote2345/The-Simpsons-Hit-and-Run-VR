@@ -30,7 +30,7 @@
 #include <presentation/gui/guisystem.h>
 #include <presentation/gui/guiwindow.h>
 #include <interiors/interiormanager.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -104,7 +104,7 @@ void AnimatedCam::Abort()
 //==============================================================================
 AnimatedCam::AnimatedCam():
     m_NextCameraType( INVALID )
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ,mVrSmoothingValid( false )
 #endif
 {
@@ -406,7 +406,7 @@ void AnimatedCam::LookupMulticontroller()
 //=============================================================================
 void AnimatedCam::OnInit()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     mVrSmoothingValid=false;
 #endif
     LetterBoxStart();
@@ -715,7 +715,7 @@ void AnimatedCam::Update( unsigned int milliseconds )
 
             target *= 10.0f;
             target += position;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             if( SharOpenXR::IsVrModeEnabled() )
             {
                 // Some authored camera tracks contain 30 Hz stepped keys.

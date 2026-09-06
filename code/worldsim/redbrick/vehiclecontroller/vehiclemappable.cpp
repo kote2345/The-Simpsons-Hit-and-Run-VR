@@ -6,7 +6,7 @@
 // Temp.
 //
 #include <worldsim/avatarmanager.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -119,7 +119,7 @@ void VehicleMappable::LoadControllerMappings( unsigned int controllerId )
 	Map( "RightTrigger", Gas, 0, controllerId );
   	Map( "A", Gas, 0, controllerId );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // B is the dedicated handbrake while driving in VR. Original mode keeps
     // the legacy B brake binding; the left trigger remains brake/reverse in
     // both modes.

@@ -142,8 +142,19 @@ set(SRR2_SOURCES
 	"main/singletons.cpp"
 	"main/tuidunaligned.cpp"
 	"main/win32main.cpp"
+	"main/win32crashhandler.cpp"
 	"vr/openxrmanager.cpp"
 	"vr/openxr_desktop_runtime.cpp"
+	"vr/openxr_shared_frame.cpp"
+	"vr/openxr_shared_graphics.cpp"
+	"vr/openxr_shared_hud.cpp"
+	"vr/openxr_shared_hands.cpp"
+	"vr/openxr_shared_input.cpp"
+	"vr/openxr_shared_menu.cpp"
+	"vr/openxr_shared_settings.cpp"
+	"vr/openxr_shared_state.cpp"
+	"vr/openxr_shared_tracking.cpp"
+	"vr/openxr_shared_vehicle.cpp"
 	"vr/openxr_platform_loader.cpp"
 	"vr/openxr_platform_instance.cpp"
 	"main/win32platform.cpp"
@@ -634,7 +645,7 @@ endif()
 if(SRR2_ENABLE_OPENXR AND NOT ANDROID)
 	find_path(SRR2_OPENXR_INCLUDE_DIR openxr/openxr.h REQUIRED)
 	target_include_directories(${SRR2_TARGET} PRIVATE ${SRR2_OPENXR_INCLUDE_DIR})
-	target_link_libraries(${SRR2_TARGET} PNG::PNG)
+	target_link_libraries(${SRR2_TARGET} PNG::PNG dbghelp)
 	add_custom_command(TARGET ${SRR2_TARGET} POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 			"${CMAKE_SOURCE_DIR}/logos/startup.png"

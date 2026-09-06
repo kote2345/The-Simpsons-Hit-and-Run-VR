@@ -28,7 +28,7 @@
 #include <worldsim/redbrick/vehicle.h>
 #include <worldsim/redbrick/trafficlocomotion.h>
 #include <memory/srrmemory.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 #include <debug/profiler.h>
@@ -519,7 +519,7 @@ BEGIN_PROFILE( "Traffic Man" );
     SuperCam* pCam = GetSuperCamManager()->GetSCC(0)->GetActiveSuperCam();
     rmt::Vector camTarget;
     pCam->GetHeadingNormalized( &camTarget );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     rmt::Matrix vrCullCamera;
     if(SharOpenXR::GetLatestCullingCamera(&vrCullCamera))
     {

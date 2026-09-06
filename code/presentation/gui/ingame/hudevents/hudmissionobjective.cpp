@@ -30,7 +30,7 @@
 // Pure3D
 #include <p3d/utility.hpp>
 #include <p3d/sprite.hpp>
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -71,7 +71,7 @@ HudMissionObjective::HudMissionObjective( Scrooby::Page* pPage )
 
         m_missionIcon->ResetTransformation();
         m_missionIcon->ScaleAboutCenter( MISSION_ICON_SCALE );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         if( SharOpenXR::IsSpatialHudEnabled() )
             this->AlignSpatialIconToMessageBox();
         {
@@ -106,7 +106,7 @@ HudMissionObjective::Start()
     bool isIconFound = this->UpdateIcon();
     if( isIconFound )
     {
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         if( SharOpenXR::IsSpatialHudEnabled() )
         {
             m_iconTranslator.Deactivate();
@@ -133,7 +133,7 @@ HudMissionObjective::Start()
     }
 }
 
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 void HudMissionObjective::AlignSpatialIconToMessageBox()
 {
     int iconXMin, iconYMin, iconXMax, iconYMax;

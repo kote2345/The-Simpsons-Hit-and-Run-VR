@@ -4,7 +4,7 @@
 #include <p3d/camera.hpp>
 
 #include <input/inputmanager.h>
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 #ifdef RAD_PC
@@ -119,7 +119,7 @@ void CharacterMappable::LoadControllerMappings( unsigned int controllerId )
     Map( "DPadDown", CharacterController::DPadDown, 0, controllerId );
     Map( "DPadLeft", CharacterController::DPadLeft, 0, controllerId );
     Map( "DPadRight", CharacterController::DPadRight, 0, controllerId );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         // Quest VR gameplay layout. Front-end A/B mappings remain untouched.
@@ -134,7 +134,7 @@ void CharacterMappable::LoadControllerMappings( unsigned int controllerId )
     {
         Map( "Y", CharacterController::DoAction, 0, controllerId );
         Map( "A", CharacterController::Jump, 0, controllerId );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // In Original mode the Quest right trigger is also the on-foot jump
         // control. VehicleMappable independently keeps it mapped to gas.
         Map( "RightTrigger", CharacterController::Jump, 0, controllerId );

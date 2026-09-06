@@ -6,12 +6,12 @@
 #endif
 #include "tLinearTable.h"
 #include "FePure3dObject.h"
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #include <p3d/pure3d.hpp>
 #endif
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 enum { VR_MISSION_HUD_GROUP_COUNT=19 };
 enum { VR_HUD_GROUP_INSTANCES=8 };
 static Scrooby::Group* gVrRadarGroup[VR_HUD_GROUP_INSTANCES]={NULL};
@@ -78,7 +78,7 @@ FeGroup::FeGroup( const tName& name )
 
 FeGroup::~FeGroup()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     Scrooby::Group* self=static_cast<Scrooby::Group*>(this);
     for(unsigned i=0;i<VR_HUD_GROUP_INSTANCES;++i)
         if(gVrRadarGroup[i]==self) gVrRadarGroup[i]=NULL;
@@ -98,7 +98,7 @@ FeGroup::~FeGroup()
 
 void FeGroup::Display()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #if defined(SRR2_VR_RENDERER_VULKAN)
     // A complete Hud page capture must traverse Scrooby exactly like the
     // working Android/GLES Original HUD.  Per-group capture here would be a
@@ -199,7 +199,7 @@ void FeGroup::Display()
         timerCaptureMatrixUndone=true;
     }
 #endif
-#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#if (defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)) && defined(SRR2_VR_RENDERER_VULKAN)
     // Map0 and Hole0 are page siblings of HudMap0. Bring them into the same
     // target before traversing Radar0 so the spatial plane contains the exact
     // original map, depth mask, frame, markers and Hit & Run artwork.
@@ -208,7 +208,7 @@ void FeGroup::Display()
 #else
     FeOwner::Display();
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(timerCaptureMatrixUndone)
         p3d::stack->Pop();
     if(captured)

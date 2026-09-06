@@ -294,7 +294,7 @@ void GameplayContext::OnStart( ContextEnum previousContext )
             sc = new FirstPersonCam();
             sc->SetAspect( aspect );
             scc->RegisterSuperCam( sc );
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
             sc = new PCCam();
             sc->SetAspect( aspect );
             scc->RegisterSuperCam( sc );

@@ -98,7 +98,7 @@
 #include <supersprint/supersprintmanager.h>
 #include <p3d/billboardobject.hpp>
 #include <meta/triggervolumetracker.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -187,7 +187,7 @@ void Vehicle::SetUserDrivingCar( bool b )
     {
         mVehicleType = VT_USER;
     }
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // A hood that is already flapping can obstruct most of the VR driving
     // view as soon as the player enters the car. Keep normal closed hoods.
     if( b && SharOpenXR::IsVrModeEnabled() && mHoodJoint != -1 )
@@ -5558,7 +5558,7 @@ void Vehicle::VisualDamageType1(float percentageDamage, DamageLocation dl)
             {
                 mPhObj->GetJoint(joint)->SetInvStiffness(1.0f);
                 mInertialJointDrivers[index]->SetIsEnabled(true);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
                 if(dl==dl_hood && mUserDrivingCar &&
                    SharOpenXR::IsVrModeEnabled())
                     mGeometryVehicle->HideFlappingPiece(joint,true);
@@ -5606,7 +5606,7 @@ void Vehicle::VisualDamageType1(float percentageDamage, DamageLocation dl)
             {
                 mPhObj->GetJoint(mHoodJoint)->SetInvStiffness(1.0f);
                 mInertialJointDrivers[index]->SetIsEnabled(true);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
                 if(mUserDrivingCar && SharOpenXR::IsVrModeEnabled())
                     mGeometryVehicle->HideFlappingPiece(mHoodJoint,true);
 #endif

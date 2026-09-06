@@ -90,7 +90,7 @@
 #include <presentation/presentation.h>
 #include <presentation/fmvplayer/fmvplayer.h>
 #include <gameflow/gameflow.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <presentation/gui/guisystem.h>
 #include <presentation/gui/guimanager.h>
 #include <presentation/gui/guiwindow.h>
@@ -780,9 +780,6 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     }
 
     bool xrFrame = false;
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-    xrFrame=SharOpenXR::Desktop::BeginFrame();
-#endif
 #if defined(RAD_ANDROID)
     static bool xrInitializationAttempted = false;
     static bool xrAvailable = false;
@@ -795,6 +792,8 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     {
         xrFrame = SharOpenXR::BeginFrame();
     }
+#elif defined(SRR2_OPENXR_PLATFORM_WIN32)
+    xrFrame = SharOpenXR::BeginFrame();
 #endif
 
     BEGIN_PROFILE("Begin Frame");
@@ -825,7 +824,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     }
 #endif
 
-    #if defined(RAD_ANDROID)
+    #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     {
     PresentationManager* pm = GetPresentationManager();
 
@@ -840,13 +839,13 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 #endif
 
     unsigned int renderPasses = 1;
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(xrFrame) renderPasses=2;
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     bool multiviewActive=false;
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const ContextEnum currentXrContext=GetGameFlow()->GetCurrentContext();
     // Keep the spatial GUI anchor alive while a loading or pause screen is
     // being rendered. Normal gameplay clears it so opening pause establishes
@@ -862,6 +861,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     }
     if (xrFrame && SharOpenXR::GetEyeCount() == 2)
     {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         CGuiManager* currentGuiManager=GetGuiSystem()->GetCurrentManager();
         const CGuiWindow::eGuiWindowID currentGuiScreen=currentGuiManager?
             currentGuiManager->GetCurrentScreen():CGuiWindow::GUI_WINDOW_ID_UNDEFINED;
@@ -890,17 +890,14 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
                         !movieActive &&
                         SharOpenXR::BeginMultiview();
         renderPasses=multiviewActive?1:2;
+#endif
     }
 #endif
 
     for (unsigned int renderPass = 0; renderPass < renderPasses; ++renderPass)
     {
         bool eyeActive = false;
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-        eyeActive=(renderPasses==2)&&SharOpenXR::Desktop::BeginEye(renderPass);
-        if(renderPasses==2&&!eyeActive) continue;
-#endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         eyeActive = (renderPasses == 2) && SharOpenXR::BeginEye(renderPass);
         if (renderPasses == 2 && !eyeActive)
             continue;
@@ -908,7 +905,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
       for (int i = RenderEnums::numLayers - 1; i > -1; i--)
       {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // Legacy Scrooby shaders do not write both layers of a multiview
         // framebuffer. Render the GUI separately into each eye after the
         // single-pass world, while keeping its hand-attached groups cached.
@@ -924,12 +921,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
         RenderLayer *pLayer = mpRenderLayers[i];
 
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-        if(eyeActive)
-            SharOpenXR::SetWorldRendering(i>=RenderEnums::PresentationSlot);
-#endif
-
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         if (eyeActive || multiviewActive)
         {
             PresentationManager* xrPresentation = GetPresentationManager();
@@ -950,26 +942,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
         if (ready)
         {
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-            rmt::Matrix desktopOriginalCameras[MAX_PLAYERS];
-            bool desktopChangedCameras[MAX_PLAYERS]={false};
-            if(eyeActive)
-            {
-                for(unsigned int v=0;v<pLayer->GetNumViews();++v)
-                {
-                    tCamera* camera=pLayer->pCam(v);
-                    if(!camera) continue;
-                    desktopOriginalCameras[v]=camera->GetCameraToWorldMatrix();
-                    rmt::Matrix eyeCamera;
-                    if(SharOpenXR::GetEyeCamera(renderPass,camera,&eyeCamera))
-                    {
-                        camera->SetCameraMatrix(&eyeCamera);
-                        desktopChangedCameras[v]=true;
-                    }
-                }
-            }
-#endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             rmt::Matrix originalCameras[MAX_PLAYERS];
             bool changedCameras[MAX_PLAYERS] = { false };
             if (eyeActive || multiviewActive)
@@ -1001,21 +974,16 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
             }
 #endif
             BEGIN_PROFILE("Layers");
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             const radTime64 vrLayerStart=radTimeGetMicroseconds64();
 #endif
             pLayer->Render();
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             SharOpenXR::RecordRenderSection(static_cast<unsigned>(i),
                 (radTimeGetMicroseconds64()-vrLayerStart)/1000.0);
 #endif
             END_PROFILE("Layers");
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-            for(unsigned int v=0;v<pLayer->GetNumViews();++v)
-                if(desktopChangedCameras[v]&&pLayer->pCam(v))
-                    pLayer->pCam(v)->SetCameraMatrix(&desktopOriginalCameras[v]);
-#endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             if (eyeActive || multiviewActive)
             {
                 for (unsigned int v = 0; v < pLayer->GetNumViews(); ++v)
@@ -1025,7 +993,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 #endif
         }
       }
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         if(eyeActive)
         {
             PresentationManager* moviePresentation=GetPresentationManager();
@@ -1037,17 +1005,8 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
         }
         if (eyeActive) SharOpenXR::EndEye(renderPass);
 #endif
-#if defined(SRR2_OPENXR_PLATFORM_WIN32)
-        if(eyeActive)
-        {
-            PresentationManager* moviePresentation=GetPresentationManager();
-            FMVPlayer* moviePlayer=moviePresentation?moviePresentation->GetFMVPlayer():NULL;
-            if(moviePlayer) moviePlayer->RenderCurrentVrEye();
-            SharOpenXR::Desktop::EndEye(renderPass);
-        }
-#endif
     }
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(multiviewActive)
     {
         RenderLayer* guiLayer=mpRenderLayers[RenderEnums::GUI];
@@ -1066,7 +1025,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
             if(guiLayer && guiLayer->IsRenderReady())
             {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
                 const radTime64 vrGuiStart=radTimeGetMicroseconds64();
 #endif
                 rmt::Matrix originalGuiCameras[MAX_PLAYERS];
@@ -1084,7 +1043,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
                     }
                 }
                 guiLayer->Render();
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
                 SharOpenXR::RecordRenderSection(0,
                     (radTimeGetMicroseconds64()-vrGuiStart)/1000.0);
 #endif
@@ -1167,11 +1126,15 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
 
     // No touch-control overlay in standalone VR.
     p3d::context->EndFrame(false);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if (xrFrame) SharOpenXR::EndFrame();
 #endif
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
-    if(xrFrame) SharOpenXR::Desktop::EndFrame();
+    {
+        PresentationManager* presentation=GetPresentationManager();
+        FMVPlayer* movie=presentation?presentation->GetFMVPlayer():NULL;
+        if(movie) movie->FlushDeferredClearData();
+    }
 #endif
 
 #ifdef DEBUGWATCH
@@ -1754,7 +1717,13 @@ END_PROFILE( "Add Requests Int" );
 
                     mbDynaLoading = false;
                     mbDrivingTooFastLoad = true;
+                    // HandleEvent may immediately process the next queued zone.
+                    // Close this invocation before recursing: the profiler keys
+                    // samples by name and therefore cannot keep two instances of
+                    // "RenderManager HandleEvent" open at the same time.
+END_PROFILE( "RenderManager HandleEvent" );
                     HandleEvent((EventEnum)(EVENT_LOCATOR+LocatorEvent::DYNAMIC_ZONE), mpZEL);
+                    return;
                 }
                 else
                 {

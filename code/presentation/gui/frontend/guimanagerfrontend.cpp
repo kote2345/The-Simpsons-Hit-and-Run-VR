@@ -49,7 +49,7 @@
 #include <presentation/gui/frontend/guiscreenviewmovies.h>
 #include <presentation/gui/frontend/guiscreenplaymovie.h>
 #include <presentation/gui/frontend/guiscreendisplay.h>
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
 #include <presentation/gui/ingame/guiscreenpausevr.h>
 #endif
 
@@ -140,7 +140,7 @@ CGuiManagerFrontEnd::CGuiManagerFrontEnd
     m_isControllerReconnected( false ),
     m_wasFMVInputHandlerEnabled( false )
 {
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_quittingGame = false;
 #endif
 }
@@ -329,7 +329,7 @@ MEMTRACK_PUSH_GROUP( "CGUIManagerFrontEnd" );
     pScroobyScreen = m_pScroobyProject->GetScreen( "Controller" );
     if( pScroobyScreen != NULL )
     {
-#ifdef RAD_ANDROID
+#if defined(SRR2_OPENXR)
         // The frontend project has no authored PauseSettings screen.  Use
         // Controller only as a canvas; CGuiScreenPauseVR builds its own rows.
         pScreen = new CGuiScreenPauseVR( pScroobyScreen, this );
@@ -414,8 +414,9 @@ CGuiManagerFrontEnd::Start( CGuiWindow::eGuiWindowID initialWindow )
                    initialWindow :
                    CGuiWindow::GUI_SCREEN_ID_MAIN_MENU;
 
-// On PC never show the splash screen.. it is very console-ish...
-#if defined(SHOW_SPLASH_SCREEN) && !defined(RAD_PC)
+// PCVR follows the Quest/console frontend, including its explicit press-start
+// splash. Only the legacy flat Windows build skips this screen.
+#if defined(SHOW_SPLASH_SCREEN) && (!defined(RAD_PC) || defined(SRR2_OPENXR_PLATFORM_WIN32))
     bool skipSplashScreen = CommandLineOptions::Get( CLO_NO_SPLASH );
 #else
     bool skipSplashScreen = true;
@@ -608,7 +609,7 @@ void CGuiManagerFrontEnd::HandleMessage
                     //
                     GetGameFlow()->SetContext( CONTEXT_SUPERSPRINT_FE );
                 }
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
                 else if( m_quittingGame )
                 {
                     // let's begin the quit procedure
@@ -737,7 +738,7 @@ void CGuiManagerFrontEnd::HandleMessage
 
         case GUI_MSG_QUIT_GAME:
         {
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
             rAssert( GUI_FE_SCREEN_RUNNING == m_state );
 
             m_state = GUI_FE_SHUTTING_DOWN;

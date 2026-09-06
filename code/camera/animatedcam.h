@@ -74,7 +74,7 @@ protected:
     static void       SetCameraSwitchPending( const bool pending );
 
     SuperCam::Type      m_NextCameraType;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     bool                mVrSmoothingValid;
     rmt::Vector         mVrSmoothedPosition;
     rmt::Vector         mVrSmoothedTarget;

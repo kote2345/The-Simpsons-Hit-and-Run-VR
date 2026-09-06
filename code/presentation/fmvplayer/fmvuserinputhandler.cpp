@@ -290,7 +290,7 @@ void FMVUserInputHandler::OnButtonDown( int controllerId, int buttonId, const IB
     if( m_isEnabled && button_skip )
     {
         FMVPlayer* player=GetPresentationManager()->GetFMVPlayer();
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         const bool movieActive=player && player->IsDecoderPlaying();
 #else
         const bool movieActive=player && player->IsPlaying();

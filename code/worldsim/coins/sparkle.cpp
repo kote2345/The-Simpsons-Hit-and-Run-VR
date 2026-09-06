@@ -37,7 +37,7 @@
 #include <camera/supercammanager.h>
 #include <gameflow/gameflow.h>
 #include <mission/gameplaymanager.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 extern int gPglCsmBillboardMode;
 void pglSetParticleRendering(bool enabled);
@@ -353,7 +353,7 @@ spit out a sparkle. I think I'll try something along those lines.
 void Sparkle::AddGagSparkle(const rmt::Vector& Position, float Size, float Strength, uintptr_t Caller)
 {
     static unsigned int actionFlag = 0;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     static unsigned int vrEmissionCounter = 0;
     if(SharOpenXR::IsVrModeEnabled())
     {
@@ -404,7 +404,7 @@ void Sparkle::AddGagSparkle(const rmt::Vector& Position, float Size, float Stren
     s->Size = GAG_SPARKLE_SIZE * Size;
     s->Life = 1.0f + ( sRandom.FloatSigned() * 0.1f );
     s->DurationRatio = GAG_SPARKLE_DURATION_RATIO;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(SharOpenXR::IsVrModeEnabled())
     {
         s->Size *= 0.70f;
@@ -936,7 +936,7 @@ void Sparkle::Render( eSparkleRenderMode Mode )
         }
 
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         pglSetParticleRendering(true);
 #endif
         sprite = p3d::pddi->BeginPrims( spriteShader, PDDI_PRIM_TRIANGLES, PDDI_V_CT , numWorldSparkles[ ti ] * 6 );
@@ -1131,7 +1131,7 @@ void Sparkle::Render( eSparkleRenderMode Mode )
             sprite->Coord( corners[ 1 ].x, corners[ 1 ].y, corners[ 1 ].z );
         }
         p3d::pddi->EndPrims( sprite );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         pglSetParticleRendering(false);
 #endif
     }

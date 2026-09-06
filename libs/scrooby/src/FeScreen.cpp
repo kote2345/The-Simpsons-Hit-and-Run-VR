@@ -15,7 +15,7 @@
 #include <p3d/matrixstack.hpp>
 #include <p3d/utility.hpp>
 #include "FeScreen.h"
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 #include "FeApp.h"
@@ -175,7 +175,7 @@ void FeScreen::AddChild( FeEntity* s )
 //===========================================================================
 void FeScreen::Display()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const bool gameplayHud=SharOpenXR::IsGameplayHudScreen(
         static_cast<Scrooby::Screen*>(this));
     if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
@@ -185,6 +185,7 @@ void FeScreen::Display()
     // deliberately rejected) and reduces the VR HUD to one flat texture.
     // Keep the full-screen path available only for a non-spatial fallback.
     const bool gameplayHudCaptured=gameplayHud &&
+        !SharOpenXR::IsSpatialHudEnabled() &&
         SharOpenXR::BeginGameplayHudCapture();
 #endif
     p3d::pddi->PushState( PDDI_STATE_RENDER );
@@ -217,7 +218,7 @@ void FeScreen::Display()
     p3d::stack->Translate( -0.5f, -0.5f / aspect, 0.5f );
 
     // update all screen objects
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // The multiview world is followed by one conventional GUI render per
     // eye. Simulation must advance once per XR frame, not once per eye.
     // Updating action-prompt animations twice was the dominant render-thread
@@ -235,7 +236,7 @@ void FeScreen::Display()
     p3d::pddi->PopState( PDDI_STATE_RENDER );
     p3d::pddi->PopState( PDDI_STATE_VIEW );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
 #endif
 
@@ -243,11 +244,12 @@ void FeScreen::Display()
 
 void FeScreen::DisplayBackground()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const bool gameplayHud=SharOpenXR::IsGameplayHudScreen(
         static_cast<Scrooby::Screen*>(this));
     if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
     const bool gameplayHudCaptured=gameplayHud &&
+        !SharOpenXR::IsSpatialHudEnabled() &&
         SharOpenXR::BeginGameplayHudCapture();
 #endif
     p3d::pddi->PushState( PDDI_STATE_RENDER );
@@ -303,17 +305,18 @@ void FeScreen::DisplayBackground()
     p3d::pddi->PopState( PDDI_STATE_RENDER );
     p3d::pddi->PopState( PDDI_STATE_VIEW );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
 #endif
 }
 void FeScreen::DisplayForeground()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const bool gameplayHud=SharOpenXR::IsGameplayHudScreen(
         static_cast<Scrooby::Screen*>(this));
     if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
     const bool gameplayHudCaptured=gameplayHud &&
+        !SharOpenXR::IsSpatialHudEnabled() &&
         SharOpenXR::BeginGameplayHudCapture();
 #endif
     p3d::pddi->PushState( PDDI_STATE_RENDER );
@@ -369,7 +372,7 @@ void FeScreen::DisplayForeground()
     p3d::pddi->PopState( PDDI_STATE_RENDER );
     p3d::pddi->PopState( PDDI_STATE_VIEW );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
 #endif
 

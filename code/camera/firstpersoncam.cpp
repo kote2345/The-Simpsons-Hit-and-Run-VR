@@ -26,7 +26,7 @@
 #include <camera/supercammanager.h>
 
 #include <input/inputmanager.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <SDL.h>
 #include <vr/openxrmanager.h>
 #include <worldsim/avatarmanager.h>
@@ -48,7 +48,7 @@
 #define MAX_ROT_ANGLE rmt::DegToRadian( 80.0f )
 #define MAX_ELEV_ANGLE rmt::DegToRadian( 80.0f )
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 static const float VR_STICK_YAW_DEAD_ZONE = 0.15f;
 // DriverLocation is an authored, vehicle-local seat point and is stable before,
 // during and after the entry animation.  Never derive the VR camera from the
@@ -197,7 +197,7 @@ FirstPersonCam::~FirstPersonCam()
 //=============================================================================
 void FirstPersonCam::OnInit()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Mission restart can reactivate this same camera without calling
     // SetTarget(), especially when the stage starts with the player already
     // seated. Never reuse a seat pose/recenter state across activations.
@@ -247,7 +247,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
     {
         //Update the position offset since we just got a new target.
         mTarget->GetFirstPersonPosition( &mTargetPositionOffset );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         if( SharOpenXR::IsVrModeEnabled() )
         {
             mTarget->GetHeading( &mVrBaseHeading );
@@ -260,7 +260,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
         mTargetDirty = false;
     }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( !SharOpenXR::IsVrModeEnabled() )
 #endif
     if ( GetInputManager()->GetGameState() == Input::ACTIVE_GAMEPLAY || GetInputManager()->GetGameState() == Input::ACTIVE_ALL )
@@ -284,7 +284,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 
     float timeMod = milliseconds / 16.0f;
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         float stickYaw=mController->GetAxisValue( SuperCamController::stickX );
@@ -343,11 +343,11 @@ void FirstPersonCam::Update( unsigned int milliseconds )
     //place the target at the position and deal with controller input.
 
     rmt::Vector position, target;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     rmt::Matrix vrVehicleTransform;
     bool vrVehicleTransformValid=false;
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         rmt::Vector roomscaleDelta;
@@ -368,7 +368,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 #endif
     mTarget->GetPosition( &position );
     position.Add( mTargetPositionOffset );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() && !mTarget->IsCar() )
     {
         // On foot, replace the character model's authored eye height with the
@@ -443,7 +443,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 
     //Take controller values and calculate desired rotation and position.
     float desiredRot, desiredElev;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         // In VR the right stick must not add artificial yaw or pitch.  The
@@ -463,7 +463,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
     }
 
     desiredElev = MAX_ELEV_ANGLE * ( invert * mController->GetAxisValue( SuperCamController::stickY ) ) + DEFAULT_ELEVATION;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     }
 #endif
 
@@ -477,7 +477,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 
     rmt::Vector targetHeading;
     mTarget->GetHeading( &targetHeading );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         // Body yaw follows the HMD separately.  Keep the base camera at the
@@ -487,7 +487,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 #endif
     rmt::Vector targetVUP;
     mTarget->GetVUP( &targetVUP );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() && mTarget->IsCar() )
     {
         // Use the actual chassis orientation rather than the target adapter's
@@ -499,7 +499,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 #endif
 
     rmt::Matrix mat;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() && mTarget->IsCar() )
     {
         // Use the complete head pose captured at successful entry and rigidly
@@ -522,13 +522,13 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 #endif
         mat.Identity();
         mat.FillHeading( targetHeading, targetVUP );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     }
 #endif
 
     target.Transform( mat );
     target.Add( position );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(SharOpenXR::IsVrModeEnabled() && mTarget->IsCar() &&
        mVrVehicleAnchorValid && !mVrVehicleCameraLogged)
     {
@@ -565,7 +565,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 //=============================================================================
 void FirstPersonCam::UpdateForPhysics( unsigned int milliseconds )
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Tracked VR cameras intentionally occupy the player's physical eye
     // position. Generic third-person camera collision push-out makes the view
     // jump at walls, vehicles and between competing collision normals.
@@ -621,7 +621,7 @@ void FirstPersonCam::SetTarget( ISuperCamTarget* target )
 {
     mTarget = target;
     mTargetDirty = true;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     mVrVehicleAnchorValid=false;
     mVrVehicleTiltValid=false;
     mVrVehicleCameraLogged=false;

@@ -1,6 +1,8 @@
 #include <render/Culling/WorldScene.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/dynamiccubemap.h>
 #endif
 #include <render/Culling/SpatialTreeFactory.h>
@@ -100,7 +102,7 @@ inline bool gShaderCompare( const WorldScene::zSortBlah& pArg1, const WorldScene
 {
     if(pArg1.shaderUID != pArg2.shaderUID)
         return pArg1.shaderUID < pArg2.shaderUID;
-#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#if (defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)) && defined(SRR2_VR_RENDERER_VULKAN)
     // RenderOpaque walks this sorted array backwards. Descending rank here
     // therefore becomes near-to-far submission inside each material group,
     // improving early-Z without sacrificing pipeline/texture batching.
@@ -160,18 +162,25 @@ WorldScene::WorldScene()
     GetEventManager()->AddListener(this,(EventEnum)(EVENT_LOCATOR+LocatorEvent::FAR_PLANE));
     mDrawDist = 200.0f;
 
-    mpZSorts.reserve(5000);
-    rTuneAssert( mpZSorts.capacity() == 5000 );
+    // VR marks a substantially wider frustum than the original renderer.
+    // Keep s2alloc vectors from reallocating while a streamed scene is being
+    // traversed; allocation from the transient render heap corrupts their
+    // backing storage when a dense district exceeds the legacy 300/5000
+    // element assumptions.
+    const unsigned int vrRenderListCapacity = 32768;
+    mpZSorts.reserve(vrRenderListCapacity);
+    rTuneAssert( mpZSorts.capacity() >= vrRenderListCapacity );
 
-    mpZSortsPass2.reserve(5000);
-    rTuneAssert( mpZSortsPass2.capacity() == 5000 );
+    mpZSortsPass2.reserve(vrRenderListCapacity);
+    rTuneAssert( mpZSortsPass2.capacity() >= vrRenderListCapacity );
 
-    mShadowCastersPass1.Allocate(300);
+    mShadowCastersPass1.Allocate(vrRenderListCapacity);
     //mShadowCastersPass2.Allocate(300);
     mCamPlanes.Allocate(6);
 
-    mpZSortsPassShadowCasters.reserve(300);
-    mCsmDynamicCasters.reserve(1000);
+    mpZSortsPassShadowCasters.reserve(vrRenderListCapacity);
+    mCsmStaticCasters.reserve(vrRenderListCapacity);
+    mCsmDynamicCasters.reserve(vrRenderListCapacity);
 
 #ifdef DEBUGWATCH
    radDbgWatchAddUnsignedInt( &mDebugZSWalkTiming, "ZSort Walk micros", "WorldScene", NULL, NULL );
@@ -205,6 +214,8 @@ WorldScene::WorldScene()
 ////////////////////////////////////////////////////////////////////
 WorldScene::~WorldScene()
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
+   ClearCsmCasterSnapshot();
    GetEventManager()->RemoveListener(this,(EventEnum)(EVENT_LOCATOR+LocatorEvent::FAR_PLANE));
 
    int i;
@@ -300,7 +311,7 @@ bool WorldScene::IsSphereInCone( rmt::Vector& irCenter, float iRadius )
         return true;
     }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() )
     {
         // The VR cone is yaw-only and deliberately wide, so it retains the
@@ -441,6 +452,7 @@ void WorldScene::Add( tGeometry* pGeometry )
 ////////////////////////////////////////////////////////////////////
 void WorldScene::Add( IntersectDSG* ipIntersectDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
 //   ipIntersectDSG->AddRef();
 ///   if( IsNotInScene( ipIntersectDSG ))
    {
@@ -457,6 +469,7 @@ void WorldScene::Add( IntersectDSG* ipIntersectDSG )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( StaticPhysDSG* ipStaticPhysDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
    ipStaticPhysDSG->AddRef();
 //   if( IsNotInScene( ipStaticPhysDSG ))
 //   {
@@ -473,6 +486,7 @@ void WorldScene::Add( StaticPhysDSG* ipStaticPhysDSG )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( StaticEntityDSG* ipStaticEntityDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
 //   if( IsNotInScene( ipStaticEntityDSG ))
 //   {
 //      mStaticEntities.Add(ipStaticEntityDSG);
@@ -489,6 +503,7 @@ void WorldScene::Add( StaticEntityDSG* ipStaticEntityDSG )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( FenceEntityDSG*  ipFenceEntityDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
    ipFenceEntityDSG->AddRef();
 //   if( IsNotInScene( ipStaticEntityDSG ))
 //   {
@@ -505,6 +520,7 @@ void WorldScene::Add( FenceEntityDSG*  ipFenceEntityDSG )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( AnimCollisionEntityDSG*    ipAnimCollDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
    ipAnimCollDSG->AddRef();
 
    rAssert( IsPostTreeGen() );
@@ -515,6 +531,7 @@ void WorldScene::Add( AnimCollisionEntityDSG*    ipAnimCollDSG )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( AnimEntityDSG*    ipAnimDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
    ipAnimDSG->AddRef();
 
    rAssert( IsPostTreeGen() );
@@ -525,6 +542,7 @@ void WorldScene::Add( AnimEntityDSG*    ipAnimDSG )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( DynaPhysDSG*               ipDynaPhysDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
    ipDynaPhysDSG->AddRef();
 
    rAssert( IsPostTreeGen() );
@@ -535,6 +553,7 @@ void WorldScene::Add( DynaPhysDSG*               ipDynaPhysDSG )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( TriggerVolume*             ipTriggerVolume )
 {
+    std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
     ipTriggerVolume->AddRef();
 
     rAssert(IsPostTreeGen());
@@ -546,6 +565,7 @@ void WorldScene::Add( TriggerVolume*             ipTriggerVolume )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( RoadSegment*           ipRoadSegment )
 {
+    std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
     ipRoadSegment->AddRef();
 
     rAssert(IsPostTreeGen());
@@ -556,6 +576,7 @@ void WorldScene::Add( RoadSegment*           ipRoadSegment )
 //////////////////////////////////////////////////////////////////////////
 void WorldScene::Add( PathSegment*           ipPathSegment )
 {
+    std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
     ipPathSegment->AddRef();
 
     rAssert(IsPostTreeGen());
@@ -608,6 +629,7 @@ void WorldScene::GenerateSpatialReps()
 //========================================================================
 void WorldScene::Move( rmt::Box3D& irOldBBox, IEntityDSG* ipEDSG )
 {  
+    std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
     /*
    if(RemovePlace(ipEDSG, mStaticTreeWalker.rIthNode(0)))
        return;
@@ -708,6 +730,7 @@ bool WorldScene::RemovePlace(IEntityDSG* ipEDSG, SpatialNode& irNode)
 //========================================================================
 void WorldScene::Remove( IEntityDSG* ipEDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
    //if( RemoveFromLeaf(ipEDSG) )
    //    return;
    
@@ -838,6 +861,7 @@ bool WorldScene::RemoveFromLeaf( IEntityDSG* ipEDSG )
 //========================================================================
 void WorldScene::RemoveQuietFail( IEntityDSG* ipEDSG )
 {
+   std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
    //if( RemoveFromLeaf(ipEDSG) )
    //    return;
 
@@ -927,6 +951,7 @@ void WorldScene::RemoveQuietFail( IEntityDSG* ipEDSG )
 //========================================================================
 void WorldScene::RenderScene( unsigned int iFilter, tPointCamera* ipCam  )
 {
+    std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
 #ifdef TRACK_SHADERS
     static int sRenderCall=0;
     sRenderCall++;
@@ -947,12 +972,12 @@ void WorldScene::RenderScene( unsigned int iFilter, tPointCamera* ipCam  )
 //    mpZSortsPass2.ClearUse();
     
     mpZSorts.resize( 0 );
-    rTuneAssert( mpZSorts.capacity() == 5000 );
+    rTuneAssert( mpZSorts.capacity() >= 32768 );
     mpZSortsPass2.resize( 0 );
-    rTuneAssert( mpZSortsPass2.capacity() == 5000 );
+    rTuneAssert( mpZSortsPass2.capacity() >= 32768 );
     mpZSortsPassShadowCasters.resize(0);
-    rTuneAssert( mpZSortsPassShadowCasters.capacity() == 300 );
-    mCsmDynamicCasters.resize(0);
+    rTuneAssert( mpZSortsPassShadowCasters.capacity() >= 32768 );
+    ClearCsmCasterSnapshot();
 
     mShadowCastersPass1.ClearUse(); 
     //mShadowCastersPass2.ClearUse(); 
@@ -1125,7 +1150,7 @@ BEGIN_PROFILE("list construction")
 
             if(!mStaticTreeWalker.rCurrent().mSEntityElems[i]->mTranslucent)
             {
-                mCsmDynamicCasters.push_back(mStaticTreeWalker.rCurrent().mSEntityElems[i]);
+                RetainCsmCaster(mStaticTreeWalker.rCurrent().mSEntityElems[i],true);
             }
 
             //mStaticTreeWalker.rCurrent().mSEntityElems[i]->SetShader(mpTempShader,0);
@@ -1189,7 +1214,7 @@ BEGIN_PROFILE("list construction")
             if(!IsSphereInCone(ObjectSphere.centre, ObjectSphere.radius))
                 continue;
 
-            mCsmDynamicCasters.push_back(mStaticTreeWalker.rCurrent().mAnimCollElems[i]);
+            RetainCsmCaster(mStaticTreeWalker.rCurrent().mAnimCollElems[i],false);
 
             switch(3)//mStaticTreeWalker.rCurrent().mAnimCollElems[i]->CastsShadow())
             {
@@ -1253,7 +1278,7 @@ BEGIN_PROFILE("list construction")
             if(!IsSphereInCone(ObjectSphere.centre, ObjectSphere.radius))
                 continue;
 
-            mCsmDynamicCasters.push_back(mStaticTreeWalker.rCurrent().mAnimElems[i]);
+            RetainCsmCaster(mStaticTreeWalker.rCurrent().mAnimElems[i],false);
 
             switch(3)//mStaticTreeWalker.rCurrent().mAnimElems[i]->CastsShadow())
             {
@@ -1320,7 +1345,7 @@ BEGIN_PROFILE("list construction")
             // Do not use the legacy CastsShadow flag here. Most movable
             // objects never set it even though their full mesh is suitable
             // for the dedicated CSM depth program.
-            mCsmDynamicCasters.push_back(mStaticTreeWalker.rCurrent().mDPhysElems[i]);
+            RetainCsmCaster(mStaticTreeWalker.rCurrent().mDPhysElems[i],false);
 
             switch(mStaticTreeWalker.rCurrent().mDPhysElems[i]->CastsShadow())
             {
@@ -1400,7 +1425,7 @@ BEGIN_PROFILE("list construction")
 
             if(!mStaticTreeWalker.rCurrent().mSPhysElems[i]->mTranslucent)
             {
-                mCsmDynamicCasters.push_back(mStaticTreeWalker.rCurrent().mSPhysElems[i]);
+                RetainCsmCaster(mStaticTreeWalker.rCurrent().mSPhysElems[i],true);
             }
 
             switch(3)//mStaticTreeWalker.rCurrent().mSPhysElems[i]->CastsShadow())
@@ -1759,7 +1784,7 @@ DSG_SET_PROFILE('O')
 BEGIN_PROFILE("qsort display")	
  	for(int i=mpZSorts.size() - 1; i>-1; i--)
 	{
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         if(VrIsDynamicVehicleCubeMapCapture() &&
            dynamic_cast<Vehicle*>(mpZSorts[i].entityPtr)!=NULL)
             continue;
@@ -1830,7 +1855,7 @@ void WorldScene::Render(  unsigned int viewIndex )
     //BEGIN_PROFILE("Mark Camera")
 
     tPointCamera* pCam;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     rmt::Matrix originalCullCamera;
     bool vrCullCameraApplied=false;
 #endif
@@ -1850,7 +1875,7 @@ void WorldScene::Render(  unsigned int viewIndex )
 #endif
 //////////////////////////////////////////////////////////////////////////
             pCam = (tPointCamera*)GetSuperCamManager()->GetSCC(0)->GetCamera();
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             originalCullCamera=pCam->GetCameraToWorldMatrix();
             rmt::Matrix vrCullCamera;
             if(SharOpenXR::GetActiveCullingCamera(&vrCullCamera))
@@ -1871,7 +1896,7 @@ END_PROFILE("cam viz")
 #endif
 //////////////////////////////////////////////////////////////////////////
             RenderScene( msVisible0, pCam );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             if(vrCullCameraApplied) pCam->SetCameraMatrix(&originalCullCamera);
 #endif
             break;
@@ -2304,7 +2329,7 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
 #if 1
    SphereSP ViewVolSP;
    Vector3f CamPosn, ViewVector, FarPlaneExtentVect;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
    // SetCameraMatrix updates the VR transform, but tPointCamera::GetTarget()
    // retains the gameplay camera's cached target. Read the final matrix
    // directly so visibility follows the HMD forward vector.
@@ -2318,7 +2343,7 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
    pCam->GetTarget(&ViewVector); ViewVector.Sub( CamPosn ); ViewVector.Normalize(); 
 #endif
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
    if( SharOpenXR::IsVrModeEnabled() &&
        !VrIsDynamicVehicleCubeMapCapture() )
    {
@@ -2416,15 +2441,36 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
    mStaticTreeWalker.MarkAllSphere( ViewVolSP, iFilter );
 }
 
+void WorldScene::ClearCsmCasterSnapshot()
+{
+    for(IEntityDSG* entity:mCsmStaticCasters)
+        if(entity) entity->Release();
+    for(IEntityDSG* entity:mCsmDynamicCasters)
+        if(entity) entity->Release();
+    mCsmStaticCasters.clear();
+    mCsmDynamicCasters.clear();
+}
+
+void WorldScene::RetainCsmCaster(IEntityDSG* entity,bool isStatic)
+{
+    if(!entity) return;
+    entity->AddRef();
+    if(isStatic) mCsmStaticCasters.push_back(entity);
+    else mCsmDynamicCasters.push_back(entity);
+}
+
 void WorldScene::RenderCsmCasters(bool includeStatic,bool includeDynamic,
                                   const rmt::Matrix& lightWorldToCamera,
                                   float halfWidth,float halfDepth)
 {
+    std::lock_guard<std::recursive_mutex> sceneGuard(mSceneMutex);
     DSG_SET_PROFILE('C')
-#if defined(RAD_ANDROID)
-    // Cull directly against the sun's orthographic volume. The former player-
-    // centred cylinder admitted many objects that were outside the actual map,
-    // especially along its corners and the light-depth axis.
+    // RenderScene has just built these lists from the camera-marked live
+    // nodes. Do not scan every SpatialNode here: streamed-out nodes can retain
+    // raw slots until their tree bookkeeping is compacted, and dereferencing
+    // those slots caused CSM to call through freed InstDynaPhysDSG objects.
+    // Keeping separate static/dynamic snapshots also preserves the cached
+    // mid/far cascade policy without duplicating platform-specific traversal.
     const auto isInShadowVolume=[&](IEntityDSG* entity)->bool
     {
         if(!entity) return false;
@@ -2442,62 +2488,18 @@ void WorldScene::RenderCsmCasters(bool includeStatic,bool includeDynamic,
                rmt::Fabs(lightCentre.z)<=halfDepth+sphere.radius;
     };
     unsigned casterCount=0;
-    for(int nodeIndex=mStaticTreeWalker.NumNodes()-1;nodeIndex>=0;--nodeIndex)
+    const auto renderCasters=[&](const std::vector<IEntityDSG*,s2alloc<IEntityDSG*> >& casters)
     {
-        SpatialNode& node=mStaticTreeWalker.rIthNode(nodeIndex);
-        // The old CSM path inspected every entity in every streamed spatial
-        // node three times per frame. Reject whole nodes before requesting
-        // individual bounding spheres. A small margin preserves large models
-        // whose origin lies just outside a cascade's caster cylinder.
-        const Bounds3f& nodeBounds=node.mBBox.mBounds;
-        const rmt::Vector nodeCentre=(nodeBounds.mMin+nodeBounds.mMax)*0.5f;
-        const rmt::Vector nodeExtent=(nodeBounds.mMax-nodeBounds.mMin)*0.5f;
-        const float nodeRadius=nodeExtent.Magnitude();
-        rmt::Vector lightNodeCentre;
-        lightWorldToCamera.Transform(nodeCentre,&lightNodeCentre);
-        if(rmt::Fabs(lightNodeCentre.x)>halfWidth+nodeRadius ||
-           rmt::Fabs(lightNodeCentre.y)>halfWidth+nodeRadius ||
-           rmt::Fabs(lightNodeCentre.z)>halfDepth+nodeRadius)
-            continue;
-        // Roads and terrain tiles are receivers, not useful sun-shadow
-        // casters. Their large, almost-flat drawables were projecting the
-        // rectangular streaming chunks themselves onto nearby ground.
-        if(includeStatic)
+        for(int i=static_cast<int>(casters.size())-1;i>=0;--i)
         {
-            for(int i=node.mSEntityElems.mUseSize-1;i>=0;--i)
-            {
-                StaticEntityDSG* entity=node.mSEntityElems[i];
-                if(!isInShadowVolume(entity)) continue;
-                rmt::Box3D box;
-                entity->GetBoundingBox(&box);
-                const float width=box.high.x-box.low.x;
-                const float height=box.high.y-box.low.y;
-                const float depth=box.high.z-box.low.z;
-                if(height<0.75f && (width>8.0f || depth>8.0f)) continue;
-                entity->Display();
-                ++casterCount;
-            }
+            IEntityDSG* entity=casters[i];
+            if(!isInShadowVolume(entity)) continue;
+            entity->Display();
+            ++casterCount;
         }
-#define DISPLAY_CSM_ARRAY(arrayName) \
-        for(int i=node.arrayName.mUseSize-1;i>=0;--i) \
-        { \
-            IEntityDSG* entity=node.arrayName[i]; \
-            if(isInShadowVolume(entity)) { entity->Display(); ++casterCount; } \
-        }
-        if(includeStatic) { DISPLAY_CSM_ARRAY(mSPhysElems) }
-        if(includeDynamic)
-        {
-            DISPLAY_CSM_ARRAY(mAnimCollElems)
-            DISPLAY_CSM_ARRAY(mAnimElems)
-            DISPLAY_CSM_ARRAY(mDPhysElems)
-        }
-#undef DISPLAY_CSM_ARRAY
-    }
-
-#else
-    for(int i=(int)mCsmDynamicCasters.size()-1;i>=0;--i)
-        mCsmDynamicCasters[i]->Display();
-#endif
+    };
+    if(includeStatic) renderCasters(mCsmStaticCasters);
+    if(includeDynamic) renderCasters(mCsmDynamicCasters);
 }
 /////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////

@@ -24,7 +24,7 @@
 #include <worldsim/character/charactercontroller.h>
 #include <worldsim/character/charactermanager.h>
 #include <worldsim/avatarmanager.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 #include <worldsim/hitnrunmanager.h>
@@ -77,7 +77,7 @@ namespace CharacterAi
 static bool UseVrPassengerSeatForNpcDriver(Character* character, Vehicle* vehicle,
                                             bool isDriver)
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     return isDriver && character && vehicle &&
            SharOpenXR::IsVrModeEnabled() &&
            !SharOpenXR::IsThirdPersonVehicleMode() &&
@@ -912,7 +912,7 @@ void GetIn::Enter( void )
     }
     
     bool vrInstantEntry=false;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     vrInstantEntry=SharOpenXR::IsVrModeEnabled() &&
                    mpCharacter==GetCharacterManager()->GetCharacter(0);
 #endif
@@ -1376,7 +1376,7 @@ void GetOut::Enter( void )
 {
     bool destroyed = !mpCharacter->GetTargetVehicle() || mpCharacter->GetTargetVehicle()->mVehicleDestroyed;
     bool iris = !destroyed && (mObstructed || mpCharacter->GetTargetVehicle()->mIrisTransition);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(!destroyed && SharOpenXR::IsVrModeEnabled() &&
        mpCharacter==GetCharacterManager()->GetCharacter(0))
     {

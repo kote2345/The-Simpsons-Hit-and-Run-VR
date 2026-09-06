@@ -49,7 +49,7 @@
 #include <Layer.h>
 #include <Page.h>
 #include <Pure3dObject.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 extern void ScroobySetVrFrontendWorldPure3dObject(Scrooby::Pure3dObject* object);
 #endif
@@ -172,7 +172,7 @@ CGuiScreenMainMenu::CGuiScreenMainMenu
     m_tvFrame( NULL )
 {
 MEMTRACK_PUSH_GROUP( "CGUIScreenMainMenu" );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrFrontendWorldPure3dObject( m_p3dObject );
 #endif
     memset( m_glowingItems, 0, sizeof( m_glowingItems ) );
@@ -201,7 +201,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenMainMenu" );
     //
     Scrooby::Text* otherMainMenu = NULL;
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_pMenu->AddMenuItem( pPage->GetText( "MainMenu_PC" ),
                           pPage->GetText( "MainMenu_PC" ),
                           NULL,
@@ -323,7 +323,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenMainMenu" );
 	pPage = m_pScroobyScreen->GetPage( "TVFrame" );
 	rAssert( pPage );
     m_tvFrame = pPage->GetLayer( "TVFrame" );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     if(m_tvFrame) m_tvFrame->SetVisible(false);
 #endif
 
@@ -364,7 +364,7 @@ MEMTRACK_POP_GROUP( "CGUIScreenMainMenu" );
 //===========================================================================
 CGuiScreenMainMenu::~CGuiScreenMainMenu()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrFrontendWorldPure3dObject( NULL );
 #endif
     if( m_nextGagIndex == -1 )
@@ -413,7 +413,7 @@ void CGuiScreenMainMenu::HandleMessage
 {
     if( message == GUI_MSG_MENU_PROMPT_RESPONSE )
     {
-#ifndef RAD_PC
+#if !defined(RAD_PC) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         rAssert( param1 == PROMPT_CONFIRM_NEW_GAME );
 #endif
 
@@ -450,7 +450,7 @@ void CGuiScreenMainMenu::HandleMessage
                 }
             }
         }
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
         else if( param1 == PROMPT_CONFIRM_QUIT )
         {
             switch( param2 )
@@ -485,7 +485,7 @@ void CGuiScreenMainMenu::HandleMessage
 
     if( message == GUI_MSG_WINDOW_ENTER )
     {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         // This must happen before CGuiScreen handles WINDOW_ENTER below.
         // Disabling the fade later leaves a pending fade transition that can
         // never finish, keeping the returned main menu in INTRO with no input.
@@ -518,7 +518,7 @@ void CGuiScreenMainMenu::HandleMessage
             case GUI_MSG_CONTROLLER_L1:
             case GUI_MSG_CONTROLLER_R1:
             {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
                 if(!SharOpenXR::IsDeveloperMenusEnabled()) break;
 #endif
                 this->ToggleLevelMenu();
@@ -562,7 +562,7 @@ void CGuiScreenMainMenu::HandleMessage
                             // hide accept button icon
                             //
                             this->SetButtonVisible( BUTTON_ICON_ACCEPT, false );
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
                             GetInputManager()->GetFEMouse()->SetClickable( false );
 #endif
                             
@@ -576,7 +576,7 @@ void CGuiScreenMainMenu::HandleMessage
                         m_pMenu->GetMenuItem( MENU_ITEM_MAIN_MENU )->GetItemValue()->SetColour( menuHighlightColour );
 
                         this->SetButtonVisible( BUTTON_ICON_ACCEPT, true );
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
                         GetInputManager()->GetFEMouse()->SetClickable( true );
 #endif
                     }
@@ -612,7 +612,7 @@ void CGuiScreenMainMenu::HandleMessage
 
                 break;
             }
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
             case GUI_MSG_CONTROLLER_BACK:
             {
                 this->OnQuitGameSelected();
@@ -705,7 +705,7 @@ void CGuiScreenMainMenu::HandleMessage
 
                         break;
                     }
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
                     case MAIN_MENU_QUIT_GAME:
                     {
                         this->OnQuitGameSelected();
@@ -860,7 +860,7 @@ void CGuiScreenMainMenu::InitRunning()
 {
     if( m_firstTimeEntered )
     {
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
         if( !SharOpenXR::IsVrModeEnabled() )
 #endif
         this->SetFadingEnabled( true );
@@ -1314,7 +1314,7 @@ void CGuiScreenMainMenu::TurnOnGlowItems( unsigned int items )
     }
 #endif
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     for( int i = 0; i < NUM_MAIN_MENU_SELECTIONS; i++ )
     {
         bool isOn = (items & (1 << i)) > 0;
@@ -1412,7 +1412,7 @@ CGuiScreenMainMenu::OnMiniGameSelected()
     this->StartTransitionAnimation( 880, 913 );
 }
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
 void
 CGuiScreenMainMenu::OnQuitGameSelected()
 {
@@ -1487,7 +1487,7 @@ CGuiScreenIntroTransition::CGuiScreenIntroTransition
     pPage = m_pScroobyScreen->GetPage( "TVFrame" );
     rAssert( pPage );
     m_tvFrame = pPage->GetLayer( "TVFrame" );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
     if(m_tvFrame) m_tvFrame->SetVisible(false);
 #endif
 
@@ -1551,7 +1551,7 @@ void CGuiScreenIntroTransition::HandleMessage
                 {
                     m_numTransitionsPending--;
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
                     // The final pose is applied by the main Pure3D object on
                     // its first render, after all controller tracks exist.
 #else

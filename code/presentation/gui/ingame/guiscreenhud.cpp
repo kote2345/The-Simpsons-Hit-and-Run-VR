@@ -70,12 +70,16 @@
 
 #ifdef RAD_ANDROID
 #include <input/touch/touchinputmodemanager.h>
-#include <vr/openxrmanager.h>
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 void ScroobySetVrRadarGroup(Scrooby::Group* group);
 void ScroobySetVrMissionHudGroup(unsigned slot,Scrooby::Group* group);
-void ScroobySetVrGameplayHudPage(Scrooby::Page* page);
 void ScroobySetVrRadarPure3dObjects(Scrooby::Pure3dObject* map,
                                     Scrooby::Pure3dObject* hole);
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+void ScroobySetVrGameplayHudPage(Scrooby::Page* page);
 #endif
 //===========================================================================
 // Global Data, Local Data, Local Classes
@@ -237,14 +241,14 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     //
     Scrooby::Page* pPage = m_pScroobyScreen->GetPage( "Hud" );
 	rAssert( pPage != NULL );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::SetGameplayHudScreen( pPage );
     ScroobySetVrGameplayHudPage( pPage );
 #endif
 
     // Get dynamic elements
     this->RetrieveElements( pPage );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     rAssert( m_hudMap[ 0 ] != NULL );
     ScroobySetVrRadarPure3dObjects( m_hudMap[ 0 ]->GetMap(),
                                    m_hudMap[ 0 ]->GetHole() );
@@ -252,7 +256,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
 
     m_missionOverlays = pPage->GetGroup( "MissionOverlays" );
     rAssert( m_missionOverlays != NULL );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 0, pPage->GetGroup( "MissionObjective" ) );
 #endif
 
@@ -264,7 +268,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_TIMER ] = pGroup;
     m_overlays[ HUD_TIMER_TEMP ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 2, pGroup );
 #endif
     m_timer = pGroup->GetSprite( "Timer" );
@@ -273,7 +277,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     m_timer->CreateBitmapTextBuffer( BITMAP_TEXT_BUFFER_SIZE );
     m_timer->SetBitmapTextSpacing( NUMERIC_TEXT_SPACING );
     m_defaultTimerColour = m_timer->GetColour();
-#if defined(RAD_WIN32) && !defined(RAD_ANDROID)
+#if defined(RAD_WIN32) && !defined(RAD_ANDROID) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_timer->Translate( -25, 0 );
     m_timer->ScaleAboutCenter( 0.5f );
 #endif
@@ -281,7 +285,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "ParTime" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_PAR_TIME ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Separate race timer; captured into the same spatial timer stack.
     ScroobySetVrMissionHudGroup( 6, pGroup );
 #endif
@@ -290,7 +294,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     m_parTime->SetSpriteMode( Scrooby::SPRITE_BITMAP_TEXT );
     m_parTime->CreateBitmapTextBuffer( BITMAP_TEXT_BUFFER_SIZE );
     m_parTime->SetBitmapTextSpacing( NUMERIC_TEXT_SPACING );
-#if defined(RAD_WIN32) && !defined(RAD_ANDROID)
+#if defined(RAD_WIN32) && !defined(RAD_ANDROID) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     m_parTime->Translate( -25, 0 );
     m_parTime->ScaleAboutCenter( 0.5f );
 #endif
@@ -298,7 +302,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "Collectibles" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_COLLECTIBLES ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 7, pGroup );
 #endif
     m_collectibles = pGroup->GetSprite( "Collectibles" );
@@ -314,7 +318,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "Position" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_RACE_POSITION ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 8, pGroup );
 #endif
     m_positionOrdinal = pGroup->GetText( "PositionOrdinal" );
@@ -331,7 +335,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "Lap" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_LAP_COUNTER ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 12, pGroup );
 #endif
     m_lap = pGroup->GetSprite( "Lap" );
@@ -347,7 +351,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "DamageMeter" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_DAMAGE_METER ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Mission vehicle health/damage bar.
     ScroobySetVrMissionHudGroup( 10, pGroup );
 #endif
@@ -356,7 +360,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "ProximityMeter" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_PROXIMITY_METER ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 11, pGroup );
 #endif
     m_proximityMeter.SetScroobyImage( pGroup->GetSprite( "ProximityBar" ) );
@@ -364,7 +368,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = m_missionOverlays->GetGroup( "MissionComplete" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_MISSION_COMPLETE ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Central transient notifications were the remaining mono HUD elements.
     // Keep each authored group intact so text, backing art and animation are
     // captured and presented to both eyes together.
@@ -399,7 +403,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = pPage->GetGroup( "HudMap0" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_MAP ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Register the actual runtime object. Release Scrooby packages do not
     // preserve a dependable group-name UID, so renderer-side name matching
     // can silently miss HudMap0 altogether.
@@ -419,7 +423,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     // scale entire HUD map (or RADAR, if you'd prefer to call it that)
     //
     m_overlays[ HUD_MAP ]->ResetTransformation();
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // FePure3dObject resets the matrix stack and therefore does not inherit
     // this parent scale, while the Radar0 sprites do. Applying RADAR_SCALE in
     // VR makes only the frame 10% smaller and moves it around the group centre.
@@ -453,7 +457,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     pGroup = pPage->GetGroup( "Message" );
     rAssert( pGroup != NULL );
     m_overlays[ HUD_MESSAGE ] = pGroup;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrMissionHudGroup( 1, pGroup );
 #endif
     m_helpMessage = pGroup->GetText( "Message" );
@@ -473,7 +477,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     m_messageBox->ScaleAboutCenter( MESSAGE_BOX_CORRECTION_SCALE * MESSAGE_BOX_HORIZONTAL_STRETCH,
                                     MESSAGE_BOX_CORRECTION_SCALE * MESSAGE_BOX_VERTICAL_STRETCH,
                                     1.0f );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     {
         int xMin,yMin,xMax,yMax;
         m_messageBox->GetBoundingBox(xMin,yMin,xMax,yMax);
@@ -484,7 +488,7 @@ MEMTRACK_PUSH_GROUP( "CGUIScreenHud" );
     m_actionButton = pPage->GetGroup( "ActionButton" );
     rAssert( m_actionButton != NULL );
     m_overlays[ HUD_ACTION_BUTTON ] = m_actionButton;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Slots 3 and 4 belong to the coin counter and its 3D coin. Keep the
     // contextual action prompt on its own target.
     ScroobySetVrMissionHudGroup( 5, m_actionButton );
@@ -563,7 +567,7 @@ MEMTRACK_POP_GROUP("CGUIScreenHud");
 //===========================================================================
 CGuiScreenHud::~CGuiScreenHud()
 {
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     ScroobySetVrGameplayHudPage( NULL );
     SharOpenXR::SetGameplayHudScreen( NULL );
 #endif
@@ -1357,7 +1361,7 @@ void CGuiScreenHud::DisplayMessage( bool show, const int index )
 
             rAssert( index >= 0 );
             m_helpMessage->SetIndex( index );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
             SharOpenXR::ResetMissionHudSlot( 1 );
 #endif
         }
@@ -1604,7 +1608,7 @@ CGuiScreenHud::UpdateNumCoinsDisplay( int numCoins, bool show )
 
     static int coinPosX = CGuiScreen::IsWideScreenDisplay() ? 540 : 605;
     static int coinPosY = 432;
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     GetCoinManager()->SetHUDCoin( coinPosX, coinPosY,
         show && !SharOpenXR::IsSpatialHudEnabled() );
     // SetHUDCoin intentionally suppresses the legacy screen-space 3D draw in
@@ -1760,7 +1764,7 @@ void CGuiScreenHud::DisplayMissionObjective( unsigned int messageID )
     // display mission objective message
     //
     m_helpMessage->SetTextIndex( messageID );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SharOpenXR::ResetMissionHudSlot( 1 );
 #endif
     m_helpMessage->Start();
@@ -1824,7 +1828,7 @@ CGuiScreenHud::UpdateOverlays( unsigned int elapsedTime )
     //
     if( m_overlays[ HUD_MESSAGE ]->IsVisible() )
     {
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         if( SharOpenXR::IsSpatialHudEnabled() )
             m_elapsedTime[ HUD_MESSAGE ] = MESSAGE_TRANSITION_TIME;
 #endif
@@ -1836,7 +1840,7 @@ CGuiScreenHud::UpdateOverlays( unsigned int elapsedTime )
             {
                 unsigned int messageIndex = m_helpMessageQueue.Dequeue();
                 m_helpMessage->SetIndex( static_cast<int>( messageIndex ) );
-#ifdef RAD_ANDROID
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
                 SharOpenXR::ResetMissionHudSlot( 1 );
 #endif
 

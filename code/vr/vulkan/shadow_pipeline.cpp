@@ -55,6 +55,14 @@ bool ShadowPipeline::GetOrCreate(VkDevice device,VkPipelineCache cache,VkRenderP
         pi.pViewportState=&vp; pi.pRasterizationState=&rs; pi.pMultisampleState=&ms;
         pi.pDepthStencilState=&ds; pi.pColorBlendState=&cb; pi.pDynamicState=&dy;
         pi.layout=mLayout; pi.renderPass=renderPass;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        // Keep all desktop pipeline compilation on the same driver-safe path.
+        // The material pipeline already uses these settings; leaving CSM on
+        // the cached/optimised path moved the same NVIDIA heap corruption to
+        // the first shadow caster.
+        pi.flags=VK_PIPELINE_CREATE_DISABLE_OPTIMIZATION_BIT;
+        cache=VK_NULL_HANDLE;
+#endif
         if(vkCreateGraphicsPipelines(device,cache,1,&pi,nullptr,&mPipelines[index])!=VK_SUCCESS) return false;
     }
     *pipeline=mPipelines[index]; *layout=mLayout; return true;

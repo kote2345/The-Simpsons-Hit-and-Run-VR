@@ -250,7 +250,7 @@ bool radMovieRenderStrategyBink::Render( void )
     // some camera settings
     p3d::pddi->PushState(PDDI_STATE_ALL);
     p3d::pddi->PushIdentityMatrix(PDDI_MATRIX_MODELVIEW);
-    #if defined(RAD_ANDROID)
+    #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // ProjectionMode is cached by PDDI. The previous GUI pass is commonly
     // orthographic too, so assigning ORTHOGRAPHIC alone does not call
     // SetupHardwareProjection after the movie-plane flag changes. Toggle the
@@ -318,7 +318,7 @@ bool radMovieRenderStrategyBink::Render( void )
 
         #endif
 
-        #if defined(RAD_ANDROID)
+        #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 
         // The Android display is a legacy side-by-side surface, while each
         // OpenXR eye is a separate portrait-shaped render target. Draw in

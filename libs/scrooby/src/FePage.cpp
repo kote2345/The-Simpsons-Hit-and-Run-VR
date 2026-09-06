@@ -10,7 +10,7 @@
 #ifndef __FePage__
 #include "FePage.h"
 #endif
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -22,7 +22,7 @@
 #include "FeLayer.h"
 #include <raddebug.hpp>
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 static FePage* gVrGameplayHudPage=NULL;
 void ScroobyDisplayVrRadarMap();
 void ScroobySetVrGameplayHudPage(Scrooby::Page* page)
@@ -74,6 +74,9 @@ FePage::FePage( const char* fullFileName, FeProject* project )
 //===========================================================================
 FePage::~FePage()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(gVrGameplayHudPage==this) gVrGameplayHudPage=NULL;
+#endif
     for( int i = 0; i < mResources.Size(); i++ )
     {
         FeApp::GetInstance()->GetFeResourceManager().RemoveResource( mResources[i] );
@@ -123,7 +126,7 @@ void FePage::GetBoundingBox( int& xMin, int& yMin, int& xMax, int& yMax ) const
 
 void FePage::Display()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const bool gameplayHud=this==gVrGameplayHudPage;
     if(gameplayHud && SharOpenXR::IsRightEyeRendering()) return;
     // Capture Map0 on its own before entering the full HUD target.  A nested
@@ -140,7 +143,7 @@ void FePage::Display()
         SharOpenXR::BeginGameplayHudCapture();
 #endif
     FeOwner::Display();
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(gameplayHudCaptured) SharOpenXR::EndGameplayHudCapture();
 #endif
 }

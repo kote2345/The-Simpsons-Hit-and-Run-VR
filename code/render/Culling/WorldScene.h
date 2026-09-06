@@ -5,6 +5,7 @@
 #include <render/Culling/ReserveArray.h>
 #include <render/Culling/SpatialTreeIter.h>
 #include <vector>
+#include <mutex>
 #include <memory/stlallocators.h>
 #include <events/eventlistener.h>
 #include <events/eventmanager.h>
@@ -123,6 +124,10 @@ public:
    void HandleEvent( EventEnum id, void* pEventData );
 
 protected:
+   // Desktop streaming callbacks may add/remove scene objects on the loader
+   // thread.  A render traversal must see the same stable scene snapshot as
+   // the single-threaded Quest path.
+   mutable std::recursive_mutex mSceneMutex;
     float mDrawDist;
     bool mRenderAll;
    ////////////////////////////////////////////////////////////
@@ -163,7 +168,10 @@ protected:
 
    tShader* mpTempShader;
    std::vector< IEntityDSG*, s2alloc<IEntityDSG*> > mpZSortsPassShadowCasters;
+   std::vector< IEntityDSG*, s2alloc<IEntityDSG*> > mCsmStaticCasters;
    std::vector< IEntityDSG*, s2alloc<IEntityDSG*> > mCsmDynamicCasters;
+   void ClearCsmCasterSnapshot();
+   void RetainCsmCaster(IEntityDSG* entity,bool isStatic);
    std::vector< zSortBlah, s2alloc<zSortBlah> > mpZSorts;
    std::vector< IEntityDSG*, s2alloc<IEntityDSG*> > mpZSortsPass2;
    ReserveArray<IEntityDSG*> mShadowCastersPass1;      

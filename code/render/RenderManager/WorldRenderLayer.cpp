@@ -53,7 +53,7 @@
 #include <p3d/shadow.hpp>
 #include <p3d/view.hpp>
 #include <p3d/geometry.hpp>
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 #include <SDL.h>
 #include <vr/csmbridge.h>
 #include <vr/openxrmanager.h>
@@ -75,6 +75,9 @@ void pglSetVehicleRearLights(int mode,int count,const float* positions,const flo
 //NUEVOS INCLUDES
 #include <presentation/presentation.h>
 #include <presentation/fmvplayer/fmvplayer.h>
+#if defined(SRR2_OPENXR)
+#include <gameflow/gameflow.h>
+#endif
 //FIN NUEVOS INCLUDES 
 
 
@@ -277,7 +280,7 @@ void WorldRenderLayer::Render()
             mpView[ view ]->BeginRender();
             END_PROFILE( "View Begin Render" );
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             // Enhanced mode selects the per-pixel lighting path. Enable it
             // before WorldScene::Render because static level geometry is
             // submitted directly during the spatial-tree traversal.
@@ -380,16 +383,19 @@ void WorldRenderLayer::Render()
             SharOpenXR::RecordRenderSection(5,
                 (radTimeGetMicroseconds64()-vrSetupStart)/1000.0);
 
-            // Update one 128x128 face every other frame. A complete probe
-            // refresh still takes only about 167 ms at 72 Hz, while halving
-            // the extra world submissions on the standalone headset. The
-            // player vehicle is omitted by WorldScene to avoid
+            // The player vehicle is omitted by WorldScene to avoid
             // sampling from the cubemap attachment currently being written.
             Avatar* cubeAvatar=GetAvatarManager()->GetAvatarForPlayer(0);
             static unsigned cubeCaptureCounter=0;
             const int reflectionMode=SharOpenXR::GetReflectionMode();
             if(!SharOpenXR::IsRightEyeRendering()) ++cubeCaptureCounter;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+            // Refresh a complete six-face probe every rendered game frame on
+            // PCVR. The standalone headset retains its incremental schedule.
+            const unsigned captureInterval=1u;
+#else
             const unsigned captureInterval=4u;
+#endif
             // Static captures one complete probe and then freezes it. Dynamic
             // keeps refreshing the same probe. Previously mode 1 never
             // created a cubemap, so mapped PBR materials had no environment.
@@ -432,7 +438,14 @@ void WorldRenderLayer::Render()
                 // driving speed, sampling the moving vehicle position once per
                 // face produces six displaced images whose edges look like a
                 // literal box in the paint reflection.
-                if(cubeFace==0)
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+                const int firstCubeFace=0;
+                const int cubeFaceCount=6;
+#else
+                const int firstCubeFace=cubeFace;
+                const int cubeFaceCount=1;
+#endif
+                if(firstCubeFace==0)
                 {
                     // Keep the probe fresh while the player is on foot as
                     // well. A parked car must not retain the environment from
@@ -440,11 +453,13 @@ void WorldRenderLayer::Render()
                     cubeAvatar->GetPosition(cubeCapturePosition);
                     cubeCapturePosition.y+=1.0f;
                 }
-                cubeCamera->SetPosition(cubeCapturePosition);
-                cubeCamera->SetTarget(cubeCapturePosition+directions[cubeFace]);
-                cubeCamera->SetUpVector(upVectors[cubeFace]);
-                if(VrBeginVehicleCubeMapFace(p3d::pddi,cubeFace))
+                for(int cubeFaceOffset=0;cubeFaceOffset<cubeFaceCount;++cubeFaceOffset)
                 {
+                    const int captureFace=firstCubeFace+cubeFaceOffset;
+                    cubeCamera->SetPosition(cubeCapturePosition);
+                    cubeCamera->SetTarget(cubeCapturePosition+directions[captureFace]);
+                    cubeCamera->SetUpVector(upVectors[captureFace]);
+                    if(!VrBeginVehicleCubeMapFace(p3d::pddi,captureFace)) continue;
                     // This render happens inside the OpenXR world pass, but it
                     // is not an eye render.  Leaving world rendering enabled
                     // makes SetupHardwareProjection replace the cube camera's
@@ -477,7 +492,7 @@ void WorldRenderLayer::Render()
                     mpWorldScene->RenderOpaque();
                     VrSetVehicleCubeMapTransparentSuppression(false);
                     cubeView->SetCamera(eyeCamera);
-                    VrEndVehicleCubeMapFace(p3d::pddi,cubeFace);
+                    VrEndVehicleCubeMapFace(p3d::pddi,captureFace);
                     SharOpenXR::SetWorldRendering(true);
                     eyeCamera->SetState();
                     p3d::context->LoadViewMatrix(
@@ -488,7 +503,9 @@ void WorldRenderLayer::Render()
                     // draw can continue into only the left framebuffer layer.
                     VrRestoreVehicleCubeMapRendering(p3d::pddi);
                     p3dSetEnhancedWorldMaterials(enhancedMaterials);
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
                     cubeFace=(cubeFace+1)%6;
+#endif
                 }
             }
 #endif
@@ -498,7 +515,7 @@ void WorldRenderLayer::Render()
             if(!mMirror)
             {
                 BEGIN_PROFILE( "Render World Spheres" );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
                 // Sky domes are emissive backgrounds, not physical surfaces.
                 // Running them through PBR darkens and tints the authored sky.
                 p3dSetEnhancedWorldMaterials(false);
@@ -510,7 +527,7 @@ void WorldRenderLayer::Render()
                 }
                 BEGIN_PROFILE( "pddi ZBuf" );
                 p3d::pddi->EnableZBuffer(true);
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
                 p3dSetEnhancedWorldMaterials(enhancedMaterials);
 #endif
                 END_PROFILE( "pddi ZBuf" );
@@ -518,7 +535,7 @@ void WorldRenderLayer::Render()
             }
 
             BEGIN_PROFILE( "Render WorldScene" );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             const radTime64 vrSceneStart=radTimeGetMicroseconds64();
             // Both eyes use the same midpoint VR culling camera. Rebuilding
             // and sorting identical visibility lists for the right eye was a
@@ -527,7 +544,7 @@ void WorldRenderLayer::Render()
             if(!SharOpenXR::IsRightEyeRendering() || GetNumViews()>1)
 #endif
                 mpWorldScene->Render( view );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             SharOpenXR::RecordRenderSection(6,
                 (radTimeGetMicroseconds64()-vrSceneStart)/1000.0);
 #endif
@@ -536,11 +553,18 @@ void WorldRenderLayer::Render()
 #endif
             END_PROFILE( "Render WorldScene" );
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             // Generate three world-locked cascades once per XR frame. The
             // second eye reuses their depth maps and only updates matrices.
             tCamera* shadowEyeCamera=mpView[view]->GetCamera();
-            const bool csmAllowed=SharOpenXR::IsCsmEnabled();
+            // Pause is rendered with two independent eye command buffers.
+            // The Vulkan CSM images are shared by both eyes and are rewritten
+            // between those submissions, which corrupts the frozen left-eye
+            // image on desktop drivers.  Do not sample or regenerate CSM while
+            // entering or displaying pause; normal gameplay remains unchanged.
+            const bool pauseFrame=GetGameFlow()->GetCurrentContext()==CONTEXT_PAUSE ||
+                                  GetGameFlow()->GetNextContext()==CONTEXT_PAUSE;
+            const bool csmAllowed=SharOpenXR::IsCsmEnabled() && !pauseFrame;
             // Old tree/light-pool shadows are ordinary named geometries, not
             // always calls to DisplaySimpleShadow. Suppress them for the
             // complete frame so neither the colour pass nor a cascade sees
@@ -595,13 +619,13 @@ void WorldRenderLayer::Render()
             //p3d::inventory->PushSection();
             //p3d::inventory->SelectSection("Default");
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             VrEnableSunShadowReceivers(p3d::pddi,csmAllowed);
             const radTime64 vrOpaqueStart=radTimeGetMicroseconds64();
 #endif
             mpWorldScene->RenderOpaque();
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             SharOpenXR::RecordRenderSection(7,
                 (radTimeGetMicroseconds64()-vrOpaqueStart)/1000.0);
             // CSM is sampled by the normal opaque shader. Keep transparent
@@ -626,7 +650,7 @@ void WorldRenderLayer::Render()
             */
             GetFootprintManager()->Render();
             BEGIN_PROFILE( "Render Simple Shadows" );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             if(SharOpenXR::IsVrModeEnabled())
             {
                 // Without CSM, retain the original blob shadows except for
@@ -647,7 +671,7 @@ void WorldRenderLayer::Render()
 #endif
             END_PROFILE( "Render Simple Shadows" );
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             // The following sorted pass contains glass, particles and foliage.
             // Vehicles opt their opaque body groups back into mode 2 locally.
             p3dSetEnhancedWorldMaterials(false);
@@ -660,11 +684,11 @@ void WorldRenderLayer::Render()
             END_PROFILE( "Render Shadow Casters" );
 
             BEGIN_PROFILE( "RenderTranslucent" );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             const radTime64 vrTranslucentStart=radTimeGetMicroseconds64();
 #endif
             mpWorldScene->RenderTranslucent();
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             SharOpenXR::RecordRenderSection(8,
                 (radTimeGetMicroseconds64()-vrTranslucentStart)/1000.0);
 #endif
@@ -679,7 +703,7 @@ void WorldRenderLayer::Render()
             //Drawing the characters and stuff after the shadows to attempt to 
             //eliminate the bleeding shadows.
             BEGIN_PROFILE( "Render Guts" );
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             const radTime64 vrGutsStart=radTimeGetMicroseconds64();
             // Character shaders use PDDI_BLEND_ALPHA even when fully opaque.
             // Apply CSM during their normal skinned colour pass. Replaying a
@@ -692,13 +716,13 @@ void WorldRenderLayer::Render()
             {
                 mpGuts[i]->Display();
             }
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             SharOpenXR::RecordRenderSection(9,
                 (radTimeGetMicroseconds64()-vrGutsStart)/1000.0);
 #endif
             END_PROFILE( "Render Guts" );
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             VrEnableSunShadowReceivers(p3d::pddi,false);
             // Apply AO only after opaque world geometry, vehicle composite
             // drawables and characters have all populated the eye depth
@@ -716,7 +740,7 @@ void WorldRenderLayer::Render()
             // Draw procedural transparency after the CSM receiver overlay.
             // Otherwise the overlay is blended on top of vehicle damage
             // smoke, making the vehicle's cascaded shadow visible through it.
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             GetSparkleManager()->Render(SharOpenXR::IsVrModeEnabled() ?
                                         Sparkle::SRM_IncludeSorted :
                                         Sparkle::SRM_ExcludeSorted);
@@ -739,7 +763,7 @@ void WorldRenderLayer::Render()
             LensFlareDSG::DisplayAllFlares();
             END_PROFILE( "Lens Flare Render" );
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
             // Do not project the world shadow map onto subsequent GUI layers.
             VrEnableSunShadowReceivers(p3d::pddi,false);
 

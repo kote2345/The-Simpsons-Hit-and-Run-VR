@@ -1,7 +1,7 @@
 #ifndef VR_DYNAMICCUBEMAP_H
 #define VR_DYNAMICCUBEMAP_H
 
-#if defined(RAD_ANDROID)
+#if defined(SRR2_OPENXR)
 #include <radmath/radmath.hpp>
 
 class pddiRenderContext;

@@ -10,6 +10,7 @@
 #include <deque>
 #include <unordered_set>
 #include <unordered_map>
+#include <mutex>
 #include <cstddef>
 #include <vr/vulkan/shadow_pipeline.h>
 #include <vr/vulkan/material_state.h>
@@ -42,6 +43,7 @@ public:
     uint32_t GetQueueFamilyIndex() const { return mQueueFamilyIndex; }
     bool ClearImage(VkImage image, bool firstUse);
     bool LoadStartupSplash(const char* path, VkFormat targetFormat);
+    void HideStartupSplash() { mStartupSplashVisible = false; }
     // layer is 0/1 for a conventional stereo pass and 2 for multiview.
     bool ClearImageInPddiEye(VkImage image, bool firstUse, uint32_t layer,
                              uint32_t targetWidth=0, uint32_t targetHeight=0);
@@ -115,6 +117,12 @@ public:
     void SetShadowReceiverState(bool enabled,const float matrices[48]);
 
 private:
+    // Pure3D's Windows loader creates and destroys textures on its worker
+    // thread while the main thread records an XR eye. Vulkan queue, command
+    // pool, descriptor-pool and context-owned containers require one common
+    // synchronization boundary.
+    mutable std::recursive_mutex mGraphicsMutex;
+    bool mEyeOwnsGraphicsMutex;
     enum { FrameArenaCount=3 };
     struct FrameArena
     {
@@ -133,6 +141,7 @@ private:
         uint32_t blendMode;
         VkCullModeFlags cullMode;
         VkColorComponentFlags colourWriteMask;
+        bool multiview;
         bool depthTest, depthWrite, depthBiasEnabled;
         uint8_t shaderVariant;
         uint8_t materialModel;
@@ -144,9 +153,11 @@ private:
         VkImageView view,densityView;
         VkRenderPass renderPass, clearRenderPass, depthClearRenderPass;
         VkFramebuffer framebuffer;
+        bool ownsRenderTargets;
         VkShaderModule vertexModule, fragmentModule;
         VkPipelineLayout layout;
         VkPipeline pipeline;
+        bool ownsPipeline;
     };
     struct CachedDepthTarget
     {
@@ -162,6 +173,9 @@ private:
     {
         VkImage image;
         VkDeviceMemory memory;
+        // A D24S8 framebuffer attachment must expose both aspects. Keep a
+        // separate depth-only view for sampling it from the receiver shader.
+        VkImageView attachmentView;
         VkImageView view;
         VkSampler sampler;
         VkRenderPass renderPass;
@@ -251,6 +265,7 @@ private:
     VkDeviceMemory mStartupSplashMemory;
     uint32_t mStartupSplashWidth;
     uint32_t mStartupSplashHeight;
+    bool mStartupSplashVisible;
     bool mPddiEyeActive;
     bool mPddiRenderPassActive;
     uint32_t mColourClearMask;
@@ -260,6 +275,10 @@ private:
     std::vector<VkShaderModule> mDeferredShaderModules;
     std::vector<VkPipelineLayout> mDeferredPipelineLayouts;
     std::vector<VkPipeline> mDeferredPipelines;
+    std::vector<VkDescriptorSet> mDeferredDescriptorSets;
+    std::vector<VkSampler> mDeferredSamplers;
+    std::vector<VkImage> mDeferredImages;
+    std::vector<VkDeviceMemory> mDeferredImageMemory;
     std::vector<VkBuffer> mDeferredBuffers;
     std::vector<VkDeviceMemory> mDeferredBufferMemory;
     std::vector<CachedDrawState> mDrawStateCache;
@@ -304,6 +323,8 @@ private:
                             const float* projection,const float* modelview,
                             VkDescriptorSet textureSet,const VulkanMaterialState& material);
     void ReleaseDeferredResources();
+    bool HasSubmittedFrames() const;
+    void RetireRenderTarget(VkImage image);
     bool RecordPendingTextureUploads();
     bool FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties,
                         uint32_t* typeIndex) const;

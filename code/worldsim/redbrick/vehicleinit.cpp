@@ -625,7 +625,15 @@ bool Vehicle::Init( const char* name, SimEnvironment* se, VehicleLocomotionType 
 //=============================================================================
 void Vehicle::InitEventLocator()
 {
-    GameMemoryAllocator gma = GetGameplayManager()->GetCurrentMissionHeap();
+    // Traffic vehicles are pooled for the entire level and are activated well
+    // after their asynchronous construction has completed.  A locator on the
+    // current mission heap can be reclaimed during the startup mission-heap
+    // transition while TrafficManager still owns the vehicle.  The resulting
+    // stale RectTriggerVolume keeps plausible matrix data but loses its vtable,
+    // then crashes in TriggerVolumeTracker::AddTrigger.  Keep all three related
+    // allocations on the level-lifetime heap used by TrafficManager itself.
+    const GameMemoryAllocator gma = mVehicleType==VT_TRAFFIC ?
+        GMA_LEVEL_OTHER:GetGameplayManager()->GetCurrentMissionHeap();
 
     mpEventLocator = new(gma)EventLocator();
     mpEventLocator->SetName( mName );

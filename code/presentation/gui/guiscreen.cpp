@@ -23,7 +23,7 @@
 #include <presentation/gui/utility/specialfx.h>
 
 #include <events/eventmanager.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -819,7 +819,7 @@ CGuiScreen::StartTransitionAnimation( int startFrame,
                                       int endFrame,
                                       bool lastTransition )
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // The frontend's shared CamAndSet controller contains all of its camera
     // fly-throughs. In VR the menu is a fixed panel, so screen navigation must
     // switch only the Scrooby page and leave the 3D camera at its menu pose.

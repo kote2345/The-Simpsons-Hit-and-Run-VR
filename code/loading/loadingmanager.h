@@ -98,9 +98,13 @@ class LoadingManager : public FileHandler::LoadFileCallback
         // Loading Accessor
         //----------------------------------------------------------------------
         bool IsLoading();
+        // Advance the platform file backend while preserving one common game
+        // guarantee: at most one request completion is dispatched per tick.
+        void ServiceAsyncLoading();
 
         inline int GetRequestHead() const { return mRequestHead; }
         inline int GetRequestTail() const { return mRequestTail; }
+        inline unsigned int GetCompletionSerial() const { return mCompletionSerial; }
 
         int GetNumCurrentRequests() const;
 
@@ -162,6 +166,7 @@ class LoadingManager : public FileHandler::LoadFileCallback
         int mRequestTail;
 
         bool mLoading;
+        unsigned int mCompletionSerial;
 
         bool mCancellingLoads;
 

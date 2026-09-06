@@ -1279,7 +1279,13 @@ public:
         // Keep the same depth precision and PCF footprint as the proven GLES
         // path.  Reducing the cached cascades made their texels large enough
         // to open visible gaps where a wall/pole meets its receiver.
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        // Desktop GPUs can afford full 4K depth maps for every cascade.  Keep
+        // the standalone headset allocation unchanged below.
+        static const uint32_t sizes[3]={4096,4096,4096};
+#else
         static const uint32_t sizes[3]={2048,2048,1024};
+#endif
         static const float halfWidths[3]={24.0f,56.0f,224.0f};
         static const float halfDepths[3]={64.0f,96.0f,155.0f};
         rmt::Matrix centreCamera=eyeCameraToWorld;

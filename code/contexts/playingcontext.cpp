@@ -97,7 +97,7 @@ void PlayingContext::OnStart( ContextEnum previousContext )
     //
     GetRenderManager()->mpLayer( RenderEnums::GUI )->pView( 0 )->SetClearMask( PDDI_BUFFER_DEPTH | PDDI_BUFFER_STENCIL );
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     GetInputManager()->GetFEMouse()->SetInGameMode( true );
 #endif
 }
@@ -116,7 +116,7 @@ void PlayingContext::OnStop( ContextEnum nextContext )
 {
     mQuitting = false; // I've quit after all.
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     GetInputManager()->GetFEMouse()->SetInGameMode( false );
 #endif
 

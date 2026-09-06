@@ -27,13 +27,15 @@
 #include "FeResourceEntry.h"
 #include "FeScreen.h"
 #include <radmath/radmath.hpp>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#include <gameflow/gameflow.h>
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <SDL.h>
 #endif
 #include "ResourceManager/FeResourceManager.h"
-#if defined(RAD_ANDROID)
-#include <vr/openxrmanager.h>
-#include <gameflow/gameflow.h>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 static Scrooby::Pure3dObject* gVrIrisPure3dObject=NULL;
 static Scrooby::Pure3dObject* gVrFrontendWorldPure3dObject=NULL;
 static FePure3dObject* gVrRadarMapPure3dObject=NULL;
@@ -138,9 +140,13 @@ FePure3dObject::FePure3dObject
 //===========================================================================
 FePure3dObject::~FePure3dObject()
 {
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(gVrIrisPure3dObject==static_cast<Scrooby::Pure3dObject*>(this))
         gVrIrisPure3dObject=NULL;
+    if(gVrFrontendWorldPure3dObject==static_cast<Scrooby::Pure3dObject*>(this))
+        gVrFrontendWorldPure3dObject=NULL;
+    if(gVrRadarMapPure3dObject==this) gVrRadarMapPure3dObject=NULL;
+    if(gVrRadarHolePure3dObject==this) gVrRadarHolePure3dObject=NULL;
 #endif
     // remove all lights that were added to view
     //
@@ -262,7 +268,7 @@ void FePure3dObject::Update( float elapsedTime )
 //===========================================================================
 void FePure3dObject::Display()
 {
-#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#if (defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)) && defined(SRR2_VR_RENDERER_VULKAN)
     if(this==gVrRadarHolePure3dObject)
         return;
     if(this==gVrRadarMapPure3dObject)
@@ -466,7 +472,7 @@ void FePure3dObject::Render()
             }
         }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         // The main-menu world controller is safe to seek only here, after the
         // resource manager has supplied its camera, drawable and tracks. The
         // intro window can observe the shared controller earlier than this.
@@ -493,7 +499,7 @@ void FePure3dObject::Render()
 
     if( m_RuntimeDrawable == NULL )
     {
-#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#if (defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)) && defined(SRR2_VR_RENDERER_VULKAN)
         if(this==gVrRadarMapPure3dObject)
             SDL_Log("OpenXR: Map0 has no runtime drawable alias=%s alreadyRendered=%d",
                     static_cast<const char*>(*m_alias),m_alreadyRendered?1:0);
@@ -503,7 +509,7 @@ void FePure3dObject::Render()
         return;
     }
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Frontend Scrooby pages mix the authored 3D living-room scene with the
     // 2D menu in one draw tree. Render this Pure3D node through the real eye
     // cameras, then restore the world-locked panel projection for subsequent
@@ -532,7 +538,7 @@ void FePure3dObject::Render()
     // set colour write
     //
     bool alphaWriteEnabled = true;
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Hole0 is the depth-only circular mask for the spatial radar. The legacy
     // path always writes alpha even when colour writes are disabled, producing
     // opaque black corners in a transparent offscreen texture. Keep every
@@ -544,7 +550,7 @@ void FePure3dObject::Render()
                                m_colourWriteEnabled,
                                m_colourWriteEnabled,
                                alphaWriteEnabled );
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const bool suppressVrIris=
         gVrIrisPure3dObject==static_cast<Scrooby::Pure3dObject*>(this);
     // In Original mode the authored Hole0 alpha mask is only needed to cut
@@ -614,7 +620,7 @@ void FePure3dObject::Render()
     p3d::stack->LoadIdentity();
     currentView->SetCamera( m_Camera );
 
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     // Match the GLES path in both HUD modes. Map0/Hole0 use wide-screen
     // correction as their embedded-map marker: it prevents the map camera
     // from being replaced by the OpenXR eye projection and converts their
@@ -681,7 +687,7 @@ void FePure3dObject::Render()
     // draw the damn thing!
     //
     rAssert( m_RuntimeDrawable != NULL );
-#if defined(RAD_ANDROID) && defined(SRR2_VR_RENDERER_VULKAN)
+#if (defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)) && defined(SRR2_VR_RENDERER_VULKAN)
     static bool loggedMapDrawable=false;
     if(this==gVrRadarMapPure3dObject && !loggedMapDrawable)
     {
@@ -695,7 +701,7 @@ void FePure3dObject::Render()
 
     // restore everything we changed
     //
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( vrCameraChanged )
     {
         m_Camera->SetCameraMatrix( &originalVrCamera );
@@ -724,9 +730,11 @@ void FePure3dObject::Render()
 
     // restore colour write
     //
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(suppressVrIris || suppressOriginalRadarHole)
         p3d::pddi->SetZWrite(oldZWrite);
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if(vrFrontendWorld)
     {
         SharOpenXR::SetFrontendPlaneRendering( true );
