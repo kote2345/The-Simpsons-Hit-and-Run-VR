@@ -190,6 +190,17 @@ public:
     {
         return true;
     }
+
+    // VR physical push: false for cars, phones, talk/race/mission/sell NPCs.
+    virtual bool AllowPhysicalInteract( void ) const
+    {
+        const Type t = const_cast<ButtonHandler*>( this )->GetType();
+        return t != GET_IN_CAR
+            && t != GET_IN_USER_CAR
+            && t != SUMMON_PHONE
+            && t != PURCHASE_CAR
+            && t != PURCHASE_SKIN;
+    }
     
     virtual bool NeedsUpdate( void ) const
     {
@@ -310,6 +321,8 @@ public:
     }
 
     virtual Type GetType() { return GET_IN_CAR; };
+
+    virtual bool AllowPhysicalInteract( void ) const { return false; }
 
 protected:
     virtual bool OnButtonPressed( Character* pCharacter, Sequencer* pSeq );
@@ -677,7 +690,9 @@ public:
     static ButtonHandler* NewAction( ActionEventLocator* pActionEventLocator )
     {
         return new (GMA_LEVEL_OTHER) PrankPhone( pActionEventLocator );  
-    }  
+    }
+    virtual bool AllowPhysicalInteract( void ) const { return false; }
+  
 protected:
     virtual bool OnButtonPressed( Character* pCharacter, Sequencer* pSeq );
     virtual void SetAnimation( Character* pCharacter, Sequencer* pSeq );
@@ -715,6 +730,7 @@ public:
     virtual bool Create( tEntityStore* inStore = 0 );  
 
     virtual Type GetType( void ) { return ButtonHandler::SUMMON_PHONE; };
+    virtual bool AllowPhysicalInteract( void ) const { return false; }
 
     virtual bool UsesActionButton() const;
 
@@ -987,7 +1003,9 @@ public:
     static ButtonHandler* NewAction( ActionEventLocator* pEventLocator )
     {
         return new (GMA_LEVEL_OTHER) TalkDialog( pEventLocator );  
-    }  
+    }
+    virtual bool AllowPhysicalInteract( void ) const { return false; }
+  
 protected:
 private:
 };
@@ -1006,7 +1024,9 @@ public:
     static ButtonHandler* NewAction( ActionEventLocator* pActionEventLocator )
     {
         return new (GMA_LEVEL_OTHER) TalkMission( pActionEventLocator );  
-    }  
+    }
+    virtual bool AllowPhysicalInteract( void ) const { return false; }
+  
 protected:
 private:
 };
@@ -1056,6 +1076,14 @@ protected:
 protected:
 //    AnimEntityDSGWrapper* mpGameObject;
     AnimatedIcon* mAnimatedIcon;
+    // OpenXR on foot: entering the pickup trigger only marks this collectible
+    // as the nearby candidate. Body contact never collects it; grip does.
+    Character* mPendingCollector;
+    void FinishCollect( Character* pCharacter );
+    bool TryGripCollect( Character* pCharacter );
+    // Subclass-specific rewards/VFX (cards, wrench, nitro). Called only when
+    // the collect actually completes (after hand grab in VR on foot).
+    virtual void OnCollectEffects( Character* pCharacter ) {}
 private:
     bool mbCollected : 1;
 };
@@ -1103,7 +1131,7 @@ public:
         return new (GMA_LEVEL_OTHER) CollectibleFood( pActionEventLocator, sfLargeTurboGain );  
     } 
 protected:
-    virtual void OnEnter( Character* pCharacter );
+    virtual void OnCollectEffects( Character* pCharacter );
     float mfTurboGain;
 private:
     static float sfSmallTurboGain;
@@ -1130,7 +1158,7 @@ public:
     static void UpdateThing( unsigned int milliseconds );
 
 protected:
-    virtual void OnEnter( Character* pCharacter );
+    virtual void OnCollectEffects( Character* pCharacter );
 private:
     static AnimatedIcon* mAnimatedCollectionThing;
     static unsigned int mCollectibleCardCount;
@@ -1167,7 +1195,7 @@ public:
    
 
 protected:
-    virtual void OnEnter( Character* pCharacter );
+    virtual void OnCollectEffects( Character* pCharacter );
 private:
   static AnimatedIcon* mAnimatedCollectionThing;
   static unsigned int mWrenchCount;
@@ -1205,7 +1233,7 @@ public:
    
 
 protected:
-    virtual void OnEnter( Character* pCharacter );
+    virtual void OnCollectEffects( Character* pCharacter );
 private:
   static AnimatedIcon* mAnimatedCollectionThing;
   static unsigned int mNitroCount;
@@ -1229,6 +1257,13 @@ public:
     void* GetEventData() { return mEventData; };
 
     virtual Type GetType( void ) { return MISSION_OBJECTIVE; };
+
+    // Mission TalkToObjective arms EVENT_TALK_TO_NPC; do not start
+    // conversations via physical push.
+    virtual bool AllowPhysicalInteract( void ) const
+    {
+        return mEvent != EVENT_TALK_TO_NPC;
+    }
 
 protected:
     EventLocator* mpEventLocator;
@@ -1319,7 +1354,9 @@ public:
         handler =  new PurchaseCar( pActionEventLocator );  
         HeapMgr()->PopHeap( GMA_LEVEL_OTHER );
         return handler;
-    }  
+    }
+    virtual bool AllowPhysicalInteract( void ) const { return false; }
+  
 
     virtual bool Create( tEntityStore* inStore = 0 );
     virtual Type GetType( void ) { return ButtonHandler::PURCHASE_CAR; };
@@ -1353,7 +1390,9 @@ public:
         handler =  new PurchaseSkin( pActionEventLocator );  
         HeapMgr()->PopHeap( GMA_LEVEL_OTHER );
         return handler;
-    }  
+    }
+    virtual bool AllowPhysicalInteract( void ) const { return false; }
+  
 
     virtual bool Create( tEntityStore* inStore = 0 );
     virtual Type GetType( void ) { return ButtonHandler::PURCHASE_SKIN; };
