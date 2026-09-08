@@ -73,7 +73,7 @@ struct HudState
     float radarUv[4];
     int radarRect[4],radarMapRect[4];
     bool radarCropValid;
-    enum { MISSION_HUD_COUNT=19 };
+    enum { MISSION_HUD_COUNT=20 };
 #if defined(SRR2_VR_RENDERER_VULKAN)
     VkImage vulkanRadarImage,vulkanGameplayHudImage;
     VkDeviceMemory vulkanRadarMemory,vulkanGameplayHudMemory;
@@ -229,11 +229,41 @@ return g.missionHudActiveSlot>=0;
 bool BeginGameplayHudCapture()
 {
     RefreshRuntime();
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    if(IsSpatialHudEnabled() || g.gameplayHudCaptureActive ||
+       !g.multiviewImageAcquired || g.activeEye>1)
+        return false;
+    if(!g.vulkanGameplayHudImage && !gVulkanContext.CreateTexture2D(
+        RADAR_TEXTURE_WIDTH,RADAR_TEXTURE_HEIGHT,1,&g.vulkanGameplayHudImage,
+        &g.vulkanGameplayHudMemory,&g.vulkanGameplayHudView,
+        &g.vulkanGameplayHudSampler,&g.vulkanGameplayHudDescriptor))
+    {
+        XRERR("Vulkan gameplay HUD texture creation failed");
+        return false;
+    }
+    if(!gVulkanContext.BeginOffscreenTarget(g.vulkanGameplayHudImage,
+                                             g.vulkanGameplayHudInitialized))
+    {
+        XRERR("Vulkan gameplay HUD offscreen begin failed");
+        return false;
+    }
+    g.gameplayHudCaptureActive=true;
+    g.vulkanCaptureActive=true;
+    return true;
+#else
     return false;
+#endif
 }
 
 void EndGameplayHudCapture()
 {
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    if(!g.gameplayHudCaptureActive)return;
+    g.gameplayHudCaptureActive=false;
+    g.vulkanCaptureActive=false;
+    if(gVulkanContext.EndOffscreenTarget(g.vulkanGameplayHudImage))
+        g.vulkanGameplayHudInitialized=true;
+#endif
 }
 void PrepareRadarDraw()
 {
@@ -1356,7 +1386,7 @@ static void DrawMissionHudPlanes()
         const float drawHeight=timerSlot?0.0425f:
             std::max(1.0f,cropPixels)*hudPixelScale;
         rmt::Matrix anchor=base;
-        const bool centreNotification=slot>=14 && slot<=18;
+        const bool centreNotification=slot>=14 && slot<=19;
         if(centreNotification)
         {
             // Transient announcements belong in front of the player rather
@@ -1579,7 +1609,10 @@ static void DrawMissionHudPlanes()
 
 void SetPauseCoinVisible(bool visible){g.pauseCoinVisible=visible;
 }
-void SetIrisBlackout(bool black){g.irisBlackoutTarget=black;
+void SetIrisBlackout(bool black){
+    if(g.irisBlackoutTarget!=black)
+        XRLOG("iris blackout target=%s",black?"closed":"open");
+    g.irisBlackoutTarget=black;
 }
 void DrawPauseCoinIcon()
 {

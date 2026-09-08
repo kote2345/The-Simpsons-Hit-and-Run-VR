@@ -84,7 +84,9 @@ CGuiScreenDisplay::CGuiScreenDisplay
     m_changedGamma( false )
 #if defined(SRR2_OPENXR)
     , m_pRenderScaleLabel( NULL )
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
     , m_pRefreshRateLabel( NULL )
+#endif
 #endif
 {
 MEMTRACK_PUSH_GROUP( "CGuiScreenDisplay" );
@@ -108,16 +110,24 @@ MEMTRACK_PUSH_GROUP( "CGuiScreenDisplay" );
     const char* const materials[]={"Original","Phong","PBR","NPR Toon"};
     const char* const lights[]={"Off","Optimized","Max"};
     const char* const reflections[]={"Off","Static","Dynamic"};
-    const char* const rates[]={"72 Hz","90 Hz","120 Hz"};
     const char* const scales[]={"50%","60%","70%","80%","90%","100%","110%","120%"};
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    const char* const labels[]={"CSM Shadows","Custom Materials","Render","Vehicle Lights","Reflections","Volumetric Light","HDR","Render Scale"};
+    const char* const* values[]={toggle,toggle,materials,lights,reflections,toggle,toggle,scales};
+    const int counts[]={2,2,4,3,3,2,2,8};
+#else
+    const char* const rates[]={"72 Hz","90 Hz","120 Hz"};
     const char* const labels[]={"CSM Shadows","Custom Materials","Render","Vehicle Lights","Reflections","Refresh Rate","Render Scale"};
     const char* const* values[]={toggle,toggle,materials,lights,reflections,rates,scales};
     const int counts[]={2,2,4,3,3,3,8};
+#endif
     for(int i=0;i<NUM_MENU_ITEMS;++i){
         VrMenuBuilder::Row row=VrMenuBuilder::AddRow(pPage,style,"CleanGraphics",i,labels[i],values[i],counts[i],112,51);
         m_pMenu->AddMenuItem(row.label,row.value,NULL,NULL,NULL,NULL,SELECTION_ENABLED|VALUES_WRAPPED|TEXT_OUTLINE_ENABLED);
         m_pMenu->SetSelectionValueCount(i,counts[i]);
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
         if(i==MENU_ITEM_REFRESH_RATE)m_pRefreshRateLabel=row.value;
+#endif
         if(i==MENU_ITEM_RENDER_SCALE)m_pRenderScaleLabel=row.value;
     }
 #else
@@ -255,6 +265,7 @@ void CGuiScreenDisplay::HandleMessage
                 switch( param1 )
                 {
 #if defined(SRR2_OPENXR)
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
                     case MENU_ITEM_REFRESH_RATE:
                     {
                         const float current=SharOpenXR::GetRefreshRate();
@@ -262,6 +273,7 @@ void CGuiScreenDisplay::HandleMessage
                         UpdateVrDisplayLabels();
                         break;
                     }
+#endif
 #else
                     case MENU_ITEM_APPLY_CHANGES:
                     {
@@ -281,6 +293,7 @@ void CGuiScreenDisplay::HandleMessage
                 switch( param1 )
                 {
 #if defined(SRR2_OPENXR)
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
                     case MENU_ITEM_REFRESH_RATE:
                     {
                         const float rates[3]={72.0f,90.0f,120.0f};
@@ -288,6 +301,22 @@ void CGuiScreenDisplay::HandleMessage
                         UpdateVrDisplayLabels();
                         break;
                     }
+#else
+                    case MENU_ITEM_VOLUMETRIC_LIGHT:
+                    {
+                        SharOpenXR::SetVolumetricLightEnabled(param2!=0);
+                        if(param2!=0 && m_pMenu->GetSelectionValue(MENU_ITEM_HDR)==0)
+                            m_pMenu->SetSelectionValue(MENU_ITEM_HDR,1);
+                        break;
+                    }
+                    case MENU_ITEM_HDR:
+                    {
+                        SharOpenXR::SetHdrEnabled(param2!=0);
+                        if(param2==0 && m_pMenu->GetSelectionValue(MENU_ITEM_VOLUMETRIC_LIGHT)!=0)
+                            m_pMenu->SetSelectionValue(MENU_ITEM_VOLUMETRIC_LIGHT,0);
+                        break;
+                    }
+#endif
                     case MENU_ITEM_CSM:
                     {
                         SharOpenXR::SetCsmEnabled( param2 != 0 );
@@ -382,6 +411,12 @@ void CGuiScreenDisplay::InitIntro()
                                 SharOpenXR::GetVehicleLightMode() );
     m_pMenu->SetSelectionValue( MENU_ITEM_REFLECTIONS,
                                 SharOpenXR::GetReflectionMode() );
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    m_pMenu->SetSelectionValue( MENU_ITEM_VOLUMETRIC_LIGHT,
+                                SharOpenXR::IsVolumetricLightEnabled() ? 1 : 0 );
+    m_pMenu->SetSelectionValue( MENU_ITEM_HDR,
+                                SharOpenXR::IsHdrEnabled() ? 1 : 0 );
+#endif
     m_pMenu->SetSelectionValue(MENU_ITEM_RENDER_SCALE,
         static_cast<int>(rmt::Clamp((SharOpenXR::GetRenderScale()-0.5f)/0.1f+0.5f,0.0f,7.0f)));
     UpdateVrDisplayLabels();
@@ -490,6 +525,7 @@ void CGuiScreenDisplay::ApplySettings()
 #if defined(SRR2_OPENXR)
 void CGuiScreenDisplay::UpdateVrDisplayLabels()
 {
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( m_pRefreshRateLabel != NULL )
     {
         const float rate=SharOpenXR::GetRefreshRate();
@@ -499,5 +535,6 @@ void CGuiScreenDisplay::UpdateVrDisplayLabels()
         if(m_pMenu->GetSelectionValue(MENU_ITEM_REFRESH_RATE)!=selection)
             m_pMenu->SetSelectionValue(MENU_ITEM_REFRESH_RATE,selection);
     }
+#endif
 }
 #endif

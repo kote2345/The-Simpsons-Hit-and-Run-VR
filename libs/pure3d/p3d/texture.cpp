@@ -7,6 +7,10 @@
 #include <p3d/texture.hpp>
 #if defined(RAD_ANDROID)
 #include <pddi/gles/gltex.hpp>
+#elif defined(SRR2_OPENXR_PLATFORM_WIN32) && defined(SRR2_VR_RENDERER_VULKAN)
+// The Vulkan backend provides the same external-material hook as GLES.
+// Do not include the GLES texture implementation in the desktop build.
+void pglSetTextureSourceName(pddiTexture* texture,const char* name);
 #endif
 #include <p3d/image.hpp>
 #include <p3d/imagefactory.hpp>
@@ -221,7 +225,7 @@ tTexture* tTextureLoader::LoadTexture(tChunkFile* f)
     if (texture != NULL)
     {
         texture->SetName(name);
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || (defined(SRR2_OPENXR_PLATFORM_WIN32) && defined(SRR2_VR_RENDERER_VULKAN))
         pglSetTextureSourceName(texture->GetTexture(),name);
 #endif
         texture->SetPriority(priority);

@@ -135,6 +135,8 @@ public:
         P1_KBD_Nitro,
         P1_KBD_Left,
         P1_KBD_Right,
+        feL1,
+        feR1,
         Select = feBack,        // These are mappings to PS2 buttons, needed sometimes.
         Start = feSelect,
         DPadUp = MoveUp,

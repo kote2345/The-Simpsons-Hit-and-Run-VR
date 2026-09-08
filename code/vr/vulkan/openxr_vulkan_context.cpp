@@ -19,6 +19,7 @@
 #include <cstring>
 #include <cstdio>
 #include <chrono>
+#include <cmath>
 #include <vector>
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <png.h>
@@ -65,6 +66,7 @@ VulkanContext::VulkanContext()
       mUploadCommandBuffer(VK_NULL_HANDLE),
       mFence(VK_NULL_HANDLE),
       mFrameArenaIndex(FrameArenaCount-1),
+      mAdaptedExposure(0.60f),
       mActiveFrameArena(NULL),
       mTimestampQueryPool(VK_NULL_HANDLE),
       mTimestampPeriod(0.0f),
@@ -149,6 +151,12 @@ VulkanContext::VulkanContext()
     std::memset(mShaderVariantDraws,0,sizeof(mShaderVariantDraws));
     std::memset(mShadowCascades,0,sizeof(mShadowCascades));
     std::memset(mShadowReceiverMatrices,0,sizeof(mShadowReceiverMatrices));
+    mVolumetricSunDirection[0]=0.0f;
+    mVolumetricSunDirection[1]=0.0f;
+    mVolumetricSunDirection[2]=-1.0f;
+    std::memset(mVolumetricViewToWorld,0,sizeof(mVolumetricViewToWorld));
+    mVolumetricViewToWorld[0]=mVolumetricViewToWorld[5]=
+        mVolumetricViewToWorld[10]=mVolumetricViewToWorld[15]=1.0f;
 }
 
 VulkanContext::~VulkanContext()
@@ -437,11 +445,21 @@ bool VulkanContext::Initialize(XrInstance xrInstance, XrSystemId systemId,
     layoutInfo.bindingCount=4; layoutInfo.pBindings=shadowBindings;
     if(vkCreateDescriptorSetLayout(mDevice,&layoutInfo,NULL,&mShadowSetLayout)!=VK_SUCCESS)
     { VKXR_ERROR("shadow descriptor layout creation failed"); Shutdown(); return false; }
-    VkDescriptorPoolSize poolSizes[2]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,8192},
+// PC keeps retired level textures alive until the Vulkan session is idle at
+// shutdown. A complete streamed level plus the reloaded frontend can exceed
+// the old 8192-set pool and every subsequent texture then appeared as the
+// opaque-white fallback. Quest has a tighter memory budget and does not use
+// the Win32 deferred lifetime path, so retain its existing capacity.
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    const uint32_t textureDescriptorCapacity=32768;
+#else
+    const uint32_t textureDescriptorCapacity=8192;
+#endif
+    VkDescriptorPoolSize poolSizes[2]={{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,textureDescriptorCapacity},
                                        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,1}};
     VkDescriptorPoolCreateInfo poolCreate={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     poolCreate.flags=VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    poolCreate.maxSets=8193; poolCreate.poolSizeCount=2; poolCreate.pPoolSizes=poolSizes;
+    poolCreate.maxSets=textureDescriptorCapacity+1; poolCreate.poolSizeCount=2; poolCreate.pPoolSizes=poolSizes;
     if(vkCreateDescriptorPool(mDevice,&poolCreate,NULL,&mTextureDescriptorPool)!=VK_SUCCESS)
     { VKXR_ERROR("texture descriptor pool creation failed"); Shutdown(); return false; }
     VkPhysicalDeviceProperties properties={};
@@ -761,6 +779,7 @@ bool VulkanContext::BeginPddiEye()
         vkCmdWriteTimestamp(mCommandBuffer,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                             mTimestampQueryPool,0);
     }
+    mHdrResolvedOutputs.clear();
     mPddiEyeActive=true;
     mPddiRenderPassActive=false;
     const VkDeviceSize uploadSegment=mTextureUploadSize/FrameArenaCount;
@@ -912,6 +931,7 @@ void VulkanContext::RetireRenderTarget(VkImage image)
 bool VulkanContext::EndPddiEye()
 {
     if(!mPddiEyeActive) return false;
+    const bool hdrResolved=ResolveHdrTargets();
     if(mPddiRenderPassActive)
     {
         vkCmdEndRenderPass(mCommandBuffer);
@@ -954,7 +974,7 @@ bool VulkanContext::EndPddiEye()
         mEyeOwnsGraphicsMutex=false;
         mGraphicsMutex.unlock();
     }
-    return submitted;
+    return submitted && hdrResolved;
 }
 
 void VulkanContext::EndActiveRenderPass()
@@ -1006,6 +1026,7 @@ void VulkanContext::ClearActiveColourBlack(uint32_t width,uint32_t height)
 bool VulkanContext::BeginOffscreenTarget(VkImage image,bool initialized)
 {
     if(!mPddiEyeActive || !image) return false;
+    mLdrOffscreenTargets.insert(image);
     if(mPddiRenderPassActive)
     {
         vkCmdEndRenderPass(mCommandBuffer);
@@ -1039,6 +1060,7 @@ bool VulkanContext::BeginOffscreenTarget(VkImage image,bool initialized)
 bool VulkanContext::EndOffscreenTarget(VkImage image)
 {
     if(!mPddiEyeActive || !image) return false;
+    mLdrOffscreenTargets.erase(image);
     if(mPddiRenderPassActive)
     {
         vkCmdEndRenderPass(mCommandBuffer);
@@ -1257,8 +1279,9 @@ bool VulkanContext::BeginShadowCascade(uint32_t cascadeIndex,uint32_t size)
     barrier.image=cascade.image;
     barrier.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
     barrier.subresourceRange.levelCount=barrier.subresourceRange.layerCount=1;
-    vkCmdPipelineBarrier(mCommandBuffer,cascade.initialized?VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT:VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,0,0,NULL,0,NULL,1,&barrier);
+    vkCmdPipelineBarrier(mCommandBuffer,cascade.initialized?
+        (VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT):VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,0,0,NULL,0,NULL,1,&barrier);
     VkClearValue clear={}; clear.depthStencil={1.0f,0};
     VkRenderPassBeginInfo begin={VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
     begin.renderPass=cascade.renderPass; begin.framebuffer=cascade.framebuffer;
@@ -1287,8 +1310,8 @@ bool VulkanContext::EndShadowCascade(uint32_t cascadeIndex)
     barrier.image=cascade.image;
     barrier.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
     barrier.subresourceRange.levelCount=barrier.subresourceRange.layerCount=1;
-    vkCmdPipelineBarrier(mCommandBuffer,VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+    vkCmdPipelineBarrier(mCommandBuffer,VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT|VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT|VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
         0,0,NULL,0,NULL,1,&barrier);
     cascade.initialized=true; mShadowPass=false;
     static uint32_t diagnosticPasses[3]={0,0,0};
@@ -1307,6 +1330,12 @@ void VulkanContext::SetShadowReceiverState(bool enabled,const float matrices[48]
     mShadowReceiverEnabled=enabled && mShadowCascades[0].initialized &&
         mShadowCascades[1].initialized && mShadowCascades[2].initialized;
     if(matrices) std::memcpy(mShadowReceiverMatrices,matrices,sizeof(mShadowReceiverMatrices));
+    if(enabled) {
+        rmt::Matrix camera;
+        camera.Identity();
+        SharOpenXR::GetLatestCullingCamera(&camera);
+        std::memcpy(mVolumetricViewToWorld,camera.m[0],sizeof(mVolumetricViewToWorld));
+    }
 }
 
 bool VulkanContext::DrawShadowGeometry(VkBuffer vertexBuffer,VkBuffer indexBuffer,
@@ -1315,6 +1344,9 @@ bool VulkanContext::DrawShadowGeometry(VkBuffer vertexBuffer,VkBuffer indexBuffe
     VkDescriptorSet textureSet,const VulkanMaterialState& material)
 {
     if(!mShadowPass || !vertexBuffer || !vertexCount) return false;
+    float mvp[16]={};
+    for(unsigned c=0;c<4;++c) for(unsigned r=0;r<4;++r) for(unsigned k=0;k<4;++k)
+        mvp[c*4+r]+=projection[k*4+r]*modelview[c*4+k];
     VkPipeline pipeline=VK_NULL_HANDLE;
     VkPipelineLayout shadowLayout=VK_NULL_HANDLE;
     if(!mShadowPipeline.GetOrCreate(mDevice,mPipelineCache,
@@ -1335,14 +1367,14 @@ bool VulkanContext::DrawShadowGeometry(VkBuffer vertexBuffer,VkBuffer indexBuffe
     std::memcpy(constants+185,material.enhancedSunDirection,sizeof(float)*3);
     for(unsigned i=0;i<material.skinMatrixCount && i<VulkanMaterialState::MaxSkinMatrices;++i)
         std::memcpy(constants+188+i*16,material.skinMatrices[i],sizeof(float)*16);
+    constants[684]=static_cast<float>(material.vehicleDentCount);
+    for(unsigned i=0;i<4;++i)
+        std::memcpy(constants+688+i*4,material.vehicleDents[i],sizeof(float)*4);
     const VkDeviceSize drawOffset=(mDrawUniformOffset+mDrawUniformAlignment-1)&~(mDrawUniformAlignment-1);
     if(drawOffset+sizeof(constants)>mDrawUniformEnd) return false;
     std::memcpy((unsigned char*)mDrawUniformMapped+drawOffset,constants,sizeof(constants)); mDrawUniformOffset=drawOffset+sizeof(constants);
     const uint32_t dynamicOffset=(uint32_t)drawOffset;
     vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,shadowLayout,1,1,&mDrawDescriptorSet,1,&dynamicOffset);
-    float mvp[16]={};
-    for(unsigned c=0;c<4;++c) for(unsigned r=0;r<4;++r) for(unsigned k=0;k<4;++k)
-        mvp[c*4+r]+=projection[k*4+r]*modelview[c*4+k];
     vkCmdPushConstants(mCommandBuffer,shadowLayout,VK_SHADER_STAGE_VERTEX_BIT,0,sizeof(mvp),mvp);
     vkCmdBindVertexBuffers(mCommandBuffer,0,1,&vertexBuffer,&vertexOffset);
     if(indexBuffer&&indexCount) { vkCmdBindIndexBuffer(mCommandBuffer,indexBuffer,0,VK_INDEX_TYPE_UINT16); vkCmdDrawIndexed(mCommandBuffer,indexCount,1,0,0,0); }
@@ -1375,8 +1407,27 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     // Cubemap +Y is also physical layer 2, but it must remain a normal mono
     // attachment or Vulkan writes layers 0/1 and leaves +Y as clear sky.
     const bool vehicleCubeTarget=mVehicleCubeCapture && image==mVehicleCubeImage;
+    if(!material.hudPass && !vehicleCubeTarget)
+        std::memcpy(mVolumetricSunDirection,material.enhancedSunDirection,
+                    sizeof(mVolumetricSunDirection));
+    // Tone-map the 3D scene before authored UI. HUD, frontend pages and movie
+    // quads are already display-referred LDR and must never pass through ACES
+    // or GI. Once resolved, later draws stay on the original eye image so an
+    // unusual late world submission cannot start and clear a second HDR scene.
+    if(material.hudPass && !vehicleCubeTarget)
+        ResolveHdrTargets();
+    if(!material.hudPass && !vehicleCubeTarget &&
+       !RouteHdrTarget(image,format,width,height,arrayLayer,projection)) return false;
+    const bool hdrScene=format==VK_FORMAT_R16G16B16A16_SFLOAT;
     const bool multiview=!vehicleCubeTarget && arrayLayer==2 && mMultiviewSupported;
-    const bool foveated=multiview && mFragmentDensityMapSupported &&
+    // A fragment-density attachment changes the fragment footprint in radial
+    // regions.  The HDR path later samples this depth as a conventional,
+    // uniformly addressed texture while its froxel and half-resolution
+    // passes do not use the density attachment.  Mixing those coordinate
+    // spaces leaves the characteristic fixed circular hole in volumetrics
+    // and makes depth silhouettes sweep across the fog.  Keep FDM for the
+    // direct LDR path, but render depth uniformly whenever post-processing it.
+    const bool foveated=!hdrScene && multiview && mFragmentDensityMapSupported &&
                          mFragmentDensityMap!=VK_NULL_HANDLE;
     CachedDepthTarget* depthTarget=NULL;
     for(CachedDepthTarget& target:mDepthTargetCache)
@@ -1392,13 +1443,14 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
         di.extent={width,height,1}; di.mipLevels=1; di.arrayLayers=multiview?2u:1u;
         di.samples=VK_SAMPLE_COUNT_1_BIT; di.tiling=VK_IMAGE_TILING_OPTIMAL;
         di.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-        if(!multiview) di.usage|=VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+        if(hdrScene) di.usage|=VK_IMAGE_USAGE_SAMPLED_BIT;
+        else if(!multiview) di.usage|=VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
         di.sharingMode=VK_SHARING_MODE_EXCLUSIVE; di.initialLayout=VK_IMAGE_LAYOUT_UNDEFINED;
         if(vkCreateImage(mDevice,&di,NULL,&target.image)!=VK_SUCCESS) return false;
         VkMemoryRequirements requirements={};
         vkGetImageMemoryRequirements(mDevice,target.image,&requirements);
         uint32_t type=0;
-        const VkMemoryPropertyFlags preferredMemory=multiview?
+        const VkMemoryPropertyFlags preferredMemory=(multiview || hdrScene)?
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT:VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT;
         if(!FindMemoryType(requirements.memoryTypeBits,preferredMemory,&type) &&
            !FindMemoryType(requirements.memoryTypeBits,VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,&type))
@@ -1606,10 +1658,10 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     // Per-eye GUI depth is never consumed after that layer finishes. Keep it
     // tile-local on Adreno; only the multiview world target may need to
     // survive an offscreen render-pass interruption.
-    attachments[1].storeOp=multiview?VK_ATTACHMENT_STORE_OP_STORE:
+    attachments[1].storeOp=(multiview || hdrScene)?VK_ATTACHMENT_STORE_OP_STORE:
                                           VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[1].stencilLoadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
-    attachments[1].stencilStoreOp=multiview?VK_ATTACHMENT_STORE_OP_STORE:
+    attachments[1].stencilStoreOp=(multiview || hdrScene)?VK_ATTACHMENT_STORE_OP_STORE:
                                                  VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[1].initialLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     attachments[1].finalLayout=VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -1693,10 +1745,11 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     stages[0].stage=VK_SHADER_STAGE_VERTEX_BIT; stages[0].module=vertexModule; stages[0].pName="main";
     stages[1].sType=VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[1].stage=VK_SHADER_STAGE_FRAGMENT_BIT; stages[1].module=fragmentModule; stages[1].pName="main";
-    const VkBool32 alphaTestSpecialization=material.alphaTest?VK_TRUE:VK_FALSE;
-    const VkSpecializationMapEntry alphaTestEntry={0,0,sizeof(alphaTestSpecialization)};
-    const VkSpecializationInfo alphaTestInfo={1,&alphaTestEntry,
-        sizeof(alphaTestSpecialization),&alphaTestSpecialization};
+    const VkBool32 specializationValues[2]={material.alphaTest?VK_TRUE:VK_FALSE,hdrScene?VK_TRUE:VK_FALSE};
+    const VkSpecializationMapEntry specializationEntries[2]={{0,0,sizeof(VkBool32)},
+        {1,sizeof(VkBool32),sizeof(VkBool32)}};
+    const VkSpecializationInfo alphaTestInfo={2,specializationEntries,
+        sizeof(specializationValues),specializationValues};
     stages[1].pSpecializationInfo=&alphaTestInfo;
     VkVertexInputBindingDescription binding={0,80,VK_VERTEX_INPUT_RATE_VERTEX};
     VkVertexInputAttributeDescription attributes[8]={
@@ -2338,8 +2391,15 @@ bool VulkanContext::CreateTextureSamplerDescriptor(VkImageView view,uint32_t mip
     VkDescriptorSetAllocateInfo dai={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
     dai.descriptorPool=mTextureDescriptorPool; dai.descriptorSetCount=1;
     dai.pSetLayouts=&mTextureSetLayout;
-    if(vkAllocateDescriptorSets(mDevice,&dai,descriptorSet)!=VK_SUCCESS)
-    { vkDestroySampler(mDevice,*sampler,NULL); *sampler=VK_NULL_HANDLE; return false; }
+    const VkResult allocationResult=vkAllocateDescriptorSets(mDevice,&dai,descriptorSet);
+    if(allocationResult!=VK_SUCCESS)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Vulkan texture descriptor allocation failed (%d); retired=%u",
+                     static_cast<int>(allocationResult),
+                     static_cast<unsigned>(mDeferredDescriptorSets.size()));
+        vkDestroySampler(mDevice,*sampler,NULL); *sampler=VK_NULL_HANDLE; return false;
+    }
     VkDescriptorImageInfo descriptorImage={};
     descriptorImage.sampler=*sampler; descriptorImage.imageView=view;
     descriptorImage.imageLayout=VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -2375,13 +2435,29 @@ bool VulkanContext::UploadTextureMip(VkImage image,uint32_t width,uint32_t heigh
 {
     std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
     if(!image || !width || !height || !data || !size) return false;
-    PendingTextureUpload upload={};
-    upload.image=image; upload.width=width; upload.height=height;
-    upload.mipLevel=mipLevel; upload.arrayLayer=0;
-    upload.data.resize(static_cast<size_t>(size));
-    std::memcpy(upload.data.data(),data,static_cast<size_t>(size));
-    mPendingTextureUploads.push_back(std::move(upload));
-    mPendingUploadBytes+=size;
+    // Large external RGBA images (an 8K lightmap is 256 MiB) cannot fit in a
+    // single per-frame upload segment. Queue tightly packed row strips so the
+    // transfer can make forward progress over several frames.
+    const bool rgba=static_cast<uint64_t>(width)*height*4u==size;
+    const VkDeviceSize rowBytes=rgba?static_cast<VkDeviceSize>(width)*4u:size;
+    const uint32_t rowsPerUpload=rgba?std::max(1u,static_cast<uint32_t>(
+        mTextureUploadBudget/rowBytes)):height;
+    const unsigned char* bytes=static_cast<const unsigned char*>(data);
+    for(uint32_t y=0;y<height;y+=rowsPerUpload)
+    {
+        const uint32_t rows=rgba?std::min(rowsPerUpload,height-y):height;
+        const VkDeviceSize partSize=rgba?rowBytes*rows:size;
+        PendingTextureUpload upload={};
+        upload.image=image; upload.width=width; upload.height=rows;
+        upload.mipLevel=mipLevel; upload.arrayLayer=0; upload.imageOffsetY=y;
+        upload.preserveContents=y!=0;
+        upload.data.resize(static_cast<size_t>(partSize));
+        std::memcpy(upload.data.data(),bytes+(rgba?rowBytes*y:0),
+                    static_cast<size_t>(partSize));
+        mPendingTextureUploads.push_back(std::move(upload));
+        mPendingUploadBytes+=partSize;
+        if(!rgba) break;
+    }
     return true;
 }
 
@@ -2389,8 +2465,10 @@ bool VulkanContext::UploadTextureLayer(VkImage image,uint32_t width,uint32_t hei
                                        uint32_t layer,const void* data,VkDeviceSize size)
 {
     std::lock_guard<std::recursive_mutex> guard(mGraphicsMutex);
+    const size_t firstUpload=mPendingTextureUploads.size();
     if(!UploadTextureMip(image,width,height,0,data,size)) return false;
-    mPendingTextureUploads.back().arrayLayer=layer;
+    for(size_t i=firstUpload;i<mPendingTextureUploads.size();++i)
+        mPendingTextureUploads[i].arrayLayer=layer;
     return true;
 }
 
@@ -2437,8 +2515,9 @@ bool VulkanContext::FlushTextureUploads()
            &staging,&memory) ||
            !UploadMemory(memory,0,upload.data.data(),upload.data.size())) return false;
         VkImageMemoryBarrier barrier={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        const bool initialized=upload.mipLevel==0 && upload.arrayLayer==0 &&
-            mUploadedTextureImages.count(upload.image)!=0;
+        const bool initialized=upload.preserveContents ||
+            (upload.mipLevel==0 && upload.arrayLayer==0 &&
+             mUploadedTextureImages.count(upload.image)!=0);
         barrier.srcAccessMask=initialized?VK_ACCESS_SHADER_READ_BIT:0;
         barrier.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.oldLayout=initialized?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -2454,6 +2533,7 @@ bool VulkanContext::FlushTextureUploads()
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,NULL,0,NULL,1,&barrier);
         VkBufferImageCopy copy={};
+        copy.imageOffset.y=static_cast<int32_t>(upload.imageOffsetY);
         copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
         copy.imageSubresource.mipLevel=upload.mipLevel;
         copy.imageSubresource.baseArrayLayer=upload.arrayLayer;
@@ -2499,8 +2579,9 @@ bool VulkanContext::RecordPendingTextureUploads()
         std::memcpy(static_cast<unsigned char*>(mTextureUploadMapped)+aligned,
                     upload.data.data(),static_cast<size_t>(size));
         VkImageMemoryBarrier barrier={VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-        const bool initialized=upload.mipLevel==0 && upload.arrayLayer==0 &&
-            mUploadedTextureImages.count(upload.image)!=0;
+        const bool initialized=upload.preserveContents ||
+            (upload.mipLevel==0 && upload.arrayLayer==0 &&
+             mUploadedTextureImages.count(upload.image)!=0);
         barrier.srcAccessMask=initialized?VK_ACCESS_SHADER_READ_BIT:0;
         barrier.dstAccessMask=VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.oldLayout=initialized?VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -2516,6 +2597,7 @@ bool VulkanContext::RecordPendingTextureUploads()
             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             VK_PIPELINE_STAGE_TRANSFER_BIT,0,0,NULL,0,NULL,1,&barrier);
         VkBufferImageCopy copy={}; copy.bufferOffset=aligned;
+        copy.imageOffset.y=static_cast<int32_t>(upload.imageOffsetY);
         copy.imageSubresource.aspectMask=VK_IMAGE_ASPECT_COLOR_BIT;
         copy.imageSubresource.mipLevel=upload.mipLevel;
         copy.imageSubresource.baseArrayLayer=upload.arrayLayer;
@@ -2763,6 +2845,7 @@ void VulkanContext::Shutdown()
             }
         }
         mDrawStateCache.clear();
+        DestroyHdrTargets();
         mDrawStateLookup.clear();
         mLastDrawStateIndex=static_cast<size_t>(-1);
         for(const CachedDepthTarget& target:mDepthTargetCache)

@@ -45,6 +45,9 @@ void PackMaterialUniformBase(const MaterialUniformInput& input,float* output) {
     output[675]=static_cast<float>(m.vehicleRearLightMode);
     output[676]=static_cast<float>(m.vehicleRearLightCount);
     output[677]=input.cubeMapReady?1.0f:0.0f;
+    output[684]=static_cast<float>(m.vehicleDentCount);
+    for(unsigned i=0;i<4;++i)
+        std::memcpy(output+688+i*4,m.vehicleDents[i],sizeof(float)*4);
 }
 size_t GetMaterialUniformSize(const MaterialPipelineSelection& s) {
     return sizeof(float)*((s.geometry==GeometryProgram::Compact || s.geometry==GeometryProgram::Hud)?

@@ -24,7 +24,7 @@ protected:
 private:
     CGuiMenu* m_pMenu;
     Scrooby::Page* m_pPage;
-    Scrooby::Group* m_pRow;
+    Scrooby::Group* m_pRows[2];
 };
 
 #endif

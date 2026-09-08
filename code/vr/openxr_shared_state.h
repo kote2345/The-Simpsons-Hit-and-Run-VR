@@ -20,7 +20,10 @@ struct SharedVrState
     bool customMaterialsEnabled;
     bool spatialHudEnabled;
     bool developerMenusEnabled;
+    bool giIndirectOnly;
     bool enhancedUiConvergence;
+    bool volumetricLightEnabled;
+    bool hdrEnabled;
     int enhancedMaterialModel;
     int vehicleControlMode;
     int vehicleLightMode;

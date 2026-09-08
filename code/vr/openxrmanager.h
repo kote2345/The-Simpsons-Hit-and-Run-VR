@@ -123,6 +123,12 @@ namespace SharOpenXR
     int GetReflectionMode();
     void SetPbrDebugMode(int mode);
     int GetPbrDebugMode();
+    void SetGiIndirectOnly(bool enabled);
+    bool IsGiIndirectOnly();
+    void SetVolumetricLightEnabled(bool enabled);
+    bool IsVolumetricLightEnabled();
+    void SetHdrEnabled(bool enabled);
+    bool IsHdrEnabled();
     void SetVrSteeringWheelEnabled(bool enabled);
     bool IsVrSteeringWheelEnabled();
     void SetVehicleControlMode(int mode);

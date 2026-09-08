@@ -76,7 +76,7 @@
 #include <render/RenderManager/RenderLayer.h>
 #include <sound/soundmanager.h>
 #include <meta/eventlocator.h>
-#if defined(RAD_ANDROID)
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -1056,12 +1056,22 @@ void CGuiManagerInGame::HandleMessage
         }
         case GUI_MSG_START_IRIS_WIPE_OPEN:
         {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+            // Drive the OpenXR compositor fade from the authoritative GUI
+            // command.  PC frontend timing can bypass the Iris screen's
+            // InitOutro callback, while every vehicle/interior transition
+            // necessarily passes through this manager message.
+            SharOpenXR::SetIrisBlackout( false );
+#endif
             this->HandleMessage( GUI_MSG_RESUME_INGAME );
 
             break;
         }
         case GUI_MSG_START_IRIS_WIPE_CLOSE:
         {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+            SharOpenXR::SetIrisBlackout( true );
+#endif
             this->HandleMessage( GUI_MSG_GOTO_SCREEN,
                                  CGuiWindow::GUI_SCREEN_ID_IRIS_WIPE,
                                  CLEAR_WINDOW_HISTORY );
@@ -1153,7 +1163,13 @@ void CGuiManagerInGame::HandleMessage
             if( message == GUI_MSG_UPDATE )
             {
                 int controllerID = GetInputManager()->GetControllerIDforPlayer( 0 );
-                if( !GetInputManager()->GetController( controllerID )->IsInputAvailable() )
+                UserController* controller = controllerID >= 0 ?
+                    GetInputManager()->GetController( controllerID ) : NULL;
+                // During PC OpenXR startup the virtual controller is
+                // registered a few updates after the ingame GUI manager.
+                // Absence of that object is initialization-in-progress, not
+                // a disconnected physical pad and must not be dereferenced.
+                if( controller != NULL && !controller->IsInputAvailable() )
                 {
                     bool setState = !m_controllerPromptShown;
                     this->OnControllerDisconnected( controllerID );

@@ -40,6 +40,7 @@
 #include <vr/vr_hand_texture.h>
 #include <input/inputmanager.h>
 #include <presentation/gui/guiscreen.h>
+#include <presentation/gui/guisystem.h>
 #include <worldsim/character/character.h>
 #include <worldsim/character/charactercontroller.h>
 #include <worldsim/character/charactermanager.h>
@@ -708,6 +709,7 @@ static void SetQuestConsoleInputRaw(void* context,const char* name,float value)
 }
 
 static SharOpenXR::VrConsoleAdapterState sQuestConsoleAdapter;
+static bool sDeveloperLeftGripHeld=false,sDeveloperRightGripHeld=false;
 static void SetQuestConsoleInput(void* context,const char* name,float value)
 {
     SharOpenXR::AdaptVrConsoleInput(name,value,false,
@@ -723,6 +725,7 @@ static void ResetQuestController(void*)
     SharOpenXR::EmitNeutralVrController(SetQuestConsoleInput,controller);
     SharOpenXR::ResetVrInputSemantics();
     sQuestConsoleAdapter=SharOpenXR::VrConsoleAdapterState();
+    sDeveloperLeftGripHeld=sDeveloperRightGripHeld=false;
     controller->ClearVirtualInputs();
     controller->SetVirtualInputAvailable(false);
 }
@@ -753,6 +756,20 @@ static void SyncInputActions()
                                   boolean(g.leftStickClickAction)?1.0f:0.0f,
                                   boolean(g.rightStickClickAction)?1.0f:0.0f};
     SharOpenXR::SubmitVrInputFrame(raw,SetQuestConsoleInput,controller);
+    // Send grip edges straight to Scrooby. Depending on the current frontend
+    // mappable, synthetic Black/White inputs are not guaranteed to be
+    // registered, which made the developer selectors silently disappear.
+    const bool leftDeveloperGrip=raw.leftGrip>=0.65f;
+    const bool rightDeveloperGrip=raw.rightGrip>=0.65f;
+    if(SharOpenXR::IsDeveloperMenusEnabled())
+    {
+        if(leftDeveloperGrip&&!sDeveloperLeftGripHeld)
+            GetGuiSystem()->HandleMessage(GUI_MSG_CONTROLLER_L1,0,0);
+        if(rightDeveloperGrip&&!sDeveloperRightGripHeld)
+            GetGuiSystem()->HandleMessage(GUI_MSG_CONTROLLER_R1,0,0);
+    }
+    sDeveloperLeftGripHeld=leftDeveloperGrip;
+    sDeveloperRightGripHeld=rightDeveloperGrip;
 }
 }
 
@@ -818,6 +835,12 @@ void SetPbrDebugMode(int mode)
     SetSharedPbrDebugMode(mode);
 }
 int GetPbrDebugMode(){ return g.pbrDebugMode; }
+void SetGiIndirectOnly(bool enabled){ SetSharedGiIndirectOnly(enabled); }
+bool IsGiIndirectOnly(){ return GetSharedVrState().giIndirectOnly; }
+void SetVolumetricLightEnabled(bool enabled){ SetSharedVolumetricLightEnabled(enabled); }
+bool IsVolumetricLightEnabled(){ return GetSharedVrState().volumetricLightEnabled; }
+void SetHdrEnabled(bool enabled){ SetSharedHdrEnabled(enabled); }
+bool IsHdrEnabled(){ return GetSharedVrState().hdrEnabled; }
 void SetVrSteeringWheelEnabled(bool enabled)
 {
     SetVehicleControlMode(enabled?1:0);

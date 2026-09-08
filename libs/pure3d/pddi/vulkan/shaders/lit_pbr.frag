@@ -1,6 +1,8 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 #define MATERIAL_MODEL 2
 layout(constant_id=0) const bool kAlphaTest=true;
+layout(constant_id=1) const bool kHdrScene=false;
 layout(location=0) in vec4 colour;
 layout(location=1) in vec2 uv;
 layout(location=2) in vec3 specularLight;
@@ -29,47 +31,7 @@ layout(set=1,binding=0,std140) uniform DrawConstants {
     vec4 vehicleRearLightPositions[4]; vec4 vehicleRearLightDirections[4];
     vec4 vehicleRearLightParams; vec4 vehicleRearLightControl; vec4 pbrMapControl;
 } draw;
-vec3 shadowPosition(vec4 coordinate) {
-    vec3 p=coordinate.xyz/coordinate.w; p.y=-p.y; p=p*0.5+0.5;
-    return p;
-}
-bool validShadowPosition(vec3 p) {
-    return p.x>0.001&&p.x<0.999&&p.y>0.001&&p.y<0.999&&p.z>0.0&&p.z<1.0;
-}
-// Keep each opaque sampler statically tied to its descriptor binding.  Some
-// mobile Vulkan drivers miscompile a sampler2DShadow passed as a function
-// argument, causing all calls to keep sampling the first descriptor.
-float sampleShadow0(vec4 coordinate) {
-    vec3 p=shadowPosition(coordinate);
-    if(!validShadowPosition(p)) return 0.0;
-    return texture(shadowTexture0,vec3(p.xy,p.z-draw.shadowParams.w));
-}
-float sampleShadow1(vec4 coordinate) {
-    vec3 p=shadowPosition(coordinate);
-    if(!validShadowPosition(p)) return 0.0;
-    return texture(shadowTexture1,vec3(p.xy,p.z-draw.shadowParams.w));
-}
-float sampleShadow2(vec4 coordinate) {
-    vec3 p=shadowPosition(coordinate);
-    if(!validShadowPosition(p)) return 0.0;
-    return texture(shadowTexture2,vec3(p.xy,p.z-draw.shadowParams.w));
-}
-float csmShadow() {
-    if(viewDepth<20.0) return sampleShadow0(shadowCoord0);
-    if(viewDepth<24.0) {
-        float s0=sampleShadow0(shadowCoord0);
-        float s1=sampleShadow1(shadowCoord1);
-        float nearShadow=max(s0,s1);
-        return mix(nearShadow,s1,(viewDepth-20.0)*0.25);
-    }
-    if(viewDepth<50.0) return sampleShadow1(shadowCoord1);
-    if(viewDepth<56.0) {
-        float s1=sampleShadow1(shadowCoord1);
-        float s2=sampleShadow2(shadowCoord2);
-        return mix(s1,s2,(viewDepth-50.0)/6.0);
-    }
-    return sampleShadow2(shadowCoord2);
-}
+#include "pbr_shadows.glsl"
 bool alphaPass(float a) {
     return draw.alphaCompare==1 || (draw.alphaCompare==2&&a<draw.alphaRef) ||
         (draw.alphaCompare==3&&a<=draw.alphaRef) || (draw.alphaCompare==4&&a>draw.alphaRef) ||
@@ -96,13 +58,8 @@ vec3 filmicToneMap(vec3 value) {
     // radiance off smoothly instead of clipping the GGX lobe to white.
     return clamp((value*(2.51*value+0.03))/(value*(2.43*value+0.59)+0.14),0.0,1.0);
 }
-vec2 environmentBrdfApproximation(float perceptualRoughness,float noV) {
-    const vec4 c0=vec4(-1.0,-0.0275,-0.572,0.022);
-    const vec4 c1=vec4(1.0,0.0425,1.04,-0.04);
-    vec4 r=perceptualRoughness*c0+c1;
-    float a004=min(r.x*r.x,exp2(-9.28*noV))*r.x+r.y;
-    return vec2(-1.04,1.04)*a004+r.zw;
-}
+#include "pbr_brdf.glsl"
+#include "pbr_punctual.glsl"
 mat3 cotangentFrame(vec3 N,vec3 position,vec2 texcoord) {
     vec3 dp1=dFdx(position),dp2=dFdy(position);
     vec2 duv1=dFdx(texcoord),duv2=dFdy(texcoord);
@@ -220,31 +177,17 @@ vec3 enhancedLighting(vec3 albedo) {
     float kernelRoughness=min(2.0*normalVariance,0.20);
     roughness=clamp(sqrt(roughness*roughness+kernelRoughness),0.089,1.0);
     float authoredAo=1.0;
-    float ndv=max(dot(N,V),0.001),ndh=max(dot(N,H),0.0),vdh=max(dot(V,H),0.0);
-    float a=roughness*roughness;
-    // The sun is a disk about 0.53 degrees wide, not a mathematical delta.
-    // Convolve its angular variance with GGX so extremely smooth texels cannot
-    // collapse into a sub-pixel, unbounded highlight.
-    const float sunAngularRadius=0.00465;
-    float a2=a*a+sunAngularRadius*sunAngularRadius;
-    float denominator=ndh*ndh*(a2-1.0)+1.0;
-    float D=a2/max(PI*denominator*denominator,0.0001);
+    float ndv=clamp(dot(N,V),0.001,1.0);
     vec3 F0=mix(vec3(0.04),pbrAlbedo,metallic);
-    vec3 F=F0+(1.0-F0)*pow(1.0-vdh,5.0);
-    // Height-correlated Smith GGX visibility (Khronos glTF / Filament).
-    // Unlike the old Schlick approximation this remains stable at grazing
-    // angles and does not amplify the lobe through two independent masks.
-    float visibilityDenominator=ndl*sqrt(ndv*ndv*(1.0-a2)+a2)+
-                                ndv*sqrt(ndl*ndl*(1.0-a2)+a2);
-    float visibility=0.5/max(visibilityDenominator,0.0001);
-    vec3 specular=D*visibility*F;
-    vec3 diffuse=(1.0-F)*(1.0-metallic)*pbrAlbedo/PI;
+    vec2 dfg=environmentBrdfApproximation(roughness,ndv);
+    vec3 environmentReflectance=pbrEnvironmentReflectance(F0,dfg);
     vec3 worldNormal=normalize(mat3(draw.reflectionViewToWorld)*N);
     vec3 worldIncident=normalize(mat3(draw.reflectionViewToWorld)*viewPositionOut);
     vec3 reflectionDirection=normalize(reflect(worldIncident,worldNormal));
     float skyWeight=clamp(worldNormal.y*0.5+0.5,0.0,1.0);
     vec3 irradiance=mix(vec3(0.20,0.21,0.23),vec3(0.32,0.35,0.40),skyWeight);
-    vec3 ambient=pbrAlbedo*irradiance*(1.0-metallic)*authoredAo;
+    vec3 ambient=pbrAlbedo*irradiance*(1.0-metallic)*
+        (1.0-environmentReflectance)*authoredAo;
     // Metals need an environment even when the optional reflection feature is
     // disabled: otherwise metallic removes diffuse and roughness appears to
     // remove the last visible highlight. The analytic sky/ground probe is the
@@ -266,28 +209,40 @@ vec3 enhancedLighting(vec3 albedo) {
             reflectionSample=textureLod(reflectionTexture,reflectionUV,
                                         roughness*maximumLod).rgb;
         }
-        vec3 sampledEnvironment=srgbToLinear(max(reflectionSample,vec3(0.0)));
-        // A newly captured face can legitimately contain very dark geometry,
-        // but it must not remove all energy from a metallic BRDF. Preserve the
-        // analytic sky/ground probe until the sampled environment carries a
-        // usable signal.
-        float sampleLuminance=dot(sampledEnvironment,vec3(0.2126,0.7152,0.0722));
-        environmentLinear=mix(environmentLinear,sampledEnvironment,
-                              smoothstep(0.002,0.03,sampleLuminance));
+        // Dark captures are valid occluded environments, not missing data.
+        environmentLinear=srgbToLinear(max(reflectionSample,vec3(0.0)));
     }
-    vec2 environmentDfg=environmentBrdfApproximation(roughness,ndv);
-    ambient+=environmentLinear*(F0*environmentDfg.x+vec3(environmentDfg.y))*authoredAo;
-    // Direct PBR lighting is independent of environment reflections. Start
-    // with the enhanced sun and then evaluate the same GGX BRDF for every
-    // active legacy light so normal/roughness remain visible with reflections
-    // disabled.
+    ambient+=environmentLinear*environmentReflectance*authoredAo;
     const vec3 sunRadiance=vec3(2.15,2.04,1.86);
     float shadowAmount=draw.shadowParams.x>0.5?csmShadow():0.0;
-    // CSM is directional-light visibility, not ambient occlusion.  A fully
-    // covered texel loses almost all direct solar diffuse/specular while IBL
-    // remains available from the rest of the hemisphere.
-    float sunVisibility=1.0-0.90*shadowAmount;
-    vec3 direct=(diffuse+specular)*sunRadiance*ndl*sunVisibility;
+    // A fully occluded sun contributes neither diffuse nor GGX specular.
+    // A visibility floor leaks bright highlights through roofs and walls;
+    // indirect illumination is already provided separately by ambient/IBL.
+    float sunVisibility=1.0-clamp(shadowAmount,0.0,1.0);
+    vec3 direct=pbrDirectBrdf(N,V,L,pbrAlbedo,metallic,roughness,0.00465)*
+        sunRadiance*sunVisibility;
+
+    // PCVR punctual lights are stored in world space by vkdevice. Evaluate in
+    // world space as well so head rotation cannot move the lighting.
+    // The legacy directional light is represented by the CSM sun above.
+    if(draw.pbrMapControl.z>0.5) {
+        vec3 worldPosition=(draw.reflectionViewToWorld*vec4(viewPositionOut,1.0)).xyz;
+        vec3 worldV=normalize(mat3(draw.reflectionViewToWorld)*V);
+        for(int i=0;i<8;++i) {
+            if(draw.lights[i].attenuation.w<0.5 || draw.lights[i].position.w<0.5) continue;
+            vec3 delta=draw.lights[i].position.xyz-worldPosition;
+            float distanceSquared=dot(delta,delta);
+            float distanceToLight=sqrt(max(distanceSquared,0.000001));
+            vec3 localL=delta/distanceToLight;
+            vec3 brdf=punctualBrdf(worldNormal,worldV,localL,pbrAlbedo,metallic,roughness);
+            vec3 k=max(draw.lights[i].attenuation.xyz,vec3(0.0));
+            // Retain authored attenuation; cap the singularity at the lamp.
+            float attenuation=1.0/max(k.x+k.y*distanceToLight+k.z*distanceSquared,1.0);
+            direct+=brdf*srgbToLinear(clamp(draw.lights[i].colour.rgb,0.0,1.0))*
+                attenuation*PI;
+        }
+        direct+=pbrRearLights(N,V,pbrAlbedo,metallic,roughness);
+    }
     // Model 2 returns scene-linear radiance. The caller composes every
     // remaining light and fog before the single display transform.
     return ambient+direct;
@@ -336,7 +291,11 @@ void main() {
     if(draw.shadowParams.x>0.5&&enhancedModel!=2&&enhancedModel!=3) {
         outputColour.rgb*=1.0-0.435*csmShadow();
     }
-    vec3 rearLight=vehicleRearLightContribution();
+    // PCVR PBR already composes material-aware lamps before tone mapping.
+    // Preserve the legacy lamp path for Quest and non-enhanced profiles.
+    bool pbrLamps=pbr && draw.pbrMapControl.z>0.5 &&
+                  draw.outputParams.y>0.5 && draw.outputParams.z>0.5;
+    vec3 rearLight=pbrLamps?vec3(0.0):vehicleRearLightContribution();
     if(pbr) outputColour.rgb+=rearLight;
     else outputColour.rgb=clamp(outputColour.rgb+rearLight,0.0,1.0);
     if(draw.fogParams.x>0.5) {
@@ -345,6 +304,6 @@ void main() {
         vec3 fog=pbr?srgbToLinear(draw.fogColour.rgb):draw.fogColour.rgb;
         outputColour.rgb=mix(outputColour.rgb,fog,amount);
     }
-    if(pbr) outputColour.rgb=linearToSrgb(filmicToneMap(outputColour.rgb));
+    if(pbr && !kHdrScene) outputColour.rgb=linearToSrgb(filmicToneMap(outputColour.rgb));
     if(kAlphaTest&&draw.alphaRef>=0.0&&!alphaPass(outputColour.a)) discard;
 }

@@ -44,14 +44,14 @@ namespace Input
 
     // Maximum number of physical buttons (in a UserController)
 #ifdef RAD_WIN32
-    const static unsigned int MaxPhysicalButtons = 42 + NumExtraButtonsForSuperSprint;
+    const static unsigned int MaxPhysicalButtons = 44 + NumExtraButtonsForSuperSprint;
     #else
     const static unsigned int MaxPhysicalButtons = 40;
     #endif
 
     // Maximum number of logical buttons (in a UserController)
 #ifdef RAD_WIN32
-    const static unsigned int MaxLogicalButtons = 42 + NumExtraButtonsForSuperSprint;
+    const static unsigned int MaxLogicalButtons = 44 + NumExtraButtonsForSuperSprint;
     #else
     const static unsigned int MaxLogicalButtons = 40;
     #endif

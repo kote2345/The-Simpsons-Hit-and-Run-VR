@@ -1,4 +1,5 @@
 #version 450
+layout(constant_id=1) const bool kHdrScene=false;
 layout(constant_id=0) const bool kAlphaTest=true;
 layout(location=0) in vec4 colour;
 layout(location=1) in vec2 uv;
@@ -57,7 +58,7 @@ float csmShadow() {
     }
     return sampleShadow2(shadowCoord2);
 }
-void main() {
+void shadeMaterial() {
     outputColour=colour*texture(diffuseTexture,uv);
     if(draw.shadowParams.x>0.5) {
         outputColour.rgb*=1.0-0.435*csmShadow();
@@ -71,5 +72,13 @@ void main() {
             (draw.alphaCompare==6&&outputColour.a==draw.alphaRef) ||
             (draw.alphaCompare==7&&outputColour.a!=draw.alphaRef);
         if(!pass) discard;
+    }
+}
+void main() {
+    shadeMaterial();
+    if(kHdrScene) {
+        vec3 c=max(outputColour.rgb,vec3(0.0));
+        outputColour.rgb=mix(pow((c+0.055)/1.055,vec3(2.4)),c/12.92,
+                              lessThanEqual(c,vec3(0.04045)));
     }
 }

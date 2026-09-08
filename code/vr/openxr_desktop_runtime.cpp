@@ -22,6 +22,7 @@
 #include <p3d/camera.hpp>
 #include <input/inputmanager.h>
 #include <presentation/presentation.h>
+#include <presentation/gui/guisystem.h>
 #include <presentation/fmvplayer/fmvplayer.h>
 #include <worldsim/character/charactermanager.h>
 #include <worldsim/character/character.h>
@@ -97,6 +98,7 @@ PFN_xrRequestDisplayRefreshRateFB requestDisplayRefreshRate=NULL;
 bool Load(XrInstance i,const char* n,PFN_xrVoidFunction* f){return XR_SUCCEEDED(getProc(i,n,f))&&*f;}
 VrConsoleAdapterState consoleAdapterState;
 bool heightResetGestureHeld=false;
+bool developerLeftGripHeld=false,developerRightGripHeld=false;
 }
 void ShutdownRuntime();
 static void SetDesktopConsoleInput(void* context,const char* name,float value);
@@ -214,6 +216,7 @@ static void ResetVirtualController()
  ResetVrInputSemantics();
  consoleAdapterState=VrConsoleAdapterState();
  heightResetGestureHeld=false;
+ developerLeftGripHeld=developerRightGripHeld=false;
  controller->ClearVirtualInputs();
  controller->SetVirtualInputAvailable(false);
 }
@@ -258,12 +261,29 @@ static void SyncInputActions()
                    pressed(leftStickClickAction)?1.0f:0.0f,
                    rightStickDown&&!heightResetGesture?1.0f:0.0f};
  SubmitVrInputFrame(raw,SetDesktopConsoleInput,controller);
+ // Quest's controller backend exposes Black/White as native GUI buttons.
+ // Win32 does not, and routing synthetic frontend inputs through its physical
+ // mappable table is not reliable across frontend/ingame registrations.
+ // Deliver the identical final GUI messages directly on the grip press edge.
+ const bool leftDeveloperGrip=raw.leftGrip>=0.65f;
+ const bool rightDeveloperGrip=raw.rightGrip>=0.65f;
+ if(IsDeveloperMenusEnabled())
+ {
+  if(leftDeveloperGrip&&!developerLeftGripHeld)
+   GetGuiSystem()->HandleMessage(GUI_MSG_CONTROLLER_L1,0,0);
+  if(rightDeveloperGrip&&!developerRightGripHeld)
+   GetGuiSystem()->HandleMessage(GUI_MSG_CONTROLLER_R1,0,0);
+ }
+ developerLeftGripHeld=leftDeveloperGrip;
+ developerRightGripHeld=rightDeveloperGrip;
  static uint32_t inputLogCounter=0;
  if((++inputLogCounter%300)==1)
-  SDL_Log("PCVR input: active=%d sticks=%.2f %.2f / %.2f %.2f buttons=%.0f%.0f%.0f%.0f start=%.0f triggers=%.2f %.2f ids=%d,%d,%d",
+  SDL_Log("PCVR input: active=%d sticks=%.2f %.2f / %.2f %.2f buttons=%.0f%.0f%.0f%.0f start=%.0f triggers=%.2f %.2f grips=%.2f %.2f dev=%d ids=%d,%d,%d,%d,%d",
           anyActionActive?1:0,raw.move.x,raw.move.y,raw.look.x,raw.look.y,
           raw.select,raw.back,raw.attack,raw.use,raw.menu,raw.leftTrigger,raw.rightTrigger,
-          controller->GetIdByName("feSelect"),controller->GetIdByName("MoveUp"),controller->GetIdByName("feStart"));
+          raw.leftGrip,raw.rightGrip,IsDeveloperMenusEnabled()?1:0,
+          controller->GetIdByName("feSelect"),controller->GetIdByName("MoveUp"),controller->GetIdByName("feStart"),
+          controller->GetIdByName("feL1"),controller->GetIdByName("feR1"));
 }
 
 bool InitializeRuntime(){
@@ -505,6 +525,12 @@ int GetReflectionMode();
 namespace { rmt::Vector& desktopVrBaseHeading=GetSharedVrState().vrBaseHeading; }
 int GetPbrDebugMode() { return GetSharedVrState().pbrDebugMode; }
 void SetPbrDebugMode(int mode) { SetSharedPbrDebugMode(mode); }
+void SetGiIndirectOnly(bool enabled) { SetSharedGiIndirectOnly(enabled); }
+bool IsGiIndirectOnly() { return GetSharedVrState().giIndirectOnly; }
+void SetVolumetricLightEnabled(bool enabled) { SetSharedVolumetricLightEnabled(enabled); }
+bool IsVolumetricLightEnabled() { return GetSharedVrState().volumetricLightEnabled; }
+void SetHdrEnabled(bool enabled) { SetSharedHdrEnabled(enabled); }
+bool IsHdrEnabled() { return GetSharedVrState().hdrEnabled; }
 void SetVrModeEnabled(bool enabled) { SetSharedVrModeEnabled(enabled); }
 bool IsVrModeEnabled() { return GetSharedVrState().vrModeEnabled; }
 void SetDeveloperMenusEnabled(bool enabled) { SetSharedDeveloperMenusEnabled(enabled); }

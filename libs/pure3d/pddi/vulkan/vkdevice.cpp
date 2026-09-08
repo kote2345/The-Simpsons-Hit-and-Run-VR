@@ -15,9 +15,14 @@
 #include <cstdio>
 #include <cstring>
 #include <future>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
 #include <cctype>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <sys/stat.h>
 
@@ -50,19 +55,31 @@ float gVulkanEnhancedSunDirection[3]={0.0f,1.0f,0.0f};
 int gVulkanVehicleRearLightMode=0;
 int gVulkanVehicleRearLightCount=0;
 bool gVulkanVehicleRearLightsSuppressed=false;
+bool gVulkanBakedLightmapActive=false;
+unsigned gExternalTextureFinalizationsThisFrame=0;
 float gVulkanVehicleRearLightPositions[4][4]={};
 float gVulkanVehicleRearLightDirections[4][4]={};
 float gVulkanVehicleRearLightColour[3]={1.0f,0.04f,0.02f};
+uint32_t gVulkanVehicleDentCount=0;
+float gVulkanVehicleDents[4][4]={};
 
 struct ExternalImage { int width=0,height=0; std::vector<unsigned char> pixels; };
-std::unordered_map<std::string,std::shared_ptr<ExternalImage> > gExternalImageCache;
+std::unordered_map<std::string,std::weak_ptr<ExternalImage> > gExternalImageCache;
+std::unordered_set<std::string> gMissingExternalImages;
 
-std::shared_ptr<ExternalImage> LoadExternalImage(const std::string& path)
+std::shared_ptr<ExternalImage> LoadExternalImage(const std::string& path,bool flipRows=true)
 {
-    const auto cached=gExternalImageCache.find(path);
-    if(cached!=gExternalImageCache.end()) return cached->second;
+    const std::string cacheKey=path+(flipRows?"|bottom":"|top");
+    const auto cached=gExternalImageCache.find(cacheKey);
+    if(cached!=gExternalImageCache.end())
+    {
+        std::shared_ptr<ExternalImage> live=cached->second.lock();
+        if(live) return live;
+        gExternalImageCache.erase(cached);
+    }
+    if(gMissingExternalImages.find(cacheKey)!=gMissingExternalImages.end()) return {};
     SDL_RWops* file=SDL_RWFromFile(path.c_str(),"rb");
-    if(!file) { gExternalImageCache[path]=std::shared_ptr<ExternalImage>(); return {}; }
+    if(!file) { gMissingExternalImages.insert(cacheKey);return {}; }
     const Sint64 length=SDL_RWsize(file);
     std::vector<unsigned char> encoded(length>0?static_cast<size_t>(length):0u);
     const bool readOk=!encoded.empty() &&
@@ -71,7 +88,7 @@ std::shared_ptr<ExternalImage> LoadExternalImage(const std::string& path)
     int width=0,height=0,channels=0;
     unsigned char* decoded=readOk?stbi_load_from_memory(encoded.data(),
         static_cast<int>(encoded.size()),&width,&height,&channels,4):NULL;
-    if(!decoded) { gExternalImageCache[path]=std::shared_ptr<ExternalImage>(); return {}; }
+    if(!decoded) { gMissingExternalImages.insert(cacheKey);return {}; }
     std::shared_ptr<ExternalImage> result(new ExternalImage);
     result->width=width; result->height=height;
     result->pixels.resize(static_cast<size_t>(width)*height*4u);
@@ -82,14 +99,31 @@ std::shared_ptr<ExternalImage> LoadExternalImage(const std::string& path)
     const size_t rowBytes=static_cast<size_t>(width)*4u;
     for(int y=0;y<height;++y)
         std::memcpy(result->pixels.data()+static_cast<size_t>(y)*rowBytes,
-                    decoded+static_cast<size_t>(height-1-y)*rowBytes,rowBytes);
-    stbi_image_free(decoded); gExternalImageCache[path]=result;
+                    decoded+static_cast<size_t>(flipRows?height-1-y:y)*rowBytes,rowBytes);
+    stbi_image_free(decoded); gExternalImageCache[cacheKey]=result;
     return result;
 }
 
 std::shared_ptr<ExternalImage> FindExternalImage(const std::string& base,const char* suffix)
 {
     const std::string filename=base+suffix+".png";
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    static const std::string executableTextures=[]() {
+        char* path=SDL_GetBasePath();
+        std::string result=path?std::string(path)+"custom/textures/":std::string();
+        SDL_free(path);
+        SDL_Log("Vulkan custom texture search: executable=%s; fallback=custom/textures/",
+                result.c_str());
+        return result;
+    }();
+    if(!executableTextures.empty()) {
+        std::shared_ptr<ExternalImage> image=LoadExternalImage(executableTextures+filename);
+        if(image) return image;
+    }
+    // Windows filenames are case-insensitive. Retain the working-directory
+    // fallback for development builds launched against a separate game tree.
+    return LoadExternalImage("custom/textures/"+filename);
+#else
     std::shared_ptr<ExternalImage> image=LoadExternalImage(
         "/storage/emulated/0/SimpsonsHitRun/custom/textures/"+filename);
     if(!image) image=LoadExternalImage("custom/textures/"+filename);
@@ -101,14 +135,204 @@ std::shared_ptr<ExternalImage> FindExternalImage(const std::string& base,const c
     image=LoadExternalImage("/storage/emulated/0/SimpsonsHitRun/custom/textures/"+lower);
     if(!image) image=LoadExternalImage("custom/textures/"+lower);
     return image;
+#endif
 }
 
-unsigned char SampleChannel(const ExternalImage& image,int x,int y,int targetWidth,
-                            int targetHeight,int channel)
+std::shared_ptr<ExternalImage> FindExternalLightmap(const std::string& base)
+{
+    static const std::string prefix="pcvr_";
+    static const std::string suffix="_lightmap";
+    if(base.compare(0,prefix.size(),prefix)!=0 || base.size()<=prefix.size()+suffix.size() ||
+       base.compare(base.size()-suffix.size(),suffix.size(),suffix)!=0) return {};
+    const std::string level=base.substr(prefix.size(),base.size()-prefix.size()-suffix.size());
+    const std::string filename=level+".lightmap.png";
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    static const std::string executableLightmaps=[]() {
+        char* path=SDL_GetBasePath();
+        std::string result=path?std::string(path)+"custom/lightmaps/":std::string();
+        SDL_free(path);
+        SDL_Log("Vulkan custom lightmap search: executable=%s; fallback=custom/lightmaps/",
+                result.c_str());
+        return result;
+    }();
+    if(!executableLightmaps.empty())
+    {
+        std::shared_ptr<ExternalImage> image=LoadExternalImage(executableLightmaps+filename,false);
+        if(image) return image;
+    }
+    return LoadExternalImage("custom/lightmaps/"+filename,false);
+#else
+    std::shared_ptr<ExternalImage> image=LoadExternalImage(
+        "/storage/emulated/0/SimpsonsHitRun/custom/lightmaps/"+filename,false);
+    if(!image) image=LoadExternalImage("custom/lightmaps/"+filename,false);
+    return image;
+#endif
+}
+
+struct ExternalTextureSet
+{
+    struct Mip
+    {
+        int width=0,height=0;
+        std::vector<unsigned char> pixels;
+    };
+    std::string base;
+    std::shared_ptr<ExternalImage> color,normal,packed,rough,metal;
+    std::vector<Mip> colorMips,pbrMips;
+    uint32_t pbrFlags=0;
+    bool lightmap=false;
+};
+
+unsigned char SampleExternalChannel(const ExternalImage& image,int x,int y,
+                                    int targetWidth,int targetHeight,int channel)
 {
     const int sx=std::min(image.width-1,std::max(0,x*image.width/targetWidth));
     const int sy=std::min(image.height-1,std::max(0,y*image.height/targetHeight));
     return image.pixels[(static_cast<size_t>(sy)*image.width+sx)*4u+channel];
+}
+
+void BuildExternalMips(ExternalTextureSet& set)
+{
+    if(set.color)
+    {
+        ExternalTextureSet::Mip base;
+        base.width=set.color->width;base.height=set.color->height;
+        base.pixels.resize(set.color->pixels.size());
+        for(size_t i=0;i<set.color->pixels.size();i+=4)
+        {
+            base.pixels[i]=set.color->pixels[i+2];
+            base.pixels[i+1]=set.color->pixels[i+1];
+            base.pixels[i+2]=set.color->pixels[i];
+            base.pixels[i+3]=set.color->pixels[i+3];
+        }
+        set.colorMips.push_back(std::move(base));
+        while(set.colorMips.back().width>1 || set.colorMips.back().height>1)
+        {
+            const ExternalTextureSet::Mip& previous=set.colorMips.back();
+            ExternalTextureSet::Mip next;
+            next.width=std::max(1,previous.width/2);
+            next.height=std::max(1,previous.height/2);
+            next.pixels.resize(static_cast<size_t>(next.width)*next.height*4u);
+            for(int y=0;y<next.height;++y) for(int x=0;x<next.width;++x)
+            {
+                unsigned sums[4]={0,0,0,0},samples=0;
+                for(int oy=0;oy<2;++oy) for(int ox=0;ox<2;++ox)
+                {
+                    const int sx=std::min(previous.width-1,x*2+ox);
+                    const int sy=std::min(previous.height-1,y*2+oy);
+                    const size_t source=(static_cast<size_t>(sy)*previous.width+sx)*4u;
+                    for(unsigned channel=0;channel<4;++channel)
+                        sums[channel]+=previous.pixels[source+channel];
+                    ++samples;
+                }
+                const size_t target=(static_cast<size_t>(y)*next.width+x)*4u;
+                for(unsigned channel=0;channel<4;++channel)
+                    next.pixels[target+channel]=static_cast<unsigned char>(
+                        (sums[channel]+samples/2u)/samples);
+            }
+            set.colorMips.push_back(std::move(next));
+        }
+    }
+
+    const std::shared_ptr<ExternalImage> sizeSource=set.normal?set.normal:
+        (set.packed?set.packed:(set.rough?set.rough:set.metal));
+    if(!sizeSource) return;
+    set.pbrFlags=(set.normal?1u:0u)|((set.rough||set.packed)?2u:0u)|
+                 ((set.metal||set.packed)?4u:0u);
+    ExternalTextureSet::Mip base;
+    base.width=sizeSource->width;base.height=sizeSource->height;
+    base.pixels.resize(static_cast<size_t>(base.width)*base.height*4u);
+    for(int y=0;y<base.height;++y) for(int x=0;x<base.width;++x)
+    {
+        const size_t offset=(static_cast<size_t>(y)*base.width+x)*4u;
+        base.pixels[offset]=set.normal?SampleExternalChannel(*set.normal,x,y,base.width,base.height,0):128;
+        base.pixels[offset+1]=set.normal?SampleExternalChannel(*set.normal,x,y,base.width,base.height,1):128;
+        base.pixels[offset+2]=set.rough?SampleExternalChannel(*set.rough,x,y,base.width,base.height,0):
+            (set.packed?SampleExternalChannel(*set.packed,x,y,base.width,base.height,0):128);
+        base.pixels[offset+3]=set.metal?SampleExternalChannel(*set.metal,x,y,base.width,base.height,0):
+            (set.packed?SampleExternalChannel(*set.packed,x,y,base.width,base.height,1):0);
+    }
+    set.pbrMips.push_back(std::move(base));
+    while(set.pbrMips.back().width>1 || set.pbrMips.back().height>1)
+    {
+        const ExternalTextureSet::Mip& previous=set.pbrMips.back();
+        ExternalTextureSet::Mip next;
+        next.width=std::max(1,previous.width/2);next.height=std::max(1,previous.height/2);
+        next.pixels.resize(static_cast<size_t>(next.width)*next.height*4u);
+        for(int y=0;y<next.height;++y) for(int x=0;x<next.width;++x)
+        {
+            float nx=0,ny=0,nz=0,roughnessSquared=0,metallic=0;unsigned samples=0;
+            for(int oy=0;oy<2;++oy) for(int ox=0;ox<2;++ox)
+            {
+                const int sx=std::min(previous.width-1,x*2+ox);
+                const int sy=std::min(previous.height-1,y*2+oy);
+                const size_t source=(static_cast<size_t>(sy)*previous.width+sx)*4u;
+                const float tx=previous.pixels[source]/127.5f-1.0f;
+                const float ty=previous.pixels[source+1]/127.5f-1.0f;
+                nx+=tx;ny+=ty;nz+=std::sqrt(std::max(0.0f,1.0f-tx*tx-ty*ty));
+                const float roughness=previous.pixels[source+2]/255.0f;
+                roughnessSquared+=roughness*roughness;
+                metallic+=previous.pixels[source+3]/255.0f;++samples;
+            }
+            const float inverse=1.0f/samples;nx*=inverse;ny*=inverse;nz*=inverse;
+            const float length=std::sqrt(std::max(0.000001f,nx*nx+ny*ny+nz*nz));
+            nx/=length;ny/=length;
+            const size_t target=(static_cast<size_t>(y)*next.width+x)*4u;
+            next.pixels[target]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,(nx*.5f+.5f)*255.0f+.5f)));
+            next.pixels[target+1]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,(ny*.5f+.5f)*255.0f+.5f)));
+            next.pixels[target+2]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,std::sqrt(roughnessSquared*inverse)*255.0f+.5f)));
+            next.pixels[target+3]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,metallic*inverse*255.0f+.5f)));
+        }
+        set.pbrMips.push_back(std::move(next));
+    }
+}
+
+// External PNG decoding must not run on the render/loading thread. Region
+// streaming can discover dozens of textures in one frame; a bounded single
+// worker avoids both frame stalls and a thread-per-texture spike on Quest.
+struct ExternalDecodeQueue
+{
+    struct Request { std::string base; std::promise<ExternalTextureSet> promise; };
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<std::shared_ptr<Request> > requests;
+};
+
+std::shared_future<ExternalTextureSet> RequestExternalTextures(const std::string& base)
+{
+    static ExternalDecodeQueue* queue=[]() {
+        ExternalDecodeQueue* value=new ExternalDecodeQueue;
+        std::thread([value]() {
+            for(;;)
+            {
+                std::shared_ptr<ExternalDecodeQueue::Request> request;
+                {
+                    std::unique_lock<std::mutex> lock(value->mutex);
+                    value->wake.wait(lock,[value](){return !value->requests.empty();});
+                    request=value->requests.front();value->requests.pop_front();
+                }
+                ExternalTextureSet set;set.base=request->base;
+                set.color=FindExternalImage(set.base,"_color");
+                if(!set.color) { set.color=FindExternalLightmap(set.base);set.lightmap=!!set.color; }
+                set.normal=FindExternalImage(set.base,"_normal");
+                set.packed=FindExternalImage(set.base,"_pbr");
+                set.rough=FindExternalImage(set.base,"_rough");
+                set.metal=FindExternalImage(set.base,"_metal");
+                BuildExternalMips(set);
+                request->promise.set_value(std::move(set));
+            }
+        }).detach();
+        return value;
+    }();
+    std::shared_ptr<ExternalDecodeQueue::Request> request(new ExternalDecodeQueue::Request);
+    request->base=base;
+    std::shared_future<ExternalTextureSet> result=request->promise.get_future().share();
+    {
+        std::lock_guard<std::mutex> lock(queue->mutex);
+        queue->requests.push_back(request);
+    }
+    queue->wake.notify_one();
+    return result;
 }
 
 void DumpPackedPbrDebug(const std::string& base,int width,int height,
@@ -434,11 +658,12 @@ public:
     VkSampler GetSampler() const { return sampler; }
     VkDescriptorSet GetDescriptorSet(unsigned uvMode,unsigned filterMode)
     {
+        PumpExternalUploads();
         PumpDecodedUploads();
         SharOpenXR::VulkanContext& context=SharOpenXR::GetVulkanContext();
         if(image && context.HasPendingTextureUploads(image))
             context.PrepareTextureForSampling(image);
-        if(SharOpenXR::AreCustomMaterialsEnabled() && externalColorDescriptor &&
+        if((externalColorIsLightmap || SharOpenXR::AreCustomMaterialsEnabled()) && externalColorDescriptor &&
            !context.HasPendingTextureUploads(externalColorImage))
         {
             // A replacement must preserve the material's authored addressing
@@ -472,6 +697,7 @@ public:
     }
     VkDescriptorSet GetPbrDescriptorSet(unsigned uvMode,unsigned filterMode)
     {
+        PumpExternalUploads();
         if(!SharOpenXR::AreCustomMaterialsEnabled() || !pbrImage || !pbrDescriptor)
             return VK_NULL_HANDLE;
         SharOpenXR::VulkanContext& context=SharOpenXR::GetVulkanContext();
@@ -498,8 +724,8 @@ public:
                 filterMode,&pbrSamplers[index],&pbrDescriptors[index]);
         return pbrDescriptors[index]?pbrDescriptors[index]:pbrDescriptor;
     }
-    uint32_t GetPbrMapFlags() const
-    { return SharOpenXR::AreCustomMaterialsEnabled()?pbrMapFlags:0u; }
+    uint32_t GetPbrMapFlags()
+    { PumpExternalUploads();return SharOpenXR::AreCustomMaterialsEnabled()?pbrMapFlags:0u; }
     void LogPbrMaterialState(uint32_t model,uint32_t profile,bool lit,
                              bool reflectionEnabled,int reflectionMode)
     {
@@ -522,62 +748,33 @@ public:
         std::string base=slash==std::string::npos?sourceName:sourceName.substr(slash+1);
         const size_t dot=base.find_last_of('.'); if(dot!=std::string::npos) base.resize(dot);
         if(base.empty()) return;
-        std::shared_ptr<ExternalImage> color=FindExternalImage(base,"_color");
-        std::shared_ptr<ExternalImage> normal=FindExternalImage(base,"_normal");
-        std::shared_ptr<ExternalImage> packed=FindExternalImage(base,"_pbr");
-        std::shared_ptr<ExternalImage> rough=FindExternalImage(base,"_rough");
-        std::shared_ptr<ExternalImage> metal=FindExternalImage(base,"_metal");
+        externalDecodeJob=RequestExternalTextures(base);
+    }
+private:
+    void PumpExternalUploads()
+    {
+        if(externalDecodeFinished || !externalDecodeJob.valid() ||
+           externalDecodeJob.wait_for(std::chrono::seconds(0))!=std::future_status::ready) return;
+        // Region streaming often makes many jobs ready together. Spread CPU
+        // mip construction, VkImage allocation and staging copies over time.
+        if(gExternalTextureFinalizationsThisFrame>=1) return;
+        ++gExternalTextureFinalizationsThisFrame;
+        externalDecodeFinished=true;
+        ExternalTextureSet decoded=externalDecodeJob.get();
+        const std::string& base=decoded.base;
+        const std::shared_ptr<ExternalImage>& color=decoded.color;
+        externalColorIsLightmap=decoded.lightmap;
         SharOpenXR::VulkanContext& context=SharOpenXR::GetVulkanContext();
-        uint32_t colorMipLevels=1;
-        if(color)
-            for(int dimension=std::max(color->width,color->height);dimension>1;
-                dimension/=2) ++colorMipLevels;
+        const uint32_t colorMipLevels=static_cast<uint32_t>(decoded.colorMips.size());
         if(color && context.CreateTexture2D(color->width,color->height,colorMipLevels,&externalColorImage,
            &externalColorMemory,&externalColorView,&externalColorSampler,&externalColorDescriptor,
            VK_FORMAT_B8G8R8A8_UNORM,4))
         {
-            std::vector<unsigned char> bgra(color->pixels.size());
-            for(size_t i=0;i<color->pixels.size();i+=4)
-            { bgra[i]=color->pixels[i+2]; bgra[i+1]=color->pixels[i+1];
-              bgra[i+2]=color->pixels[i]; bgra[i+3]=color->pixels[i+3]; }
-            context.UploadTextureMip(externalColorImage,color->width,color->height,0,
-                                     bgra.data(),bgra.size());
-            // High-resolution replacements need the same complete mip chain as
-            // authored Pure3D textures. Sampling a 1K replacement at full LOD
-            // for every distant world triangle destroys texture-cache locality
-            // in stereo and was the main cost even with all effects disabled.
-            std::vector<unsigned char> previous=std::move(bgra);
-            int previousWidth=color->width,previousHeight=color->height;
-            for(uint32_t level=1;level<colorMipLevels;++level)
+            for(uint32_t level=0;level<colorMipLevels;++level)
             {
-                // Vulkan defines mip n as floor(base / 2^n). Rounding odd
-                // dimensions up writes beyond the actual subresource extent
-                // (1254 -> 627 -> 313, never 314).
-                const int levelWidth=std::max(1,previousWidth/2);
-                const int levelHeight=std::max(1,previousHeight/2);
-                std::vector<unsigned char> next(
-                    static_cast<size_t>(levelWidth)*levelHeight*4u);
-                for(int y=0;y<levelHeight;++y) for(int x=0;x<levelWidth;++x)
-                {
-                    unsigned sums[4]={0,0,0,0},samples=0;
-                    for(int oy=0;oy<2;++oy) for(int ox=0;ox<2;++ox)
-                    {
-                        const int sx=std::min(previousWidth-1,x*2+ox);
-                        const int sy=std::min(previousHeight-1,y*2+oy);
-                        const size_t source=(static_cast<size_t>(sy)*previousWidth+sx)*4u;
-                        for(unsigned channel=0;channel<4;++channel)
-                            sums[channel]+=previous[source+channel];
-                        ++samples;
-                    }
-                    const size_t target=(static_cast<size_t>(y)*levelWidth+x)*4u;
-                    for(unsigned channel=0;channel<4;++channel)
-                        next[target+channel]=static_cast<unsigned char>(
-                            (sums[channel]+samples/2u)/samples);
-                }
-                context.UploadTextureMip(externalColorImage,levelWidth,levelHeight,
-                                         level,next.data(),next.size());
-                previous.swap(next);
-                previousWidth=levelWidth; previousHeight=levelHeight;
+                const ExternalTextureSet::Mip& mip=decoded.colorMips[level];
+                context.UploadTextureMip(externalColorImage,mip.width,mip.height,level,
+                                         mip.pixels.data(),mip.pixels.size());
             }
             externalColorMipLevels=colorMipLevels;
             // CreateTexture2D's initial descriptor is clamp + trilinear.
@@ -590,30 +787,11 @@ public:
             SDL_Log("Vulkan custom texture: %s_color.png (%dx%d, %u mips)",
                     base.c_str(),color->width,color->height,colorMipLevels);
         }
-        const std::shared_ptr<ExternalImage> sizeSource=normal?normal:(packed?packed:(rough?rough:metal));
-        if(!sizeSource) return;
-        const int w=sizeSource->width,h=sizeSource->height;
-        // One unambiguous RGBA material texture:
-        // R/G = tangent normal X/Y, B = roughness, A = metallic.
-        // Packing the maps into one ordinary 2D image avoids array-layer
-        // upload/layout ambiguity on mobile Vulkan drivers.
-        std::vector<unsigned char> pbrPixels(static_cast<size_t>(w)*h*4u);
-        for(int y=0;y<h;++y) for(int x=0;x<w;++x)
-        {
-            const size_t offset=(static_cast<size_t>(y)*w+x)*4u;
-            pbrPixels[offset]=normal?SampleChannel(*normal,x,y,w,h,0):128;
-            pbrPixels[offset+1]=normal?SampleChannel(*normal,x,y,w,h,1):128;
-            pbrPixels[offset+2]=rough?SampleChannel(*rough,x,y,w,h,0):
-                (packed?SampleChannel(*packed,x,y,w,h,0):128);
-            pbrPixels[offset+3]=metal?SampleChannel(*metal,x,y,w,h,0):
-                (packed?SampleChannel(*packed,x,y,w,h,1):0);
-        }
-        pbrMapFlags|=(normal?1u:0u)|((rough||packed)?2u:0u)|
-                     ((metal||packed)?4u:0u);
-        DumpPackedPbrDebug(base,w,h,pbrPixels);
-        uint32_t mipLevels=1;
-        for(int dimension=std::max(w,h);dimension>1;dimension/=2)
-            ++mipLevels;
+        if(decoded.pbrMips.empty()) return;
+        const int w=decoded.pbrMips[0].width,h=decoded.pbrMips[0].height;
+        pbrMapFlags|=decoded.pbrFlags;
+        DumpPackedPbrDebug(base,w,h,decoded.pbrMips[0].pixels);
+        const uint32_t mipLevels=static_cast<uint32_t>(decoded.pbrMips.size());
         if(context.CreateTexture2D(w,h,mipLevels,&pbrImage,&pbrMemory,&pbrView,
            &pbrSampler,&pbrDescriptor,VK_FORMAT_R8G8B8A8_UNORM,4))
         {
@@ -621,51 +799,17 @@ public:
             // CreateTexture2D starts with clamp + trilinear (index 9).
             pbrSamplers[9]=pbrSampler;
             pbrDescriptors[9]=pbrDescriptor;
-            context.UploadTextureMip(pbrImage,w,h,0,pbrPixels.data(),pbrPixels.size());
-            std::vector<unsigned char> previous=std::move(pbrPixels);
-            int previousWidth=w,previousHeight=h;
-            for(uint32_t level=1;level<mipLevels;++level)
+            for(uint32_t level=0;level<mipLevels;++level)
             {
-                const int levelWidth=std::max(1,previousWidth/2);
-                const int levelHeight=std::max(1,previousHeight/2);
-                std::vector<unsigned char> next(static_cast<size_t>(levelWidth)*levelHeight*4u);
-                for(int y=0;y<levelHeight;++y) for(int x=0;x<levelWidth;++x)
-                {
-                    float nx=0.0f,ny=0.0f,nz=0.0f,roughnessSquared=0.0f,metallic=0.0f;
-                    unsigned samples=0;
-                    for(int oy=0;oy<2;++oy) for(int ox=0;ox<2;++ox)
-                    {
-                        const int sx=std::min(previousWidth-1,x*2+ox);
-                        const int sy=std::min(previousHeight-1,y*2+oy);
-                        const size_t source=(static_cast<size_t>(sy)*previousWidth+sx)*4u;
-                        const float tx=previous[source]/127.5f-1.0f;
-                        const float ty=previous[source+1]/127.5f-1.0f;
-                        const float tz=std::sqrt(std::max(0.0f,1.0f-tx*tx-ty*ty));
-                        const float r=previous[source+2]/255.0f;
-                        nx+=tx; ny+=ty; nz+=tz;
-                        roughnessSquared+=r*r; metallic+=previous[source+3]/255.0f;
-                        ++samples;
-                    }
-                    const float inverseSamples=1.0f/static_cast<float>(samples);
-                    nx*=inverseSamples; ny*=inverseSamples; nz*=inverseSamples;
-                    const float normalLength=std::sqrt(std::max(nx*nx+ny*ny+nz*nz,0.000001f));
-                    nx/=normalLength; ny/=normalLength;
-                    const size_t target=(static_cast<size_t>(y)*levelWidth+x)*4u;
-                    next[target]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,(nx*0.5f+0.5f)*255.0f+0.5f)));
-                    next[target+1]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,(ny*0.5f+0.5f)*255.0f+0.5f)));
-                    next[target+2]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,std::sqrt(roughnessSquared*inverseSamples)*255.0f+0.5f)));
-                    next[target+3]=static_cast<unsigned char>(std::max(0.0f,std::min(255.0f,metallic*inverseSamples*255.0f+0.5f)));
-                }
-                context.UploadTextureMip(pbrImage,levelWidth,levelHeight,level,
-                                         next.data(),next.size());
-                previous.swap(next); previousWidth=levelWidth; previousHeight=levelHeight;
+                const ExternalTextureSet::Mip& mip=decoded.pbrMips[level];
+                context.UploadTextureMip(pbrImage,mip.width,mip.height,level,
+                                         mip.pixels.data(),mip.pixels.size());
             }
             SDL_Log("Vulkan PBR maps: %s flags=0x%x (%dx%d, %u mips)",
                     base.c_str(),pbrMapFlags,w,h,mipLevels);
         }
     }
 
-private:
     void PumpDecodedUploads()
     {
         for(unsigned level=0;level<decodeJobs.size();++level)
@@ -715,6 +859,7 @@ private:
     VkSampler pbrSamplers[10];
     VkDescriptorSet pbrDescriptors[10];
     std::string sourceName;
+    std::shared_future<ExternalTextureSet> externalDecodeJob;
     VkImage externalColorImage=VK_NULL_HANDLE,pbrImage=VK_NULL_HANDLE;
     VkDeviceMemory externalColorMemory=VK_NULL_HANDLE,pbrMemory=VK_NULL_HANDLE;
     VkImageView externalColorView=VK_NULL_HANDLE,pbrView=VK_NULL_HANDLE;
@@ -723,7 +868,7 @@ private:
     uint32_t pbrMapFlags=0;
     uint32_t externalColorMipLevels=1;
     uint32_t pbrMipLevels=1;
-    bool pbrReadyLogged=false;
+    bool pbrReadyLogged=false,externalColorIsLightmap=false,externalDecodeFinished=false;
     uint32_t pbrLoggedModel=~0u,pbrLoggedProfile=~0u;
     int pbrLoggedReflectionMode=-1;
     bool pbrLoggedLit=false,pbrLoggedReflectionEnabled=false;
@@ -927,6 +1072,9 @@ public:
                     sizeof(gVulkanVehicleRearLightDirections));
         std::memcpy(result->vehicleRearLightColour,gVulkanVehicleRearLightColour,
                     sizeof(gVulkanVehicleRearLightColour));
+        result->vehicleDentCount=gVulkanVehicleDentCount;
+        std::memcpy(result->vehicleDents,gVulkanVehicleDents,
+                    sizeof(gVulkanVehicleDents));
         result->textureBlendMode=textureBlendMode;
         result->twoLayerColourByVertex=twoLayerColourByVertex;
     }
@@ -1267,7 +1415,11 @@ public:
         projection.Identity();
         started = std::chrono::steady_clock::now();
     }
-    void BeginFrame() override { pddiBaseContext::BeginFrame(); }
+    void BeginFrame() override
+    {
+        gExternalTextureFinalizationsThisFrame=0;
+        pddiBaseContext::BeginFrame();
+    }
     void Clear(unsigned bufferMask) override
     {
         SharOpenXR::GetVulkanContext().ClearPddiBuffers(bufferMask);
@@ -1291,6 +1443,23 @@ public:
         rmt::Matrix centreCamera=eyeCameraToWorld;
         SharOpenXR::GetLatestCullingCamera(&centreCamera);
         rmt::Vector requested=centreCamera.Row(3);
+        // Use exactly the directional light that drives CSM for enhanced
+        // direct lighting and the volumetric pass as well.  `direction` is
+        // the direction travelled by sunlight; shading needs the opposite,
+        // eye-space direction toward its source.
+        rmt::Vector direction(-0.45f,-1.0f,0.30f);
+        if(state.lightingState) for(int i=0;i<PDDI_MAX_LIGHTS;++i)
+            if(state.lightingState->light[i].enabled && state.lightingState->light[i].type==PDDI_LIGHT_DIRECTIONAL)
+            { direction.Set(state.lightingState->light[i].worldDirection.x,
+                            state.lightingState->light[i].worldDirection.y,
+                            state.lightingState->light[i].worldDirection.z); break; }
+        direction.Normalize();
+        rmt::Matrix worldToEye; worldToEye.InvertOrtho(centreCamera);
+        rmt::Vector towardSun=-direction,eyeSun;
+        worldToEye.RotateVector(towardSun,&eyeSun); eyeSun.Normalize();
+        gVulkanEnhancedSunDirection[0]=eyeSun.x;
+        gVulkanEnhancedSunDirection[1]=eyeSun.y;
+        gVulkanEnhancedSunDirection[2]=eyeSun.z;
         // Do not cache any cascade across world frames. A separately rendered
         // right eye may only reuse maps produced earlier in this XR frame.
         if(SharOpenXR::IsRightEyeRendering() && shadowReady[cascadeIndex])
@@ -1309,13 +1478,6 @@ public:
             return false;
         }
 
-        rmt::Vector direction(-0.45f,-1.0f,0.30f);
-        if(state.lightingState) for(int i=0;i<PDDI_MAX_LIGHTS;++i)
-            if(state.lightingState->light[i].enabled && state.lightingState->light[i].type==PDDI_LIGHT_DIRECTIONAL)
-            { direction.Set(state.lightingState->light[i].worldDirection.x,
-                            state.lightingState->light[i].worldDirection.y,
-                            state.lightingState->light[i].worldDirection.z); break; }
-        direction.Normalize();
         // A cached map is only valid for the light direction with which it
         // was rendered. This additionally fixes the GLES cache's stale-map
         // behaviour when a level or time-of-day changes its directional light.
@@ -1569,7 +1731,9 @@ private:
         result.hudPass=(SharOpenXR::IsEmbeddedHudRendering &&
                         SharOpenXR::IsEmbeddedHudRendering()) ||
                        (SharOpenXR::IsFrontendPlaneRendering &&
-                        SharOpenXR::IsFrontendPlaneRendering());
+                        SharOpenXR::IsFrontendPlaneRendering()) ||
+                       (SharOpenXR::IsMovieRendering &&
+                        SharOpenXR::IsMovieRendering());
         result.colour[0]=result.colour[1]=result.colour[2]=result.colour[3]=1.0f;
         result.alphaRef=0.5f;
         result.alphaCompare=PDDI_COMPARE_GREATEREQUAL;
@@ -1586,7 +1750,12 @@ private:
             SharOpenXR::GetLatestCullingCamera(&reflectionViewToWorld);
         std::memcpy(result.reflectionViewToWorld,reflectionViewToWorld.m[0],
                     sizeof(result.reflectionViewToWorld));
-        if(result.lit && state.lightingState)
+        bool receivesPbrLocalLights=false;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        receivesPbrLocalLights=!result.hudPass && result.enhancedMaterialModel==2 &&
+                               result.enhancedMaterialProfile!=0;
+#endif
+        if((result.lit || receivesPbrLocalLights) && state.lightingState)
         {
             const pddiColour globalAmbient=state.lightingState->ambient;
             const float emissive[3]={result.lightPosition[0][0],
@@ -1600,10 +1769,21 @@ private:
                 result.ambientTerm[channel]=
                     emissive[channel]+result.ambientTerm[channel]*global;
             }
+            // Unlit PBR world materials still receive local lights, but retain
+            // their original vertex-colour/ambient contract.
+            if(!result.lit)
+            {
+                result.ambientTerm[0]=result.ambientTerm[1]=result.ambientTerm[2]=1.0f;
+                result.ambientTerm[3]=0.0f;
+            }
+            std::memset(result.lightPosition,0,sizeof(result.lightPosition));
+            std::memset(result.lightColour,0,sizeof(result.lightColour));
+            std::memset(result.lightAttenuation,0,sizeof(result.lightAttenuation));
             for(int i=0;i<PDDI_MAX_LIGHTS;++i)
             {
                 const pddiLight& light=state.lightingState->light[i];
                 if(!light.enabled) continue;
+                if(!result.lit && light.type!=PDDI_LIGHT_POINT) continue;
                 if(light.type==PDDI_LIGHT_DIRECTIONAL)
                 {
                     result.lightPosition[i][0]=-light.worldDirection.x;
@@ -1928,6 +2108,7 @@ void pglSetTextureSourceName(pddiTexture* texture, const char* name)
 }
 void pglSetEnhancedMaterialMode(int mode) { gVulkanEnhancedMaterialMode = mode; }
 int pglGetEnhancedMaterialMode() { return gVulkanEnhancedMaterialMode; }
+void pglSetBakedLightmapActive(bool active) { gVulkanBakedLightmapActive=active; }
 void pglSetParticleRendering(bool) {}
 void pglSetEnhancedSunDirection(float x, float y, float z)
 {
@@ -1937,7 +2118,14 @@ void pglSetEnhancedSunDirection(float x, float y, float z)
     gVulkanEnhancedSunDirection[1]=y/length;
     gVulkanEnhancedSunDirection[2]=z/length;
 }
-void pglSetVehicleDeformation(const float*, int) {}
+void pglSetVehicleDeformation(const float* dents, int count)
+{
+    gVulkanVehicleDentCount=static_cast<uint32_t>(std::max(0,std::min(4,count)));
+    std::memset(gVulkanVehicleDents,0,sizeof(gVulkanVehicleDents));
+    if(dents && gVulkanVehicleDentCount)
+        std::memcpy(gVulkanVehicleDents,dents,
+                    sizeof(float)*4*gVulkanVehicleDentCount);
+}
 void pglSuppressVehicleRearLights(bool suppress)
 {
     gVulkanVehicleRearLightsSuppressed=suppress;

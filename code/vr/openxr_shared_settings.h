@@ -27,6 +27,9 @@ void SetSharedGtaoEnabled(bool enabled);
 void SetSharedVehicleLightMode(int mode);
 void SetSharedReflectionMode(int mode);
 void SetSharedPbrDebugMode(int mode);
+void SetSharedGiIndirectOnly(bool enabled);
+void SetSharedVolumetricLightEnabled(bool enabled);
+void SetSharedHdrEnabled(bool enabled);
 void SetSharedVehicleComfortEnabled(bool enabled);
 }
 

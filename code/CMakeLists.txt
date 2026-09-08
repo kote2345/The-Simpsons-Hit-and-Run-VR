@@ -567,6 +567,7 @@ if(WIN32 AND NOT ANDROID)
 	list(REMOVE_ITEM SRR2_SOURCES "input/usercontroller.cpp")
 	list(REMOVE_ITEM SRR2_SOURCES "presentation/gui/frontend/guiscreencontroller.cpp")
 	list(APPEND SRR2_SOURCES
+		"simpsonsvr.rc"
 		"camera/pccam.cpp"
 		"data/config/configstring.cpp"
 		"data/config/gameconfigmanager.cpp"
@@ -589,6 +590,7 @@ endif()
 if(SRR2_ENABLE_OPENXR AND SRR2_VR_RENDERER STREQUAL "VULKAN")
 	list(APPEND SRR2_SOURCES
 		"vr/vulkan/openxr_vulkan_context.cpp"
+		"vr/vulkan/hdr_pipeline.cpp"
 		"vr/vulkan/material_pipeline.cpp"
 		"vr/vulkan/material_uniforms.cpp"
 		"vr/vulkan/shadow_pipeline.cpp"
@@ -598,6 +600,23 @@ if(SRR2_ENABLE_OPENXR AND SRR2_VR_RENDERER STREQUAL "VULKAN")
 		"vr/vulkan/pbr_pipeline.cpp"
 		"vr/vulkan/toon_pipeline.cpp"
 	)
+	# NMake + localized MSVC can fail to parse /showIncludes, leaving this
+	# ABI-sensitive class header out of dependency files. Explicit dependencies
+	# prevent a stale caller from reading Vulkan handles at old member offsets.
+	set_property(SOURCE
+		"vr/openxr_desktop_runtime.cpp"
+		"vr/openxr_shared_frame.cpp"
+		"vr/openxrmanager.cpp"
+		APPEND PROPERTY OBJECT_DEPENDS
+		"${CMAKE_CURRENT_SOURCE_DIR}/vr/vulkan/openxr_vulkan_context.h")
+	set_property(SOURCE "vr/vulkan/hdr_pipeline.cpp" APPEND PROPERTY OBJECT_DEPENDS
+		"${CMAKE_SOURCE_DIR}/libs/pure3d/pddi/vulkan/shaders/hdr_resolve_vert_spv.h"
+		"${CMAKE_SOURCE_DIR}/libs/pure3d/pddi/vulkan/shaders/hdr_resolve_frag_spv.h"
+		"${CMAKE_SOURCE_DIR}/libs/pure3d/pddi/vulkan/shaders/volumetric_light_frag_spv.h"
+		"${CMAKE_SOURCE_DIR}/libs/pure3d/pddi/vulkan/shaders/hdr_exposure_comp_spv.h")
+	set_property(SOURCE "vr/vulkan/pbr_pipeline.cpp" APPEND PROPERTY OBJECT_DEPENDS
+		"${CMAKE_SOURCE_DIR}/libs/pure3d/pddi/vulkan/shaders/lit_pbr_frag_spv.h"
+		"${CMAKE_SOURCE_DIR}/libs/pure3d/pddi/vulkan/shaders/smoke_pbr_frag_spv.h")
 endif()
 if(SRR2_REGION STREQUAL "PAL")
 	list(APPEND SRR2_SOURCES
@@ -613,6 +632,10 @@ if(ANDROID)
 else()
     add_executable(${PROJECT_NAME} ${SRR2_SOURCES})
     set(SRR2_TARGET ${PROJECT_NAME})
+endif()
+
+if(WIN32 AND NOT ANDROID)
+	set_target_properties(${SRR2_TARGET} PROPERTIES OUTPUT_NAME "SimpsonsVR")
 endif()
 
 target_link_libraries(${SRR2_TARGET}

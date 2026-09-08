@@ -1,0 +1,33 @@
+#version 450
+layout(local_size_x=1,local_size_y=1,local_size_z=1) in;
+layout(set=0,binding=0) uniform sampler2DArray scene;
+layout(set=0,binding=1) uniform sampler2DArray depth;
+layout(std430,set=0,binding=2) buffer ExposureState { vec4 value[2]; } state;
+
+void main() {
+    int eye=int(gl_GlobalInvocationID.x);
+    ivec2 size=textureSize(scene,0).xy;
+    float logSum=0.0,weightSum=0.0;
+    const int gridX=12,gridY=8;
+    for(int y=0;y<gridY;++y) for(int x=0;x<gridX;++x) {
+        vec2 uv=(vec2(x,y)+vec2(0.5))/vec2(gridX,gridY);
+        if(textureLod(depth,vec3(uv,eye),0.0).r>=0.9999) continue;
+        vec3 c=max(textureLod(scene,vec3(uv,eye),0.0).rgb,vec3(0.0));
+        float luminance=dot(c,vec3(0.2126,0.7152,0.0722));
+        vec2 centre=uv*2.0-1.0;
+        float weight=mix(1.0,0.35,clamp(dot(centre,centre)*0.5,0.0,1.0));
+        logSum+=log(clamp(luminance,0.002,2.0))*weight;
+        weightSum+=weight;
+    }
+    if(weightSum<1.0) return;
+    float average=exp(logSum/weightSum);
+    // Expose sunny street geometry as daylight while preserving highlight
+    // headroom and adaptation in genuinely dark interiors.
+    float target=clamp(0.10/average,0.60,1.80);
+    float previous=clamp(state.value[eye].x,0.60,1.80);
+    // Each swapchain image is normally revisited every third frame. Light
+    // adaptation remains quicker than dark adaptation, while ordinary camera
+    // motion no longer pumps the image from frame to frame.
+    float rate=target<previous?0.075:0.035;
+    state.value[eye].x=mix(previous,target,rate);
+}

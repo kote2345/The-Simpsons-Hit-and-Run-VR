@@ -40,6 +40,7 @@ MaterialPipelineSelection SelectMaterialPipeline(const VulkanMaterialState& mate
                              material.vehicleRearLightCount!=0;
     const bool compact=!full && !material.lit && !material.fogEnabled &&
         !enhanced && !dynamicLights && material.skinMatrixCount==0 &&
+        material.vehicleDentCount==0 &&
         !shadowReceiverEnabled;
     result.geometry=compact?GeometryProgram::Compact:
         full?GeometryProgram::Full:

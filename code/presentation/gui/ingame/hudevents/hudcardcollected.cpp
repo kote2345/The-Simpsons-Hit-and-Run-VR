@@ -26,6 +26,10 @@
 #include <Sprite.h>
 #include <Text.h>
 
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+void ScroobySetVrMissionHudGroup(unsigned slot,Scrooby::Group* group);
+#endif
+
 #ifdef RAD_WIN32
 const float HUDCARD_THUMBNAIL_SCALE = 0.44f;
 #endif
@@ -55,6 +59,12 @@ HudCardCollected::HudCardCollected( Scrooby::Page* pPage )
     rAssert( pPage != NULL );
     Scrooby::Group* itemCollected = pPage->GetGroup( "ItemCollected" );
     rAssert( itemCollected != NULL );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // Card pickup is a transient central notification. Capture its animated
+    // group once and composite the same image into both OpenXR eyes instead
+    // of letting Scrooby submit it only during the first eye traversal.
+    ScroobySetVrMissionHudGroup( 19, itemCollected );
+#endif
     m_cardImage = itemCollected->GetSprite( "CardCollected" );
     rAssert( m_cardImage != NULL );
 
@@ -425,4 +435,3 @@ HudCardCollected::SetCardCount( unsigned int numCollected,
     }
 #endif // !RAD_DEMO
 }
-

@@ -64,7 +64,12 @@ static const char* szVirtualInputs[] =
     "P1_KBD_EBrake",
     "P1_KBD_Nitro",
     "P1_KBD_Left",
-    "P1_KBD_Right"
+    "P1_KBD_Right",
+
+    // Dedicated OpenXR shoulder inputs. Win32 has no native Black/White
+    // buttons, so grips need real frontend slots to reach GUI L1/R1.
+    "feL1",
+    "feR1"
 };
 
 //==============================================================================
@@ -146,6 +151,8 @@ eMapType VirtualInputs::GetType( int VirtualInput )
         case InputManager::feMouseUp:
         case InputManager::feMouseDown:
         case InputManager::feStart:
+        case InputManager::feL1:
+        case InputManager::feR1:
             return MAP_FRONTEND;
         default:
             {

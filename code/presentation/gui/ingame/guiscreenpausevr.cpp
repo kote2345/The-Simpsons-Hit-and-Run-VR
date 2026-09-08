@@ -29,11 +29,21 @@ CGuiScreenPauseVR::CGuiScreenPauseVR(Scrooby::Screen* screen,CGuiEntity* parent)
     m_numericValues[0]=0;
     m_numericValues[1]=0;
     m_pPage=m_pScroobyScreen->GetPage("PauseSettings");
-    if(!m_pPage){m_pPage=m_pScroobyScreen->GetPage("Controller");m_frontendLayout=true;}
+    if(!m_pPage)
+    {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        // Controller is the hidden console fallback; the PC frontend renders
+        // ControllerPC. Generated rows on the former remained invisible.
+        m_pPage=m_pScroobyScreen->GetPage("ControllerPC");
+#else
+        m_pPage=m_pScroobyScreen->GetPage("Controller");
+#endif
+        m_frontendLayout=true;
+    }
     rAssert(m_pPage);
     // The frontend has no dedicated VR page and supplies Controller only as a
-    // canvas. Hide every authored top-level drawable before adding the VR rows;
-    // hiding Menu alone leaves its title/help text visible behind this screen.
+    // canvas. Hide the other platform pages and keep the selected page's layer
+    // alive; its authored Menu group is hidden separately below.
     if(m_frontendLayout)
     {
         const char* const controllerPages[]={"ControllerPC","CharacterControls","VehicleControls","GameSettings",
@@ -41,16 +51,17 @@ CGuiScreenPauseVR::CGuiScreenPauseVR(Scrooby::Screen* screen,CGuiEntity* parent)
         for(unsigned pageIndex=0;pageIndex<sizeof(controllerPages)/sizeof(controllerPages[0]);++pageIndex)
         {
             Scrooby::Page* controllerPage=m_pScroobyScreen->GetPage(controllerPages[pageIndex]);
-            if(!controllerPage)continue;
+            if(!controllerPage || controllerPage==m_pPage)continue;
             for(int layer=0;layer<controllerPage->GetNumberOfLayers();++layer)
                 if(Scrooby::Layer* controllerLayer=controllerPage->GetLayerByIndex(layer))
                     controllerLayer->SetVisible(false);
         }
-        FePage* frontendPage=dynamic_cast<FePage*>(m_pPage);
-        if(frontendPage)
-            for(int child=0;child<frontendPage->GetChildrenCount();++child)
-                if(Scrooby::Drawable* drawable=frontendPage->GetChildDrawable(child))
-                    drawable->SetVisible(false);
+        // CGuiScreenController normally enables the platform-specific page.
+        // This VR replacement bypasses that constructor, so make its canvas
+        // visible explicitly before attaching the generated rows.
+        for(int layer=0;layer<m_pPage->GetNumberOfLayers();++layer)
+            if(Scrooby::Layer* controllerLayer=m_pPage->GetLayerByIndex(layer))
+                controllerLayer->SetVisible(true);
     }
     Scrooby::Group* authored=m_pPage->GetGroup("Menu");if(authored)authored->SetVisible(false);
     FeText* style=VrMenuBuilder::FindStyleText(m_pPage);rAssert(style);

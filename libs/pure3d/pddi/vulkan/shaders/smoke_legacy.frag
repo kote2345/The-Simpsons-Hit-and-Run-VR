@@ -1,4 +1,5 @@
 #version 450
+layout(constant_id=1) const bool kHdrScene=false;
 #define MATERIAL_MODEL 0
 layout(constant_id=0) const bool kAlphaTest=true;
 
@@ -284,7 +285,7 @@ vec3 vehicleRearLightContribution() {
     }
     return add;
 }
-void main() {
+void shadeMaterial() {
     vec4 baseSample=texture(diffuseTexture,uv);
     int materialMode=int(draw.environmentParams.y+0.5);
     int layerBlend=int(draw.environmentParams.z+0.5);
@@ -296,9 +297,9 @@ void main() {
     }
     else outputColour=colour*baseSample;
     if(materialMode == 2)
-        outputColour*=texture(lightMapTexture,uv1);
+        outputColour.rgb*=texture(lightMapTexture,uv1).rgb*2.0;
     else if(materialMode == 3)
-        outputColour*=texture(lightMapTexture,uv2);
+        outputColour.rgb*=texture(lightMapTexture,uv2).rgb*2.0;
     int enhancedModel=MATERIAL_MODEL;
     bool pbr=enhancedModel==2;
     int pbrDebug=int(draw.pbrMapControl.y+0.5);
@@ -314,7 +315,8 @@ void main() {
         if(kAlphaTest && draw.alphaRef >= 0.0 && outputColour.a<draw.alphaRef) discard;
         return;
     }
-    if(draw.outputParams.y>0.5) outputColour.rgb=enhancedLighting(outputColour.rgb);
+    if(draw.outputParams.y>0.5)
+        outputColour.rgb=enhancedLighting(outputColour.rgb);
     else outputColour.rgb += specularLight;
     if(draw.shadowParams.x>0.5&&enhancedModel!=2&&enhancedModel!=3) {
         outputColour.rgb*=1.0-0.435*csmShadow();
@@ -369,5 +371,13 @@ void main() {
                     (draw.alphaCompare == 6 && outputColour.a == draw.alphaRef) ||
                     (draw.alphaCompare == 7 && outputColour.a != draw.alphaRef);
         if(!pass) discard;
+    }
+}
+void main() {
+    shadeMaterial();
+    if(kHdrScene) {
+        vec3 c=max(outputColour.rgb,vec3(0.0));
+        outputColour.rgb=mix(pow((c+0.055)/1.055,vec3(2.4)),c/12.92,
+                              lessThanEqual(c,vec3(0.04045)));
     }
 }

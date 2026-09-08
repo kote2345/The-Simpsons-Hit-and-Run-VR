@@ -30,6 +30,9 @@
 #ifdef RAD_ANDROID
 #include <input/touch/touchhudsystem.h>
 #endif
+#if defined(SRR2_OPENXR)
+#include <vr/openxrmanager.h>
+#endif
 
 //===========================================================================
 // Global Data, Local Data, Local Classes
@@ -260,7 +263,8 @@ void CGuiScreenPauseOptions::HandleMessage
                 else if( param1 == MENU_ITEM_SETTINGS )
                 {
 #if defined(SRR2_OPENXR)
-                     m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_DEBUG );
+                    if( SharOpenXR::IsDeveloperMenusEnabled() )
+                        m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_DEBUG );
 #else
                      m_pParent->HandleMessage( GUI_MSG_GOTO_SCREEN, GUI_SCREEN_ID_SETTINGS );
 #endif
@@ -321,6 +325,13 @@ void CGuiScreenPauseOptions::HandleMessage
 void CGuiScreenPauseOptions::InitIntro()
 {
 //    this->SetButtonVisible( BUTTON_ICON_ACCEPT, (m_pMenu->GetSelection() != MENU_ITEM_CAMERA) );
+
+#if defined(SRR2_OPENXR)
+    // Refresh this on every entry: Developer Menus can be changed on the VR
+    // screen without recreating the pause-options screen.
+    m_pMenu->SetMenuItemEnabled( MENU_ITEM_SETTINGS,
+                                 SharOpenXR::IsDeveloperMenusEnabled(), true );
+#endif
 
 #ifndef RAD_E3
     GetCheatInputSystem()->SetEnabled( true );

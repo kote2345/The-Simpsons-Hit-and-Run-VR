@@ -9,16 +9,29 @@ layout(set=1,binding=0,std140) uniform DrawConstants {
     vec4 ambientTerm; vec4 specularMaterial; vec4 fogColour; vec4 fogParams;
     vec4 environmentBlend; vec4 environmentParams; vec4 outputParams; vec4 materialParams;
     LightParams lights[8]; mat4 reflectionViewToWorld; mat4 normalMatrix;
-    vec4 skinParams; mat4 skinMatrices[25];
+    vec4 skinParams; mat4 skinMatrices[25]; mat4 shadowMatrices[3]; vec4 shadowParams;
+    vec4 vehicleRearLightPositions[4]; vec4 vehicleRearLightDirections[4];
+    vec4 vehicleRearLightParams; vec4 vehicleRearLightControl; vec4 pbrMapControl;
+    vec4 vehicleDeformationControl; vec4 vehicleDents[4];
 } draw;
 layout(push_constant) uniform TransformConstants { mat4 mvp; } transform;
 layout(location=0) out vec2 uv;
 void main() {
-    vec4 p=vec4(position,1.0);
+    vec3 deformedPosition=position;
+    for(int i=0;i<4;++i) {
+        if(i>=int(draw.vehicleDeformationControl.x+0.5)) break;
+        vec4 dent=draw.vehicleDents[i];
+        vec3 delta=deformedPosition-dent.xyz;
+        float radius=1.20+dent.w*0.65;
+        float falloff=max(0.0,1.0-length(delta)/radius);
+        falloff=falloff*falloff*(3.0-2.0*falloff);
+        deformedPosition+=normalize(-dent.xyz+vec3(0.0,0.20,0.0))*(dent.w*falloff);
+    }
+    vec4 p=vec4(deformedPosition,1.0);
     if(draw.skinParams.x>0.5) {
         vec4 w=vec4(skinWeights,1.0-skinWeights.x-skinWeights.y-skinWeights.z);
         p=vec4(0.0);
-        for(int i=0;i<4;++i) p+=draw.skinMatrices[skinIndices[i]]*vec4(position,1.0)*w[i];
+        for(int i=0;i<4;++i) p+=draw.skinMatrices[skinIndices[i]]*vec4(deformedPosition,1.0)*w[i];
     }
     vec4 clip=transform.mvp*p;
     clip.z=(clip.z+clip.w)*0.5;

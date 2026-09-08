@@ -1,0 +1,107 @@
+#version 450
+layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
+layout(std430,set=0,binding=2) readonly buffer VolumeState { vec4 value[2]; mat4 shadowMatrix[3]; vec4 parameters[2]; mat4 viewToWorld; } state;
+layout(set=0,binding=4) uniform sampler2DShadow shadow0;
+layout(set=0,binding=5) uniform sampler2DShadow shadow1;
+layout(set=0,binding=6) uniform sampler2DShadow shadow2;
+layout(rgba16f,set=0,binding=8) uniform writeonly image2DArray froxelOutput;
+layout(push_constant) uniform FroxelCamera { mat4 inverseProjection; uint eye; } camera;
+const uint sliceCount=96u; const float maximumDistance=120.0;
+float sliceDistance(float t) { return exp2(t*log2(1.0+maximumDistance))-1.0; }
+vec3 shadowPosition(vec4 c) { vec3 p=c.xyz/c.w; p.y=-p.y; return p*0.5+0.5; }
+bool validShadow(vec3 p) { return p.x>0.002&&p.x<0.998&&p.y>0.002&&p.y<0.998&&p.z>0.0&&p.z<1.0; }
+float sample0(vec3 p,float bias) { return texture(shadow0,vec3(p.xy,p.z-bias)); }
+float sample1(vec3 p,float bias) { return texture(shadow1,vec3(p.xy,p.z-bias)); }
+float sample2(vec3 p,float bias) { return texture(shadow2,vec3(p.xy,p.z-bias)); }
+float shadowAmount(vec3 w,float d) {
+    if(state.parameters[0].x<0.5) return 0.0;
+    const float bias=0.00045;
+    vec3 p0=shadowPosition(state.shadowMatrix[0]*vec4(w,1));
+    vec3 p1=shadowPosition(state.shadowMatrix[1]*vec4(w,1));
+    vec3 p2=shadowPosition(state.shadowMatrix[2]*vec4(w,1));
+    bool v0=validShadow(p0),v1=validShadow(p1),v2=validShadow(p2);
+    if(d<24.0&&v0) {
+        if(d<20.0||!v1) return sample0(p0,bias);
+        return mix(sample0(p0,bias),sample1(p1,bias),smoothstep(20.0,24.0,d));
+    }
+    if(d<56.0&&v1) {
+        if(d<50.0||!v2) return sample1(p1,bias);
+        return mix(sample1(p1,bias),sample2(p2,bias),smoothstep(50.0,56.0,d));
+    }
+    if(v2) return sample2(p2,bias);
+    if(v1) return sample1(p1,bias);
+    if(v0) return sample0(p0,bias);
+    return 0.0;
+}
+float hash31(vec3 p) { p=fract(p*0.1031); p+=dot(p,p.yzx+33.33); return fract((p.x+p.y)*p.z); }
+float noise3(vec3 p) {
+    vec3 c=floor(p),f=fract(p); f=f*f*(3.0-2.0*f);
+    return mix(mix(mix(hash31(c),hash31(c+vec3(1,0,0)),f.x),mix(hash31(c+vec3(0,1,0)),hash31(c+vec3(1,1,0)),f.x),f.y),mix(mix(hash31(c+vec3(0,0,1)),hash31(c+vec3(1,0,1)),f.x),mix(hash31(c+vec3(0,1,1)),hash31(c+vec3(1,1,1)),f.x),f.y),f.z);
+}
+float densityAt(vec3 w) {
+    float h=w.y; // Fixed world datum: crouching must not move the medium.
+    float broad=noise3(w*vec3(0.045,0.075,0.045));
+    float detail=noise3(w*vec3(0.13,0.19,0.13)+vec3(7.1,2.3,5.7));
+    float atmosphere=mix(0.48,0.82,broad)*mix(0.92,1.08,detail);
+    float ground=0.40*exp(-max(h,0.0)*0.72)*(1.0-smoothstep(3.2,6.0,h));
+    return atmosphere+ground*mix(0.72,1.28,broad);
+}
+void main() {
+    ivec3 size=imageSize(froxelOutput); uvec2 pixel=gl_GlobalInvocationID.xy;
+    if(pixel.x>=uint(size.x)||pixel.y>=uint(size.y)) return;
+    vec2 uv=(vec2(pixel)+0.5)/vec2(size.xy);
+    vec2 ndc=vec2(uv.x*2-1,1-uv.y*2);
+    vec4 nearH=camera.inverseProjection*vec4(ndc,-1,1);
+    vec4 farH=camera.inverseProjection*vec4(ndc,1,1);
+    float nearW=abs(nearH.w)<1e-6?(nearH.w<0?-1e-6:1e-6):nearH.w;
+    float farW=abs(farH.w)<1e-6?(farH.w<0?-1e-6:1e-6):farH.w;
+    vec3 origin=nearH.xyz/nearW;
+    vec3 ray=normalize(farH.xyz/farW-origin);
+    vec3 sun=state.value[camera.eye].yzw;
+    sun=length(sun)>0.5?normalize(sun):normalize(vec3(0,0.7,-0.7));
+    const float g=0.55;
+    float mu=clamp(dot(ray,sun),-1.0,1.0);
+    float forwardPhase=(1-g*g)/pow(1+g*g-2*g*mu,1.5);
+    // Sparse morning haze. Keep a broad shadowed component, but avoid lifting
+    // the whole HDR scene with the former high scattering intensity.
+    // Low baseline haze with a comparatively strong forward lobe keeps god
+    // rays readable without whitening the entire scene.
+    // Keep the isotropic haze/extinction unchanged, but strengthen only the
+    // directional sunlight that forms visible shafts between CSM shadows.
+    // This makes god rays twice as clear without reducing visibility by
+    // adding more background fog.
+    float phase=0.18+(0.75*2.0)*forwardPhase;
+    vec3 worldRay=normalize(mat3(state.viewToWorld)*ray);
+    float skyHeight=clamp(worldRay.y*0.5+0.5,0.0,1.0);
+    vec3 skyColour=mix(vec3(0.72,0.79,0.88),vec3(0.32,0.53,0.82),skyHeight);
+    float solarTint=smoothstep(0.25,0.96,mu);
+    vec3 volumeColour=mix(skyColour,vec3(1.0,0.88,0.72),solarTint);
+    vec3 scattering=vec3(0); float transmittance=1;
+    // One invocation owns a complete Z column. This guarantees ordered
+    // front-to-back integration without cross-workgroup synchronization and
+    // stores a cumulative V-buffer that can be sampled at exact scene depth.
+    for(uint slice=0u;slice<sliceCount;++slice) {
+        float t0=float(slice)/float(sliceCount),t1=float(slice+1u)/float(sliceCount);
+        float d0=sliceDistance(t0),d1=sliceDistance(t1);
+        // A single shadow comparison extrudes a 2D shadow sample across the
+        // entire segment. Oblique thin shafts then alias into separate slabs.
+        // Integrate two ordered subsegments before storing the cumulative end.
+        // Fixed quadrature avoids frame noise / mismatched stereo-eye jitter.
+        const uint substeps=2u;
+        float stepLength=(d1-d0)/float(substeps);
+        for(uint substep=0u;substep<substeps;++substep) {
+            float d=d0+(float(substep)+0.5)*stepLength;
+            vec3 v=origin+ray*d;
+            vec3 w=(state.viewToWorld*vec4(v,1)).xyz;
+            float density=densityAt(w);
+            float visibility=1.0-shadowAmount(w,length(v));
+            float segmentT=exp(-0.00028*density*stepLength);
+            // Slightly stronger shaft contrast at the accepted haze density.
+            vec3 segment=volumeColour*visibility*phase*1.55*(1-segmentT);
+            scattering+=transmittance*segment;
+            transmittance*=segmentT;
+        }
+        imageStore(froxelOutput,ivec3(pixel,int(camera.eye*sliceCount+slice)),
+                   vec4(scattering,transmittance));
+    }
+}

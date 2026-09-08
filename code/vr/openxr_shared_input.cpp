@@ -251,13 +251,30 @@ void AdaptVrConsoleInput(const char* name,float value,bool desktop,
     else if(!std::strcmp(name,"RightStickX")){set("CameraRight",std::max(0.0f,value));set("CameraLeft",std::max(0.0f,-value));set("CameraCarRight",std::max(0.0f,value));set("CameraCarLeft",std::max(0.0f,-value));set("feMouseLeft",value);}
     else if(!std::strcmp(name,"RightStickY")){set("CameraMoveIn",std::max(0.0f,value));set("CameraMoveOut",std::max(0.0f,-value));set("feMouseDown",value);}
     else if(!std::strcmp(name,"A"))set("feSelect",value);
-    else if(!std::strcmp(name,"B")){state->backButton=value;set("feBack",value);set("Jump",value);}
+    else if(!std::strcmp(name,"B"))
+    {
+        state->backButton=value;set("feBack",value);
+        if(GetSharedVrState().vrModeEnabled)set("Jump",value);
+        else set("Sprint",value);
+    }
     else if(!std::strcmp(name,"X")){state->attackButton=value;set("feFunction1",value);set("Attack",value);}
     else if(!std::strcmp(name,"Y")){set("feFunction2",value);set("DoAction",value);set("GetOutCar",value);}
     else if(!std::strcmp(name,"Start"))set("feStart",value);
     else if(!std::strcmp(name,"LeftTrigger")){set("Reverse",value);set("CameraZoom",value);}
-    else if(!std::strcmp(name,"RightTrigger"))set("Accelerate",value);
-    else if(!std::strcmp(name,"White"))set("HandBrake",std::max(state->backButton,value));
+    else if(!std::strcmp(name,"RightTrigger"))
+    {
+        set("Accelerate",value);
+        // Quest exposes RightTrigger directly and CharacterMappable binds it
+        // to Jump in Original mode. Win32 uses backend aliases instead.
+        if(!GetSharedVrState().vrModeEnabled)set("Jump",value);
+    }
+    else if(!std::strcmp(name,"Black")){}
+    else if(!std::strcmp(name,"White"))
+    {
+        // GUI grip edges are dispatched directly by the desktop OpenXR
+        // runtime; retain only the gameplay alias here.
+        set("HandBrake",std::max(state->backButton,value));
+    }
     else if(!std::strcmp(name,"LeftThumb")){set("Sprint",value);set("Horn",std::max(state->attackButton,value));}
     else if(!std::strcmp(name,"RightThumb"))set("ResetCar",value);
 }
@@ -368,6 +385,10 @@ void SubmitVrInputFrame(const VrInputFrame& raw,VrInputBindingSink sink,void* co
     state.stickClick[1]=input.rightStickClick>0.5f;
     UpdatePhysicalPushInteract();
     VrInputFrame gameplayInput=input;
+    // Original mode follows the gamepad layout: right grip is the on-foot
+    // attack button. In VR mode the grip remains reserved for grabbing.
+    if(!state.vrModeEnabled)
+        gameplayInput.attack=std::max(gameplayInput.attack,input.rightGrip);
     const bool physicalPush=PhysicalInteract.pulseFrames>0;
     if(physicalPush)
     {

@@ -2344,8 +2344,7 @@ void WorldScene::MarkCameraVisible( tPointCamera* pCam, unsigned int iFilter )
 #endif
 
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
-   if( SharOpenXR::IsVrModeEnabled() &&
-       !VrIsDynamicVehicleCubeMapCapture() )
+   if( !VrIsDynamicVehicleCubeMapCapture() )
    {
       // Spatial streaming must cover the union of both eyes and remain
       // stable while the player pitches the headset.  A sphere tangent to

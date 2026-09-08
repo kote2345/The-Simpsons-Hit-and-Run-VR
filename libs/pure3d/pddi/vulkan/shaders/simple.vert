@@ -14,6 +14,9 @@ layout(set=1,binding=0,std140) uniform DrawConstants {
     vec4 environmentBlend; vec4 environmentParams; vec4 outputParams; vec4 materialParams;
     LightParams lights[8]; mat4 reflectionViewToWorld; mat4 normalMatrix;
     vec4 skinParams; mat4 skinMatrices[25]; mat4 shadowMatrices[3]; vec4 shadowParams;
+    vec4 vehicleRearLightPositions[4]; vec4 vehicleRearLightDirections[4];
+    vec4 vehicleRearLightParams; vec4 vehicleRearLightControl; vec4 pbrMapControl;
+    vec4 vehicleDeformationControl; vec4 vehicleDents[4];
 } draw;
 layout(push_constant) uniform TransformConstants { mat4 leftMvp; mat4 rightMvp; } transform;
 layout(location=0) out vec4 colour;
@@ -23,11 +26,21 @@ layout(location=7) out vec4 shadowCoord0;
 layout(location=8) out vec4 shadowCoord1;
 layout(location=9) out vec4 shadowCoord2;
 void main() {
-    vec4 skinnedPosition=vec4(position,1.0);
+    vec3 deformedPosition=position;
+    for(int i=0;i<4;++i) {
+        if(i>=int(draw.vehicleDeformationControl.x+0.5)) break;
+        vec4 dent=draw.vehicleDents[i];
+        vec3 delta=deformedPosition-dent.xyz;
+        float radius=1.20+dent.w*0.65;
+        float falloff=max(0.0,1.0-length(delta)/radius);
+        falloff=falloff*falloff*(3.0-2.0*falloff);
+        deformedPosition+=normalize(-dent.xyz+vec3(0.0,0.20,0.0))*(dent.w*falloff);
+    }
+    vec4 skinnedPosition=vec4(deformedPosition,1.0);
     if(draw.skinParams.x>0.5) {
         vec4 weights=vec4(skinWeights,1.0-skinWeights.x-skinWeights.y-skinWeights.z);
         skinnedPosition=vec4(0.0);
-        for(int i=0;i<4;++i) skinnedPosition+=draw.skinMatrices[skinIndices[i]]*vec4(position,1.0)*weights[i];
+        for(int i=0;i<4;++i) skinnedPosition+=draw.skinMatrices[skinIndices[i]]*vec4(deformedPosition,1.0)*weights[i];
     }
 #ifdef ENABLE_MULTIVIEW
     vec4 clip=(gl_ViewIndex==0?transform.leftMvp:transform.rightMvp)*skinnedPosition;

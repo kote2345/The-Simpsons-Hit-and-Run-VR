@@ -122,7 +122,11 @@ const ControlMap GUI_CONTROL_MAP[] =
     { "feBack",         GuiInput::Back },
     { "feSelect",       GuiInput::Select },
     { "feFunction1",    GuiInput::AuxX },
-    { "feFunction2",    GuiInput::L1 },
+    { "feFunction2",    GuiInput::AuxY },
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    { "feL1",           GuiInput::L1 },
+    { "feR1",           GuiInput::R1 },
+#endif
 
     { "P1_KBD_Start", GuiInput::P1_KBD_Start },
     { "P1_KBD_Gas", GuiInput::P1_KBD_Select },

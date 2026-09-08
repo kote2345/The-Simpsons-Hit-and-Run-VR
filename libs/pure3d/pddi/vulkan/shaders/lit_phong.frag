@@ -1,4 +1,5 @@
 #version 450
+layout(constant_id=1) const bool kHdrScene=false;
 #define MATERIAL_MODEL 1
 layout(constant_id=0) const bool kAlphaTest=true;
 layout(location=0) in vec4 colour;
@@ -297,7 +298,7 @@ vec3 vehicleRearLightContribution() {
     }
     return add;
 }
-void main() {
+void shadeMaterial() {
     outputColour=colour*texture(diffuseTexture,uv);
     int enhancedModel=MATERIAL_MODEL;
     bool pbr=enhancedModel==2;
@@ -330,4 +331,12 @@ void main() {
     }
     if(pbr) outputColour.rgb=linearToSrgb(filmicToneMap(outputColour.rgb));
     if(kAlphaTest&&draw.alphaRef>=0.0&&!alphaPass(outputColour.a)) discard;
+}
+void main() {
+    shadeMaterial();
+    if(kHdrScene) {
+        vec3 c=max(outputColour.rgb,vec3(0.0));
+        outputColour.rgb=mix(pow((c+0.055)/1.055,vec3(2.4)),c/12.92,
+                              lessThanEqual(c,vec3(0.04045)));
+    }
 }

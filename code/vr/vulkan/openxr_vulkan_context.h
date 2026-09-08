@@ -117,6 +117,48 @@ public:
     void SetShadowReceiverState(bool enabled,const float matrices[48]);
 
 private:
+    struct HdrTarget {
+        VkImage output=VK_NULL_HANDLE, colour=VK_NULL_HANDLE, volume=VK_NULL_HANDLE;
+        VkImage froxel=VK_NULL_HANDLE;
+        VkDeviceMemory memory=VK_NULL_HANDLE, volumeMemory=VK_NULL_HANDLE;
+        VkDeviceMemory froxelMemory=VK_NULL_HANDLE;
+        VkBuffer meterBuffer=VK_NULL_HANDLE;
+        VkDeviceMemory meterMemory=VK_NULL_HANDLE;
+        void* meterMapped=nullptr;
+        VkImageView colourView=VK_NULL_HANDLE, depthView=VK_NULL_HANDLE, volumeView=VK_NULL_HANDLE;
+        VkImageView froxelView=VK_NULL_HANDLE;
+        VkImageView outputViews[4]={};
+        VkFramebuffer framebuffers[2]={};
+        VkFramebuffer volumeFramebuffers[2]={};
+        VkSampler sampler=VK_NULL_HANDLE, volumeSampler=VK_NULL_HANDLE, froxelSampler=VK_NULL_HANDLE;
+        VkSampler fallbackShadowSampler=VK_NULL_HANDLE;
+        VkDescriptorSetLayout setLayout=VK_NULL_HANDLE;
+        VkDescriptorPool pool=VK_NULL_HANDLE;
+        VkDescriptorSet descriptor=VK_NULL_HANDLE;
+        VkRenderPass pass=VK_NULL_HANDLE;
+        VkRenderPass volumePass=VK_NULL_HANDLE;
+        VkPipelineLayout layout=VK_NULL_HANDLE;
+        VkPipeline pipeline=VK_NULL_HANDLE;
+        VkPipeline volumePipeline=VK_NULL_HANDLE;
+        VkPipelineLayout exposureLayout=VK_NULL_HANDLE;
+        VkPipeline exposurePipeline=VK_NULL_HANDLE;
+        VkPipelineLayout froxelLayout=VK_NULL_HANDLE;
+        VkPipeline froxelPipeline=VK_NULL_HANDLE;
+        VkFormat outputFormat=VK_FORMAT_UNDEFINED;
+        uint32_t width=0,height=0,volumeWidth=0,volumeHeight=0;
+        uint32_t froxelWidth=0,froxelHeight=0,layer=0,layers=0;
+        bool initialized=false,active=false,allocated=false,failed=false;
+        bool volumeOnly=false,volumeShadowsBound=false,froxelInitialized=false;
+        float projection[2][16]={};
+    };
+    std::vector<HdrTarget> mHdrTargets;
+    std::unordered_set<VkImage> mLdrOffscreenTargets;
+    std::unordered_set<VkImage> mHdrResolvedOutputs;
+    bool RouteHdrTarget(VkImage& image,VkFormat& format,uint32_t width,
+                        uint32_t height,uint32_t layer,const float* projection);
+    bool ResolveHdrTargets();
+    bool CreateHdrResolve(HdrTarget& target,VkImage depth);
+    void DestroyHdrTargets();
     // Pure3D's Windows loader creates and destroys textures on its worker
     // thread while the main thread records an XR eye. Vulkan queue, command
     // pool, descriptor-pool and context-owned containers require one common
@@ -209,6 +251,9 @@ private:
     VkFence mFence;
     FrameArena mFrameArenas[FrameArenaCount];
     uint32_t mFrameArenaIndex;
+    float mAdaptedExposure;
+    float mVolumetricSunDirection[3];
+    float mVolumetricViewToWorld[16];
     FrameArena* mActiveFrameArena;
     VkQueryPool mTimestampQueryPool;
     float mTimestampPeriod;
@@ -219,7 +264,8 @@ private:
     struct PendingTextureUpload
     {
         VkImage image;
-        uint32_t width,height,mipLevel,arrayLayer;
+        uint32_t width,height,mipLevel,arrayLayer,imageOffsetY;
+        bool preserveContents;
         std::vector<unsigned char> data;
     };
     std::deque<PendingTextureUpload> mPendingTextureUploads;

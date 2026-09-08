@@ -1,6 +1,8 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
 #define MATERIAL_MODEL 2
 layout(constant_id=0) const bool kAlphaTest=true;
+layout(constant_id=1) const bool kHdrScene=false;
 
 layout(location = 0) in vec4 colour;
 layout(location = 1) in vec2 uv;
@@ -50,44 +52,7 @@ layout(set = 1, binding = 0, std140) uniform DrawConstants
     vec4 vehicleRearLightPositions[4]; vec4 vehicleRearLightDirections[4];
     vec4 vehicleRearLightParams; vec4 vehicleRearLightControl; vec4 pbrMapControl;
 } draw;
-vec3 shadowPosition(vec4 coordinate) {
-    vec3 p=coordinate.xyz/coordinate.w; p.y=-p.y; p=p*0.5+0.5;
-    return p;
-}
-bool validShadowPosition(vec3 p) {
-    return p.x>0.001&&p.x<0.999&&p.y>0.001&&p.y<0.999&&p.z>0.0&&p.z<1.0;
-}
-float sampleShadow0(vec4 coordinate) {
-    vec3 p=shadowPosition(coordinate);
-    if(!validShadowPosition(p)) return 0.0;
-    return texture(shadowTexture0,vec3(p.xy,p.z-draw.shadowParams.w));
-}
-float sampleShadow1(vec4 coordinate) {
-    vec3 p=shadowPosition(coordinate);
-    if(!validShadowPosition(p)) return 0.0;
-    return texture(shadowTexture1,vec3(p.xy,p.z-draw.shadowParams.w));
-}
-float sampleShadow2(vec4 coordinate) {
-    vec3 p=shadowPosition(coordinate);
-    if(!validShadowPosition(p)) return 0.0;
-    return texture(shadowTexture2,vec3(p.xy,p.z-draw.shadowParams.w));
-}
-float csmShadow() {
-    if(viewDepth<20.0) return sampleShadow0(shadowCoord0);
-    if(viewDepth<24.0) {
-        float s0=sampleShadow0(shadowCoord0);
-        float s1=sampleShadow1(shadowCoord1);
-        float nearShadow=max(s0,s1);
-        return mix(nearShadow,s1,(viewDepth-20.0)*0.25);
-    }
-    if(viewDepth<50.0) return sampleShadow1(shadowCoord1);
-    if(viewDepth<56.0) {
-        float s1=sampleShadow1(shadowCoord1);
-        float s2=sampleShadow2(shadowCoord2);
-        return mix(s1,s2,(viewDepth-50.0)/6.0);
-    }
-    return sampleShadow2(shadowCoord2);
-}
+#include "pbr_shadows.glsl"
 const float PI=3.14159265359;
 bool hasPbrFlag(float bit) { return mod(floor(draw.pbrMapControl.x/bit),2.0)>0.5; }
 vec3 srgbToLinear(vec3 value) {
@@ -106,15 +71,8 @@ vec3 linearToSrgb(vec3 value) {
 vec3 filmicToneMap(vec3 value) {
     return clamp((value*(2.51*value+0.03))/(value*(2.43*value+0.59)+0.14),0.0,1.0);
 }
-vec2 environmentBrdfApproximation(float perceptualRoughness,float noV) {
-    // Epic/Filament split-sum DFG analytical approximation. It replaces the
-    // old brightness heuristic with the integrated Fresnel/visibility term.
-    const vec4 c0=vec4(-1.0,-0.0275,-0.572,0.022);
-    const vec4 c1=vec4(1.0,0.0425,1.04,-0.04);
-    vec4 r=perceptualRoughness*c0+c1;
-    float a004=min(r.x*r.x,exp2(-9.28*noV))*r.x+r.y;
-    return vec2(-1.04,1.04)*a004+r.zw;
-}
+#include "pbr_brdf.glsl"
+#include "pbr_punctual.glsl"
 mat3 cotangentFrame(vec3 N,vec3 position,vec2 texcoord) {
     vec3 dp1=dFdx(position),dp2=dFdy(position);
     vec2 duv1=dFdx(texcoord),duv2=dFdy(texcoord);
@@ -208,25 +166,17 @@ vec3 enhancedLighting(vec3 albedo) {
     float kernelRoughness=min(2.0*normalVariance,0.20);
     roughness=clamp(sqrt(roughness*roughness+kernelRoughness),0.089,1.0);
     float authoredAo=1.0;
-    float ndv=max(dot(N,V),0.001),ndh=max(dot(N,H),0.0),vdh=max(dot(V,H),0.0);
-    float a=roughness*roughness;
-    const float sunAngularRadius=0.00465;
-    float a2=a*a+sunAngularRadius*sunAngularRadius;
-    float denominator=ndh*ndh*(a2-1.0)+1.0;
-    float D=a2/max(PI*denominator*denominator,0.0001);
+    float ndv=clamp(dot(N,V),0.001,1.0);
     vec3 F0=mix(vec3(0.04),pbrAlbedo,metallic);
-    vec3 F=F0+(1.0-F0)*pow(1.0-vdh,5.0);
-    float visibilityDenominator=ndl*sqrt(ndv*ndv*(1.0-a2)+a2)+
-                                ndv*sqrt(ndl*ndl*(1.0-a2)+a2);
-    float visibility=0.5/max(visibilityDenominator,0.0001);
-    vec3 specular=D*visibility*F;
-    vec3 diffuse=(1.0-F)*(1.0-metallic)*pbrAlbedo/PI;
+    vec2 dfg=environmentBrdfApproximation(roughness,ndv);
+    vec3 environmentReflectance=pbrEnvironmentReflectance(F0,dfg);
     vec3 worldNormal=normalize(mat3(draw.reflectionViewToWorld)*N);
     vec3 worldIncident=normalize(mat3(draw.reflectionViewToWorld)*viewPositionOut);
     vec3 reflectionDirection=normalize(reflect(worldIncident,worldNormal));
     float skyWeight=clamp(worldNormal.y*0.5+0.5,0.0,1.0);
     vec3 irradiance=mix(vec3(0.20,0.21,0.23),vec3(0.32,0.35,0.40),skyWeight);
-    vec3 ambient=pbrAlbedo*irradiance*(1.0-metallic)*authoredAo;
+    vec3 ambient=pbrAlbedo*irradiance*(1.0-metallic)*
+        (1.0-environmentReflectance)*authoredAo;
     float reflectedSky=clamp(reflectionDirection.y*0.5+0.5,0.0,1.0);
     vec3 environmentLinear=mix(vec3(0.035,0.030,0.025),
                                vec3(0.42,0.50,0.64),reflectedSky);
@@ -238,23 +188,44 @@ vec3 enhancedLighting(vec3 albedo) {
                                         roughness*maximumLod).rgb;
         } else {
             float maximumLod=float(max(textureQueryLevels(reflectionTexture)-1,0));
-            reflectionSample=textureLod(reflectionTexture,reflectionUV,
+            vec2 mappedReflectionUV=clamp(vec2(0.5+0.5*reflectionDirection.x,
+                0.5-0.5*reflectionDirection.y),vec2(0.001),vec2(0.999));
+            reflectionSample=textureLod(reflectionTexture,mappedReflectionUV,
                                         roughness*maximumLod).rgb;
         }
-        vec3 sampledEnvironment=srgbToLinear(max(reflectionSample,vec3(0.0)));
-        float sampleLuminance=dot(sampledEnvironment,vec3(0.2126,0.7152,0.0722));
-        environmentLinear=mix(environmentLinear,sampledEnvironment,
-                              smoothstep(0.002,0.03,sampleLuminance));
+        // Dark captures are valid occluded environments, not missing data.
+        environmentLinear=srgbToLinear(max(reflectionSample,vec3(0.0)));
     }
-    vec2 dfg=environmentBrdfApproximation(roughness,ndv);
-    vec3 environmentBrdf=F0*dfg.x+vec3(dfg.y);
-    ambient+=environmentLinear*environmentBrdf*authoredAo;
+    ambient+=environmentLinear*environmentReflectance*authoredAo;
     const vec3 sunRadiance=vec3(2.15,2.04,1.86);
     float shadowAmount=draw.shadowParams.x>0.5?csmShadow():0.0;
-    // CSM represents visibility of the directional sun only. Ambient/IBL is
-    // deliberately preserved; GTAO/AO handles indirect-light occlusion.
-    float sunVisibility=1.0-0.90*shadowAmount;
-    vec3 direct=(diffuse+specular)*sunRadiance*ndl*sunVisibility;
+    // Fully blocked sunlight must also remove its GGX highlight. Do not add
+    // a direct-light visibility floor; ambient/IBL remains separate.
+    float sunVisibility=1.0-clamp(shadowAmount,0.0,1.0);
+    vec3 direct=pbrDirectBrdf(N,V,L,pbrAlbedo,metallic,roughness,0.00465)*
+        sunRadiance*sunVisibility;
+
+    // PCVR punctual lights are stored in world space by vkdevice. Evaluate in
+    // world space as well so head rotation cannot move the lighting.
+    // The legacy directional light is represented by the CSM sun above.
+    if(draw.pbrMapControl.z>0.5) {
+        vec3 worldPosition=(draw.reflectionViewToWorld*vec4(viewPositionOut,1.0)).xyz;
+        vec3 worldV=normalize(mat3(draw.reflectionViewToWorld)*V);
+        for(int i=0;i<8;++i) {
+            if(draw.lights[i].attenuation.w<0.5 || draw.lights[i].position.w<0.5) continue;
+            vec3 delta=draw.lights[i].position.xyz-worldPosition;
+            float distanceSquared=dot(delta,delta);
+            float distanceToLight=sqrt(max(distanceSquared,0.000001));
+            vec3 localL=delta/distanceToLight;
+            vec3 brdf=punctualBrdf(worldNormal,worldV,localL,pbrAlbedo,metallic,roughness);
+            vec3 k=max(draw.lights[i].attenuation.xyz,vec3(0.0));
+            // Retain authored attenuation; cap the singularity at the lamp.
+            float attenuation=1.0/max(k.x+k.y*distanceToLight+k.z*distanceSquared,1.0);
+            direct+=brdf*srgbToLinear(clamp(draw.lights[i].colour.rgb,0.0,1.0))*
+                attenuation*PI;
+        }
+        direct+=pbrRearLights(N,V,pbrAlbedo,metallic,roughness);
+    }
     return ambient+direct;
 }
 
@@ -307,9 +278,9 @@ void main() {
     }
     else outputColour=colour*baseSample;
     if(materialMode == 2)
-        outputColour*=texture(lightMapTexture,uv1);
+        outputColour.rgb*=texture(lightMapTexture,uv1).rgb*2.0;
     else if(materialMode == 3)
-        outputColour*=texture(lightMapTexture,uv2);
+        outputColour.rgb*=texture(lightMapTexture,uv2).rgb*2.0;
     int enhancedModel=MATERIAL_MODEL;
     bool pbr=enhancedModel==2;
     int pbrDebug=int(draw.pbrMapControl.y+0.5);
@@ -325,13 +296,18 @@ void main() {
         if(kAlphaTest && draw.alphaRef >= 0.0 && outputColour.a<draw.alphaRef) discard;
         return;
     }
-    if(draw.outputParams.y>0.5) outputColour.rgb=enhancedLighting(outputColour.rgb);
+    if(draw.outputParams.y>0.5)
+        outputColour.rgb=enhancedLighting(outputColour.rgb);
     else outputColour.rgb += specularLight;
     if(draw.shadowParams.x>0.5&&enhancedModel!=2&&enhancedModel!=3) {
         outputColour.rgb*=1.0-0.435*csmShadow();
     }
 
-    vec3 rearLight=vehicleRearLightContribution();
+    // PCVR PBR already composes material-aware lamps before tone mapping.
+    // Preserve the legacy lamp path for Quest and non-enhanced profiles.
+    bool pbrLamps=pbr && draw.pbrMapControl.z>0.5 &&
+                  draw.outputParams.y>0.5 && draw.outputParams.z>0.5;
+    vec3 rearLight=pbrLamps?vec3(0.0):vehicleRearLightContribution();
     if(pbr) outputColour.rgb+=rearLight;
     else outputColour.rgb=clamp(outputColour.rgb+rearLight,0.0,1.0);
     // PBR evaluates its environment inside enhancedLighting for both mapped
@@ -369,7 +345,7 @@ void main() {
         vec3 fog=pbr?srgbToLinear(draw.fogColour.rgb):draw.fogColour.rgb;
         outputColour.rgb=mix(outputColour.rgb,fog,fogAmount);
     }
-    if(pbr) outputColour.rgb=linearToSrgb(filmicToneMap(outputColour.rgb));
+    if(pbr && !kHdrScene) outputColour.rgb=linearToSrgb(filmicToneMap(outputColour.rgb));
     if(kAlphaTest && draw.alphaRef >= 0.0)
     {
         bool pass = draw.alphaCompare == 1 ||

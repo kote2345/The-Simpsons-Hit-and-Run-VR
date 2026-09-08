@@ -360,16 +360,24 @@ void CGuiScreen::HandleMessage
     }
 
 
-#ifdef RAD_PC
+#if defined(RAD_PC) && !defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( message == GUI_MSG_WINDOW_ENTER )
     {
         // just entered screen, so re-enable mouse
-        GetInputManager()->GetFEMouse()->SetSelectable( true );
+        FEMouse* feMouse = GetInputManager()->GetFEMouse();
+        if( feMouse != NULL )
+        {
+            feMouse->SetSelectable( true );
+        }
     }
     else if( message == GUI_MSG_WINDOW_EXIT )
     {
         // exiting screen, so disable mouse
-        GetInputManager()->GetFEMouse()->SetSelectable( false );
+        FEMouse* feMouse = GetInputManager()->GetFEMouse();
+        if( feMouse != NULL )
+        {
+            feMouse->SetSelectable( false );
+        }
     }
 #endif
 

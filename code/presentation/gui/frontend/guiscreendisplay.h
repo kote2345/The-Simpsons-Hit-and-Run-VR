@@ -59,7 +59,12 @@ private:
         MENU_ITEM_ENHANCED_MATERIALS,
         MENU_ITEM_VEHICLE_LIGHTS,
         MENU_ITEM_REFLECTIONS,
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+        MENU_ITEM_VOLUMETRIC_LIGHT,
+        MENU_ITEM_HDR,
+#else
         MENU_ITEM_REFRESH_RATE,
+#endif
         MENU_ITEM_RENDER_SCALE,
 #else
         MENU_ITEM_RESOLUTION,
@@ -76,7 +81,9 @@ private:
     bool      m_changedGamma;
 #if defined(SRR2_OPENXR)
     Scrooby::Text* m_pRenderScaleLabel;
+#if !defined(SRR2_OPENXR_PLATFORM_WIN32)
     Scrooby::Text* m_pRefreshRateLabel;
+#endif
     void UpdateVrDisplayLabels();
 #endif
 };

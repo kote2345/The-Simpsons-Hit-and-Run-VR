@@ -35,6 +35,7 @@ layout(set = 1, binding = 0, std140) uniform DrawConstants
     vec4 shadowParams;
     vec4 vehicleRearLightPositions[4]; vec4 vehicleRearLightDirections[4];
     vec4 vehicleRearLightParams; vec4 vehicleRearLightControl; vec4 pbrMapControl;
+    vec4 vehicleDeformationControl; vec4 vehicleDents[4];
 } draw;
 layout(push_constant) uniform TransformConstants { mat4 leftMvp; mat4 rightMvp; } transform;
 
@@ -54,7 +55,17 @@ layout(location = 12) out vec3 viewNormalOut;
 
 void main()
 {
-    vec4 skinnedPosition=vec4(position,1.0);
+    vec3 deformedPosition=position;
+    for(int i=0;i<4;++i) {
+        if(i>=int(draw.vehicleDeformationControl.x+0.5)) break;
+        vec4 dent=draw.vehicleDents[i];
+        vec3 delta=deformedPosition-dent.xyz;
+        float radius=1.20+dent.w*0.65;
+        float falloff=max(0.0,1.0-length(delta)/radius);
+        falloff=falloff*falloff*(3.0-2.0*falloff);
+        deformedPosition+=normalize(-dent.xyz+vec3(0.0,0.20,0.0))*(dent.w*falloff);
+    }
+    vec4 skinnedPosition=vec4(deformedPosition,1.0);
     vec3 skinnedNormal=normal;
     if(draw.skinParams.x>0.5)
     {
@@ -62,7 +73,7 @@ void main()
         skinnedPosition=vec4(0.0);
         skinnedNormal=vec3(0.0);
         for(int i=0;i<4;++i) {
-            skinnedPosition+=draw.skinMatrices[skinIndices[i]]*vec4(position,1.0)*weights[i];
+            skinnedPosition+=draw.skinMatrices[skinIndices[i]]*vec4(deformedPosition,1.0)*weights[i];
             skinnedNormal+=mat3(draw.skinMatrices[skinIndices[i]])*normal*weights[i];
         }
     }

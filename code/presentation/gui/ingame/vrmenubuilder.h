@@ -46,7 +46,7 @@ inline FeText* FindStyleText(Scrooby::Page* page)
     const char* const groups[]={"Menu","Tutorial","Camera","Display","Sound",
         "DisplayMode","ColourDepth","Resolution","Gamma","Settings"};
     const char* const texts[]={"Display","Tutorial","Camera","Sound","Settings",
-        "DisplayMode","ColourDepth","Resolution","Gamma"};
+        "DisplayMode","ColourDepth","Resolution","Gamma","Label00"};
     for(unsigned g=0;g<sizeof(groups)/sizeof(groups[0]);++g)
     {
         Scrooby::Group* group=page->GetGroup(groups[g]);

@@ -67,10 +67,14 @@ void LoadVrSettings()
         else if(!std::strcmp(key,"materialModel"))ReadInt(value,s.enhancedMaterialModel,0,3);
         else if(!std::strcmp(key,"reflectionMode"))ReadInt(value,s.reflectionMode,0,2);
         else if(!std::strcmp(key,"pbrDebugMode"))ReadInt(value,s.pbrDebugMode,0,4);
+        else if(!std::strcmp(key,"giIndirectOnly"))ReadBool(value,s.giIndirectOnly);
+        else if(!std::strcmp(key,"volumetricLight"))ReadBool(value,s.volumetricLightEnabled);
+        else if(!std::strcmp(key,"hdr"))ReadBool(value,s.hdrEnabled);
         else if(!std::strcmp(key,"customMaterials"))ReadBool(value,s.customMaterialsEnabled);
         else if(!std::strcmp(key,"vehicleComfort"))ReadBool(value,s.vehicleComfortEnabled);
     }
     std::fclose(file);
+    if(s.volumetricLightEnabled) s.hdrEnabled=true;
     s.enhancedMaterialsEnabled=s.enhancedMaterialModel!=0;
     s.appliedRenderScale=s.renderScale;s.renderScalePending=false;
 }
@@ -85,14 +89,15 @@ bool SaveVrSettings()
         "vrMode=%d\nseated=%d\nsnap=%d\nsmooth=%.1f\nangle=%.1f\ncsm=%d\n"
         "enhancedMaterials=%d\ngtao=%d\nrenderScale=%.3f\nrefreshRate=%.0f\n"
         "vrSteeringWheel=%d\nvehicleLights=%d\nspatialHud=%d\ndeveloperMenus=%d\n"
-        "materialModel=%d\nreflectionMode=%d\npbrDebugMode=%d\ncustomMaterials=%d\n"
-        "vehicleComfort=%d\n",
+        "materialModel=%d\nreflectionMode=%d\npbrDebugMode=%d\ngiIndirectOnly=%d\ncustomMaterials=%d\n"
+        "vehicleComfort=%d\nvolumetricLight=%d\nhdr=%d\n",
         s.vrModeEnabled?1:0,s.seatedMode?1:0,s.snapTurnEnabled?1:0,
         s.smoothTurnSpeed,s.snapTurnAngle,s.csmEnabled?1:0,
         s.enhancedMaterialsEnabled?1:0,s.gtaoEnabled?1:0,s.renderScale,s.refreshRate,
         s.vehicleControlMode,s.vehicleLightMode,s.spatialHudEnabled?1:0,
         s.developerMenusEnabled?1:0,s.enhancedMaterialModel,s.reflectionMode,
-        s.pbrDebugMode,s.customMaterialsEnabled?1:0,s.vehicleComfortEnabled?1:0);
+        s.pbrDebugMode,s.giIndirectOnly?1:0,s.customMaterialsEnabled?1:0,
+        s.vehicleComfortEnabled?1:0,s.volumetricLightEnabled?1:0,s.hdrEnabled?1:0);
     const bool ok=std::fclose(file)==0;
 
     // Continue writing the legacy one-byte file for older builds.
@@ -170,6 +175,22 @@ void SetSharedReflectionMode(int value)
 { GetSharedVrState().reflectionMode=std::max(0,std::min(2,value));SaveVrSettings(); }
 void SetSharedPbrDebugMode(int value)
 { GetSharedVrState().pbrDebugMode=std::max(0,std::min(4,value));SaveVrSettings(); }
+void SetSharedGiIndirectOnly(bool value)
+{ GetSharedVrState().giIndirectOnly=value;SaveVrSettings(); }
+void SetSharedVolumetricLightEnabled(bool value)
+{
+    SharedVrState& s=GetSharedVrState();
+    s.volumetricLightEnabled=value;
+    if(value) s.hdrEnabled=true;
+    SaveVrSettings();
+}
+void SetSharedHdrEnabled(bool value)
+{
+    SharedVrState& s=GetSharedVrState();
+    s.hdrEnabled=value;
+    if(!value) s.volumetricLightEnabled=false;
+    SaveVrSettings();
+}
 void SetSharedVehicleComfortEnabled(bool value)
 { GetSharedVrState().vehicleComfortEnabled=value;SaveVrSettings(); }
 }

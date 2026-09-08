@@ -326,6 +326,17 @@ MEMTRACK_PUSH_GROUP( "CGUIManagerFrontEnd" );
         this->AddWindow( CGuiWindow::GUI_SCREEN_ID_OPTIONS, pScreen );
     }
 
+    // Construct Graphics before the generated VR screen.  It registers the
+    // frontend's working text style used by VR rows on both PC and Quest.
+#if defined(RAD_PC) || defined(RAD_ANDROID)
+    pScroobyScreen = m_pScroobyProject->GetScreen( "Display" );
+    if( pScroobyScreen != NULL )
+    {
+        pScreen = new CGuiScreenDisplay( pScroobyScreen, this );
+        this->AddWindow( CGuiWindow::GUI_SCREEN_ID_DISPLAY, pScreen );
+    }
+#endif
+
     pScroobyScreen = m_pScroobyProject->GetScreen( "Controller" );
     if( pScroobyScreen != NULL )
     {
@@ -360,15 +371,6 @@ MEMTRACK_PUSH_GROUP( "CGUIManagerFrontEnd" );
         pScreen = new CGuiScreenViewMovies( pScroobyScreen, this );
         this->AddWindow( CGuiWindow::GUI_SCREEN_ID_VIEW_MOVIES, pScreen );
     }
-
-#if defined(RAD_PC) || defined(RAD_ANDROID)
-    pScroobyScreen = m_pScroobyProject->GetScreen( "Display" );
-    if( pScroobyScreen != NULL )
-    {
-        pScreen = new CGuiScreenDisplay( pScroobyScreen, this );
-        this->AddWindow( CGuiWindow::GUI_SCREEN_ID_DISPLAY, pScreen );
-    }
-#endif
 
     pScroobyScreen = m_pScroobyProject->GetScreen( "PlayMovie" );
     if( pScroobyScreen != NULL )

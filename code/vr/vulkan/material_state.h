@@ -26,6 +26,7 @@ struct VulkanMaterialState {
     uint32_t vehicleRearLightMode,vehicleRearLightCount;
     float vehicleRearLightPositions[4][4],vehicleRearLightDirections[4][4];
     float vehicleRearLightColour[3];
+    uint32_t vehicleDentCount; float vehicleDents[4][4];
     uint32_t textureBlendMode; bool twoLayerColourByVertex;
     VkDescriptorSet pbrTextureSet; uint32_t pbrMapFlags,pbrDebugMode;
     uint32_t skinMatrixCount; float skinMatrices[MaxSkinMatrices][16];
