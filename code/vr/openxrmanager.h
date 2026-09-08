@@ -3,22 +3,31 @@
 
 #if defined(SRR2_OPENXR)
 
-#if defined(_MSC_VER)
-#define SHAR_OPENXR_WEAK
-#else
-#define SHAR_OPENXR_WEAK __attribute__((weak))
-#endif
-
 #include <radmath/radmath.hpp>
 #if defined(SRR2_VR_RENDERER_VULKAN)
-#include <vr/openxr_shared_graphics.h>
+#include <vulkan/vulkan.h>
 #endif
 
 class tCamera;
 
+#if defined(__GNUC__) || defined(__clang__)
+#define SHAR_OPENXR_WEAK __attribute__((weak))
+#else
+#define SHAR_OPENXR_WEAK
+#endif
+
 namespace SharOpenXR
 {
 #if defined(SRR2_VR_RENDERER_VULKAN)
+    struct VulkanEyeTarget
+    {
+        VkImage image;
+        VkFormat format;
+        uint32_t width;
+        uint32_t height;
+        uint32_t arrayLayer;
+        bool firstUse;
+    };
     bool GetActiveVulkanEyeTarget(VulkanEyeTarget* target);
 #endif
     bool Initialize();
@@ -92,6 +101,7 @@ namespace SharOpenXR
     bool GetGameplayCamera(rmt::Matrix* cameraToWorld);
     void SetVrModeEnabled(bool enabled);
     bool IsVrModeEnabled();
+    bool IsPhysicalInteractPulse();
     bool IsSpatialHudEnabled();
     void SetDeveloperMenusEnabled(bool enabled);
     bool IsDeveloperMenusEnabled();
@@ -131,7 +141,7 @@ namespace SharOpenXR
     bool IsVehicleComfortEnabled();
     bool IsThirdPersonVehicleMode();
     bool GetVrSteeringWheelValue(float* value);
-    void ApplyControllerHaptics(float amplitude,unsigned durationMs);
+    void ApplyControllerHaptics(float amplitude, unsigned durationMs);
     void SetRenderScale(float scale);
     float GetRenderScale();
     void SetRefreshRate(float hz);
@@ -143,6 +153,10 @@ namespace SharOpenXR
     bool GetHeadForward(rmt::Vector* forward);
     bool GetControllerWorldPose(unsigned hand, tCamera* baseCamera,
                                 rmt::Matrix* controllerToWorld);
+    // World-space controller position for on-foot collectibles (coins, etc.).
+    bool GetHandWorldPosition(unsigned hand, rmt::Vector* outPosition);
+    // Grip axis 0..1 for the given controller (0 if unavailable).
+    float GetHandGripValue(unsigned hand);
     bool GetControllerLocalPose(unsigned hand, rmt::Matrix* controllerPose);
     void RenderControllerHands(tCamera* baseCamera);
     void RecordPddiDraw(unsigned primitiveType,unsigned vertexCount,bool indexed,
