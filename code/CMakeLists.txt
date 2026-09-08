@@ -120,6 +120,17 @@ set(SRR2_SOURCES
 	#"input/usercontrollerWin32.cpp"
 	#"input/virtualinputs.cpp"
 	#"input/wheelrumble.cpp"
+	"input/touch/touchactionregistry.cpp"
+	"input/touch/touchinputmodemanager.cpp"
+	"input/touch/touchinputadapter.cpp"
+	"input/touch/touchcontextresolver.cpp"
+	"input/touch/touchhudsystem.cpp"
+	"input/touch/touchassetextractor.cpp"
+	"input/touch/touchassetmanager.cpp"
+	"input/touch/touchhudrenderer.cpp"
+	"input/touch/touchcameracontroller.cpp"
+	"input/touch/touchinteractionresolver.cpp"
+	"input/touch/touchcontrolsconfigurationmanager.cpp"
 	"interiors/interiormanager.cpp"
 	"loading/cameradataloader.cpp"
 	"loading/cementfilehandler.cpp"
@@ -142,21 +153,8 @@ set(SRR2_SOURCES
 	"main/singletons.cpp"
 	"main/tuidunaligned.cpp"
 	"main/win32main.cpp"
-	"main/win32crashhandler.cpp"
 	"vr/openxrmanager.cpp"
-	"vr/openxr_desktop_runtime.cpp"
-	"vr/openxr_shared_frame.cpp"
-	"vr/openxr_shared_graphics.cpp"
-	"vr/openxr_shared_hud.cpp"
-	"vr/openxr_shared_hands.cpp"
-	"vr/openxr_shared_input.cpp"
-	"vr/openxr_shared_menu.cpp"
-	"vr/openxr_shared_settings.cpp"
-	"vr/openxr_shared_state.cpp"
-	"vr/openxr_shared_tracking.cpp"
-	"vr/openxr_shared_vehicle.cpp"
-	"vr/openxr_platform_loader.cpp"
-	"vr/openxr_platform_instance.cpp"
+	"vr/vr_body_ik.cpp"
 	"main/win32platform.cpp"
 	"memory/classsizetracker.cpp"
 	"memory/createheap.cpp"
@@ -548,45 +546,7 @@ set(SRR2_SOURCES
 	"worldsim/worldobject.cpp"
 	"worldsim/worldphysicsmanager.cpp"
 )
-if(ANDROID)
-	list(APPEND SRR2_SOURCES
-		"input/touch/touchactionregistry.cpp"
-		"input/touch/touchinputmodemanager.cpp"
-		"input/touch/touchinputadapter.cpp"
-		"input/touch/touchcontextresolver.cpp"
-		"input/touch/touchhudsystem.cpp"
-		"input/touch/touchassetextractor.cpp"
-		"input/touch/touchassetmanager.cpp"
-		"input/touch/touchhudrenderer.cpp"
-		"input/touch/touchcameracontroller.cpp"
-		"input/touch/touchinteractionresolver.cpp"
-		"input/touch/touchcontrolsconfigurationmanager.cpp"
-	)
-endif()
-if(WIN32 AND NOT ANDROID)
-	list(REMOVE_ITEM SRR2_SOURCES "input/usercontroller.cpp")
-	list(REMOVE_ITEM SRR2_SOURCES "presentation/gui/frontend/guiscreencontroller.cpp")
-	list(APPEND SRR2_SOURCES
-		"camera/pccam.cpp"
-		"data/config/configstring.cpp"
-		"data/config/gameconfigmanager.cpp"
-		"input/basedamper.cpp"
-		"input/constanteffect.cpp"
-		"input/FEMouse.cpp"
-		"input/forceeffect.cpp"
-		"input/Gamepad.cpp"
-		"input/Keyboard.cpp"
-		"input/Mouse.cpp"
-		"input/SteeringWheel.cpp"
-		"input/steeringspring.cpp"
-		"input/usercontrollerWin32.cpp"
-		"input/virtualinputs.cpp"
-		"input/wheelrumble.cpp"
-		"input/touch/touchinputmodemanager.cpp"
-		"presentation/gui/frontend/guiscreencontrollerWin32.cpp"
-	)
-endif()
-if(SRR2_ENABLE_OPENXR AND SRR2_VR_RENDERER STREQUAL "VULKAN")
+if((ANDROID OR (WIN32 AND SRR2_ENABLE_OPENXR)) AND SRR2_VR_RENDERER STREQUAL "VULKAN")
 	list(APPEND SRR2_SOURCES
 		"vr/vulkan/openxr_vulkan_context.cpp"
 		"vr/vulkan/material_pipeline.cpp"
@@ -597,6 +557,26 @@ if(SRR2_ENABLE_OPENXR AND SRR2_VR_RENDERER STREQUAL "VULKAN")
 		"vr/vulkan/phong_pipeline.cpp"
 		"vr/vulkan/pbr_pipeline.cpp"
 		"vr/vulkan/toon_pipeline.cpp"
+	)
+endif()
+
+# The Quest manager remains untouched. The Win32 build uses the same public
+# SharOpenXR facade but supplies it from the desktop/shared OpenXR backend.
+if(WIN32 AND SRR2_ENABLE_OPENXR)
+	list(APPEND SRR2_SOURCES
+		"vr/openxr_desktop_runtime.cpp"
+		"vr/openxr_platform_loader.cpp"
+		"vr/openxr_platform_instance.cpp"
+		"vr/openxr_shared_frame.cpp"
+		"vr/openxr_shared_graphics.cpp"
+		"vr/openxr_shared_hands.cpp"
+		"vr/openxr_shared_hud.cpp"
+		"vr/openxr_shared_input.cpp"
+		"vr/openxr_shared_menu.cpp"
+		"vr/openxr_shared_settings.cpp"
+		"vr/openxr_shared_state.cpp"
+		"vr/openxr_shared_tracking.cpp"
+		"vr/openxr_shared_vehicle.cpp"
 	)
 endif()
 if(SRR2_REGION STREQUAL "PAL")
@@ -633,44 +613,6 @@ target_link_libraries(${SRR2_TARGET}
 	Threads::Threads
 )
 
-if(WIN32 AND NOT ANDROID AND TARGET SDL2::SDL2)
-	add_custom_command(TARGET ${SRR2_TARGET} POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_if_different
-			"$<TARGET_FILE:SDL2::SDL2>"
-			"$<TARGET_FILE_DIR:${SRR2_TARGET}>"
-		COMMENT "Copying SDL2 runtime next to ${SRR2_TARGET}"
-	)
-endif()
-
-if(SRR2_ENABLE_OPENXR AND NOT ANDROID)
-	find_path(SRR2_OPENXR_INCLUDE_DIR openxr/openxr.h REQUIRED)
-	target_include_directories(${SRR2_TARGET} PRIVATE ${SRR2_OPENXR_INCLUDE_DIR})
-	target_link_libraries(${SRR2_TARGET} PNG::PNG dbghelp)
-	if(WIN32)
-		find_file(SRR2_OPENXR_LOADER_DLL
-			NAMES openxr_loader.dll
-			PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
-			NO_DEFAULT_PATH
-			REQUIRED
-		)
-		find_file(SRR2_JSONCPP_DLL
-			NAMES jsoncpp.dll
-			PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin"
-			NO_DEFAULT_PATH
-			REQUIRED
-		)
-		add_custom_command(TARGET ${SRR2_TARGET} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different
-				"${SRR2_OPENXR_LOADER_DLL}"
-				"$<TARGET_FILE_DIR:${SRR2_TARGET}>"
-			COMMAND ${CMAKE_COMMAND} -E copy_if_different
-				"${SRR2_JSONCPP_DLL}"
-				"$<TARGET_FILE_DIR:${SRR2_TARGET}>"
-			COMMENT "Copying OpenXR loader dependencies next to ${SRR2_TARGET}"
-		)
-	endif()
-endif()
-
 # --- Android: OpenAL + libs del sistema ---
 if(ANDROID)
 	target_link_libraries(${SRR2_TARGET}
@@ -684,6 +626,9 @@ if(ANDROID)
 	if(SRR2_VR_RENDERER STREQUAL "VULKAN")
 		target_link_libraries(${SRR2_TARGET} ${VULKAN_LIBRARY})
 	endif()
+endif()
+if(WIN32 AND SRR2_ENABLE_OPENXR AND SRR2_VR_RENDERER STREQUAL "VULKAN")
+	target_link_libraries(${SRR2_TARGET} ${VULKAN_LIBRARY})
 endif()
 
 if(SRR2_MICROPROFILE AND WIN32)
