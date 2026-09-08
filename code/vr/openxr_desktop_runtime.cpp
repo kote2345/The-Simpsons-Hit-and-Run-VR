@@ -1,3 +1,4 @@
+#include <vr/vr_body_ik.h>
 #if defined(SRR2_OPENXR_PLATFORM_WIN32) && defined(SRR2_VR_RENDERER_VULKAN)
 #define XR_USE_GRAPHICS_API_VULKAN
 #include <vulkan/vulkan.h>
@@ -31,6 +32,7 @@
 #include <camera/supercamcentral.h>
 #include <camera/supercammanager.h>
 #include <SDL.h>
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <vector>
@@ -325,6 +327,10 @@ void ShutdownRuntime(){GetSharedVrMenu().Reset();ResetVirtualController();runnin
 bool IsRuntimeReady(){return session!=XR_NULL_HANDLE;}
 bool BeginFrame(){
  SharedHudBeginFrame();
+ // Capture the flat/gameplay camera again every frame. The IK solver uses
+ // this untracked camera as its stable body anchor, while each eye gets the
+ // HMD-relative transform layered on top.
+ cullingBaseValid=false;
  if(!IsRuntimeReady())return false;XrEventDataBuffer event={XR_TYPE_EVENT_DATA_BUFFER};
  while(pollEvent(instance,&event)==XR_SUCCESS){
   const SharedSessionApi api={beginSession,endSession,[](void*){ResetVirtualController();},NULL};
@@ -409,10 +415,17 @@ void EndFrame(){if(!frameActive)return;if(eyeActive)EndEye(currentEye);if(imageA
 namespace SharOpenXR
 {
 // The game/render loop talks only to the platform-neutral OpenXR surface.
+// Initialize/Shutdown intentionally mirror the Android manager API so the
+// body IK and render loop never need to know which OpenXR backend is active.
+bool Initialize() { return Desktop::InitializeRuntime(); }
+void Shutdown() { Desktop::ShutdownRuntime(); }
+// Desktop::BeginFrame owns event pumping so there is no second event queue to
+// drain here. Keep the API for callers shared with the Quest implementation.
+void PollEvents() {}
 // Keep the desktop namespace as the backend implementation detail, exactly as
 // the Android backend is hidden behind these same entry points.
 bool BeginFrame() { return Desktop::BeginFrame(); }
-bool BeginEye(unsigned eye) { return Desktop::BeginEye(eye); }
+bool BeginEye(unsigned eye) { BeginBodyIKEye(); return Desktop::BeginEye(eye); }
 void EndEye(unsigned eye) { Desktop::EndEye(eye); }
 void EndFrame() { Desktop::EndFrame(); }
 // Compatibility surface used by the shared Vulkan PDDI while the desktop
@@ -449,6 +462,7 @@ bool IsMultiviewAvailable()
 bool IsMultiviewRendering() { return Desktop::multiviewRendering&&Desktop::multiviewTargetActive; }
 bool BeginMultiview()
 {
+ BeginBodyIKEye();
  if(!Desktop::frameActive||!Desktop::imageAcquired||!IsMultiviewAvailable())return false;
  Desktop::currentEye=0;
  if(!BeginSharedVulkanMultiview(GetVulkanContext(),
