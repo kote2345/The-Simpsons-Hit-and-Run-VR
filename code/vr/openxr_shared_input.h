@@ -1,6 +1,8 @@
 #ifndef OPENXR_SHARED_INPUT_H
 #define OPENXR_SHARED_INPUT_H
 
+#include <radmath/radmath.hpp>
+
 namespace SharOpenXR
 {
 enum VrActionId
@@ -45,6 +47,14 @@ void EmitQuestControllerBindings(const VrInputFrame& input,
                                  void* context);
 void EmitNeutralVrController(VrInputBindingSink sink,void* context);
 void ResetVrInputSemantics();
+
+// Platform-neutral VR gameplay interaction helpers. Both Quest and PCVR
+// provide controller tracking through the common OpenXR facade; game code
+// should use these instead of reaching into either runtime backend.
+bool IsSharedVrGameplayEnabled();
+float GetHandGripValue(unsigned hand);
+bool GetHandWorldPosition(unsigned hand,rmt::Vector* outPosition);
+bool IsPhysicalInteractPulse();
 ThumbstickAxes ApplyVrThumbstickDeadzone(float x,float y);
 VrInputFrame NormalizeVrInputFrame(const VrInputFrame& raw,
                                    bool suppressLookStick);
