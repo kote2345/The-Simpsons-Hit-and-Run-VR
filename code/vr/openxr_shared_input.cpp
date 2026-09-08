@@ -1,6 +1,11 @@
 #include <vr/openxr_shared_input.h>
 #include <vr/openxr_shared_state.h>
 #include <vr/openxr_shared_vehicle.h>
+#include <vr/openxr_shared_hands.h>
+#include <vr/openxrmanager.h>
+#include <ai/actionbuttonhandler.h>
+#include <worldsim/character/charactercontroller.h>
+#include <SDL.h>
 #include <presentation/presentation.h>
 #include <presentation/fmvplayer/fmvplayer.h>
 #include <worldsim/character/charactermanager.h>
@@ -41,6 +46,189 @@ const VrBindingSpec QuestTouchBindingsMenuOnX[]={
     {VR_ACTION_RIGHT_TRIGGER,"/user/hand/right/input/trigger/value"},{VR_ACTION_LEFT_GRIP,"/user/hand/left/input/squeeze/value"},
     {VR_ACTION_RIGHT_GRIP,"/user/hand/right/input/squeeze/value"},{VR_ACTION_LEFT_STICK_CLICK,"/user/hand/left/input/thumbstick/click"},
     {VR_ACTION_RIGHT_STICK_CLICK,"/user/hand/right/input/thumbstick/click"}};
+
+
+struct PhysicalInteractState
+{
+    rmt::Vector previousHandPosition[2];
+    bool previousHandValid[2];
+    float cooldownSeconds;
+    int pulseFrames;
+    Uint32 previousUpdateTicks;
+    Uint32 previousCooldownTicks;
+
+    PhysicalInteractState()
+        : cooldownSeconds(0.0f),pulseFrames(0),previousUpdateTicks(0),
+          previousCooldownTicks(0)
+    {
+        previousHandValid[0]=previousHandValid[1]=false;
+    }
+};
+
+PhysicalInteractState PhysicalInteract;
+
+void ResetPhysicalInteractTracking()
+{
+    PhysicalInteract.previousHandValid[0]=false;
+    PhysicalInteract.previousHandValid[1]=false;
+    PhysicalInteract.cooldownSeconds=0.0f;
+    PhysicalInteract.pulseFrames=0;
+    PhysicalInteract.previousUpdateTicks=0;
+    PhysicalInteract.previousCooldownTicks=0;
+}
+
+void CachePhysicalHandSamples()
+{
+    for(unsigned hand=0;hand<2;++hand)
+    {
+        rmt::Matrix pose;
+        if(!GetControllerLocalPose(hand,&pose))
+        {
+            PhysicalInteract.previousHandValid[hand]=false;
+            continue;
+        }
+        PhysicalInteract.previousHandPosition[hand]=pose.Row(3);
+        PhysicalInteract.previousHandValid[hand]=true;
+    }
+}
+
+void UpdatePhysicalPushInteract()
+{
+    // Same tuning as the previous Quest-only implementation: deliberate but
+    // forgiving enough that a normal forward button/door push is reliable.
+    const float pushMinSpeed=0.80f;
+    const float pushForwardDot=0.28f;
+    const float pushCooldownSeconds=0.40f;
+    const int pushPulseFrames=2;
+
+    const Uint32 now=SDL_GetTicks();
+    if(PhysicalInteract.cooldownSeconds>0.0f)
+    {
+        float dt=PhysicalInteract.previousCooldownTicks==0?0.016f:
+            (now-PhysicalInteract.previousCooldownTicks)*0.001f;
+        PhysicalInteract.previousCooldownTicks=now;
+        if(dt<0.0f||dt>0.1f)dt=0.016f;
+        PhysicalInteract.cooldownSeconds=std::max(0.0f,
+            PhysicalInteract.cooldownSeconds-dt);
+    }
+    else
+    {
+        PhysicalInteract.previousCooldownTicks=now;
+    }
+
+    SharedVrState& state=GetSharedVrState();
+    CharacterManager* characters=GetCharacterManager();
+    Character* player=characters?characters->GetCharacter(0):NULL;
+    if(!state.vrModeEnabled||!player||player->IsInCar()||
+       !player->GetController()||!player->GetController()->IsActive())
+    {
+        PhysicalInteract.previousHandValid[0]=false;
+        PhysicalInteract.previousHandValid[1]=false;
+        return;
+    }
+
+    // Never synthesize DoAction from a random hand movement. The game's
+    // active ButtonHandler decides whether this interaction type is eligible.
+    ActionButton::ButtonHandler* handler=player->GetActionButtonHandler();
+    if(!handler||!handler->AllowPhysicalInteract())
+    {
+        CachePhysicalHandSamples();
+        return;
+    }
+
+    float dt=PhysicalInteract.previousUpdateTicks==0?0.016f:
+        (now-PhysicalInteract.previousUpdateTicks)*0.001f;
+    PhysicalInteract.previousUpdateTicks=now;
+    if(dt<0.001f||dt>0.1f)dt=0.016f;
+
+    rmt::Vector headForward(0.0f,0.0f,1.0f);
+    const bool haveHead=GetHeadForward(&headForward);
+
+    for(unsigned hand=0;hand<2;++hand)
+    {
+        // A hand attached to the physical wheel/yoke is not an interaction
+        // gesture. This mirrors the previous Quest implementation.
+        if(state.wheelGrabbed[hand])
+        {
+            PhysicalInteract.previousHandValid[hand]=false;
+            continue;
+        }
+
+        rmt::Matrix pose;
+        if(!GetControllerLocalPose(hand,&pose))
+        {
+            PhysicalInteract.previousHandValid[hand]=false;
+            continue;
+        }
+        const rmt::Vector position=pose.Row(3);
+        if(!PhysicalInteract.previousHandValid[hand])
+        {
+            PhysicalInteract.previousHandPosition[hand]=position;
+            PhysicalInteract.previousHandValid[hand]=true;
+            continue;
+        }
+
+        rmt::Vector delta=position;
+        delta.Sub(PhysicalInteract.previousHandPosition[hand]);
+        PhysicalInteract.previousHandPosition[hand]=position;
+        const float speed=delta.Magnitude()/dt;
+        if(speed<pushMinSpeed||PhysicalInteract.cooldownSeconds>0.0f||
+           PhysicalInteract.pulseFrames>0)
+            continue;
+
+        rmt::Vector velocityDirection=delta;
+        if(velocityDirection.NormalizeSafe()<0.0001f)continue;
+
+        rmt::Vector handForward;
+        pose.RotateVector(rmt::Vector(0.0f,0.0f,1.0f),&handForward);
+        const float handLength=handForward.NormalizeSafe();
+
+        float bestAlignment=-1.0f;
+        if(handLength>0.0001f)
+        {
+            const float alignment=velocityDirection.x*handForward.x+
+                velocityDirection.y*handForward.y+
+                velocityDirection.z*handForward.z;
+            bestAlignment=std::max(bestAlignment,alignment);
+        }
+        if(haveHead)
+        {
+            const float alignment=velocityDirection.x*headForward.x+
+                velocityDirection.y*headForward.y+
+                velocityDirection.z*headForward.z;
+            bestAlignment=std::max(bestAlignment,alignment);
+
+            // Also accept a mostly-horizontal outward shove so small wrist
+            // pitch differences do not make door/button pushes unreliable.
+            rmt::Vector horizontal=velocityDirection;
+            horizontal.y=0.0f;
+            if(horizontal.NormalizeSafe()>0.35f)
+            {
+                rmt::Vector headHorizontal=headForward;
+                headHorizontal.y=0.0f;
+                if(headHorizontal.NormalizeSafe()>0.0001f)
+                {
+                    const float horizontalAlignment=
+                        horizontal.x*headHorizontal.x+
+                        horizontal.z*headHorizontal.z;
+                    bestAlignment=std::max(bestAlignment,horizontalAlignment);
+                }
+            }
+        }
+
+        if(bestAlignment<pushForwardDot)continue;
+
+        PhysicalInteract.pulseFrames=pushPulseFrames;
+        PhysicalInteract.cooldownSeconds=pushCooldownSeconds;
+        // The common haptic API currently addresses both controllers. The
+        // interaction itself remains hand-specific; this keeps feedback on
+        // both runtimes without putting OpenXR calls back into either backend.
+        ApplyControllerHaptics(0.75f,45u);
+        SDL_Log("OpenXR shared: physical interact hand=%u speed=%.2f align=%.2f",
+                hand,speed,bestAlignment);
+        break;
+    }
+}
 }
 
 const VrActionSpec* GetVrActionSpecs(){return ActionSpecs;}
@@ -102,11 +290,33 @@ void EmitNeutralVrController(VrInputBindingSink sink,void* context)
 
 void ResetVrInputSemantics()
 {
+    ResetPhysicalInteractTracking();
+    ResetRenderedHandWorldPositions();
     SharedVrState& state=GetSharedVrState();
     state.gripValue[0]=state.gripValue[1]=0.0f;
     state.stickClick[0]=state.stickClick[1]=false;
     state.menuAxisLock=state.menuAxisNeutralFrames=0;
     state.menuHorizontalInputDominant=state.menuVerticalInputDominant=false;
+}
+
+bool IsSharedVrGameplayEnabled()
+{
+    return GetSharedVrState().vrModeEnabled;
+}
+
+float GetHandGripValue(unsigned hand)
+{
+    return hand<2?GetSharedVrState().gripValue[hand]:0.0f;
+}
+
+bool GetHandWorldPosition(unsigned hand,rmt::Vector* outPosition)
+{
+    return GetRenderedHandWorldPosition(hand,outPosition);
+}
+
+bool IsPhysicalInteractPulse()
+{
+    return PhysicalInteract.pulseFrames>0;
 }
 
 ThumbstickAxes ApplyVrThumbstickDeadzone(float x,float y)
@@ -156,12 +366,21 @@ void SubmitVrInputFrame(const VrInputFrame& raw,VrInputBindingSink sink,void* co
     state.gripValue[0]=input.leftGrip;state.gripValue[1]=input.rightGrip;
     state.stickClick[0]=input.leftStickClick>0.5f;
     state.stickClick[1]=input.rightStickClick>0.5f;
+    UpdatePhysicalPushInteract();
+    VrInputFrame gameplayInput=input;
+    const bool physicalPush=PhysicalInteract.pulseFrames>0;
+    if(physicalPush)
+    {
+        --PhysicalInteract.pulseFrames;
+        gameplayInput.select=1.0f;
+        gameplayInput.use=1.0f;
+    }
     float leftTrigger,rightTrigger;bool leftGrip,rightGrip,leftThumb,rightThumb;
     GetVrVehicleInputOverrides(IsVrYokeVehicle(vehicle?vehicle->GetName():NULL),
         input.leftTrigger,input.rightTrigger,input.leftGrip,input.rightGrip,
         state.stickClick[0],state.stickClick[1],&leftTrigger,&rightTrigger,
         &leftGrip,&rightGrip,&leftThumb,&rightThumb);
-    EmitQuestControllerBindings(input,leftTrigger,rightTrigger,leftGrip,rightGrip,
+    EmitQuestControllerBindings(gameplayInput,leftTrigger,rightTrigger,leftGrip,rightGrip,
         leftThumb,rightThumb,sink,context);
 
     static bool skipWasDown=false;
