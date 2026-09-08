@@ -352,6 +352,8 @@ public: // MEMBERS
     Role GetRole(void)   { return mRole;}
 
     void SetScale(float f) { mScale = f;}
+    // Stable model-space head attachment height, including render scale/offset.
+    bool GetVrNeckCameraHeight(float* height) const;
 
     bool CollidedThisFrame(void) { return mCollidedThisFrame; }
 
