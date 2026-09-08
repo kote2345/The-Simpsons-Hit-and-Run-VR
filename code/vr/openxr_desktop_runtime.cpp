@@ -1,3 +1,4 @@
+#include <vr/vr_body_ik.h>
 #if defined(SRR2_OPENXR_PLATFORM_WIN32) && defined(SRR2_VR_RENDERER_VULKAN)
 #define XR_USE_GRAPHICS_API_VULKAN
 #include <vulkan/vulkan.h>
@@ -345,6 +346,7 @@ void ShutdownRuntime(){GetSharedVrMenu().Reset();ResetVirtualController();runnin
 bool IsRuntimeReady(){return session!=XR_NULL_HANDLE;}
 bool BeginFrame(){
  SharedHudBeginFrame();
+ cullingBaseValid=false;
  if(!IsRuntimeReady())return false;XrEventDataBuffer event={XR_TYPE_EVENT_DATA_BUFFER};
  while(pollEvent(instance,&event)==XR_SUCCESS){
   const SharedSessionApi api={beginSession,endSession,[](void*){ResetVirtualController();},NULL};
@@ -432,7 +434,7 @@ namespace SharOpenXR
 // Keep the desktop namespace as the backend implementation detail, exactly as
 // the Android backend is hidden behind these same entry points.
 bool BeginFrame() { return Desktop::BeginFrame(); }
-bool BeginEye(unsigned eye) { return Desktop::BeginEye(eye); }
+bool BeginEye(unsigned eye) { BeginBodyIKEye(); return Desktop::BeginEye(eye); }
 void EndEye(unsigned eye) { Desktop::EndEye(eye); }
 void EndFrame() { Desktop::EndFrame(); }
 // Compatibility surface used by the shared Vulkan PDDI while the desktop
@@ -469,6 +471,7 @@ bool IsMultiviewAvailable()
 bool IsMultiviewRendering() { return Desktop::multiviewRendering&&Desktop::multiviewTargetActive; }
 bool BeginMultiview()
 {
+ BeginBodyIKEye();
  if(!Desktop::frameActive||!Desktop::imageAcquired||!IsMultiviewAvailable())return false;
  Desktop::currentEye=0;
  if(!BeginSharedVulkanMultiview(GetVulkanContext(),

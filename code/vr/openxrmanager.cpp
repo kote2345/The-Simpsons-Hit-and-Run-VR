@@ -1,3 +1,4 @@
+#include <vr/vr_body_ik.h>
 #if defined(RAD_ANDROID)
 
 #define XR_USE_PLATFORM_ANDROID
@@ -1378,6 +1379,7 @@ void SetMultiviewTargetActive(bool active)
 }
 bool BeginMultiview()
 {
+    BeginBodyIKEye();
 #if defined(SRR2_VR_RENDERER_VULKAN)
     if(!gVulkanContext.IsMultiviewSupported() || !g.shouldRender) return false;
     Eye& eye=g.eyes[0];
@@ -1523,6 +1525,7 @@ void EndMultiview()
 }
 bool BeginEye(unsigned eye)
 {
+    BeginBodyIKEye();
 #if defined(SRR2_VR_RENDERER_VULKAN)
     if(eye>=2 || !g.shouldRender) return false;
     Eye& e=g.eyes[0];

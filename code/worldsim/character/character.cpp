@@ -1,3 +1,4 @@
+#include <vr/vr_body_ik.h>
 #include <worldsim/character/character.h>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
@@ -4957,6 +4958,22 @@ void Character::OnTransitToAICtrl()
     RelocateAndReset( mPrevSimTransform.Row(3), dir );
 }
 
+bool Character::GetVrNeckCameraHeight(float* height) const
+{
+    if(!height||!mpCharacterRenderable||!mpCharacterRenderable->GetDrawable())return false;
+    tSkeleton* skeleton=mpCharacterRenderable->GetDrawable()->GetSkeleton();
+    if(!skeleton)return false;
+    int head=skeleton->FindJointIndex("Head");
+    if(head<0&&skeleton->GetNumJoint()>17)head=17;
+    if(head<0)return false;
+    const float neckEyeClearance=0.10f;
+    const float value=(skeleton->GetJoint(head)->worldMatrix.Row(3).y-
+                       skeleton->GetJoint(0)->worldMatrix.Row(3).y)*mScale+mYAdjust+neckEyeClearance;
+    if(!(value>0.10f&&value<3.0f))return false;
+    *height=value;
+    return true;
+}
+
 void Character::Display(void)
 {
     if(IS_DRAW_LONG) return;
@@ -5048,6 +5065,10 @@ void Character::Display(void)
         }
     }
 
+    tPose* bodyPose = SharOpenXR::BuildBodyIKPose(
+        this, pose, rootPos + rmt::Vector(0.0f, mYAdjust, 0.0f));
+    if(bodyPose) pose=bodyPose;
+
     // Each puppet may update its pose again before the auxiliary CSM pass.
     // Keep a private root-relative snapshot for this character; otherwise the
     // shared drawable pose can contain another character's (usually player's)
@@ -5070,7 +5091,8 @@ void Character::Display(void)
     p3d::stack->Push();
     p3d::stack->Translate(rootPos);
 
-    mpCharacterRenderable->Display( mSphere.centre, pose );
+    if(bodyPose) SharOpenXR::HideBodyIKHead(pose);
+    mpCharacterRenderable->Display( mSphere.centre, pose, bodyPose != NULL );
 
     p3d::stack->Pop();
     p3d::stack->Pop();

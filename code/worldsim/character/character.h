@@ -352,6 +352,7 @@ public: // MEMBERS
     Role GetRole(void)   { return mRole;}
 
     void SetScale(float f) { mScale = f;}
+    bool GetVrNeckCameraHeight(float* height) const;
 
     bool CollidedThisFrame(void) { return mCollidedThisFrame; }
 

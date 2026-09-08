@@ -1,3 +1,4 @@
+#include <vr/vr_body_ik.h>
 #include <worldsim/character/characterrenderable.h>
 #include <mission/gameplaymanager.h>
 #include <p3d/texture.hpp>
@@ -147,7 +148,7 @@ Return:         void
 
 =============================================================================
 */
-void CharacterRenderable::Display( rmt::Vector iPosn, tPose* pose )
+void CharacterRenderable::Display( rmt::Vector iPosn, tPose* pose, bool vrBody )
 {
 BEGIN_PROFILE("CharRender Cull")
     tPointCamera* pCam = (tPointCamera*)GetSuperCamManager()->GetSCC(0)->GetCamera();
@@ -186,12 +187,12 @@ END_PROFILE("CharRender Cull")
         }
     }
 #endif
-    if ( hideForNearCamera )
+    if ( hideForNearCamera && !vrBody )
     {
         return;
     }
 
-    if( mbInAnyonesFrustrum )
+    if( mbInAnyonesFrustrum || vrBody )
     {
 
         if(sqrDistFromCam > 900.0f )
@@ -214,6 +215,7 @@ END_PROFILE("CharRender Cull")
         if ( mIsShocked == false )
         {
             DisplayModel( pose );
+            if(vrBody) SharOpenXR::MarkBodyIKDrawn();
         }
         else
         {

@@ -149,6 +149,9 @@ namespace SharOpenXR
     bool GetHeadForward(rmt::Vector* forward);
     bool GetControllerWorldPose(unsigned hand, tCamera* baseCamera,
                                 rmt::Matrix* controllerToWorld);
+    bool GetHandWorldPosition(unsigned hand, rmt::Vector* outPosition);
+    float GetHandGripValue(unsigned hand);
+    bool IsPhysicalInteractPulse();
     bool GetControllerLocalPose(unsigned hand, rmt::Matrix* controllerPose);
     void RenderControllerHands(tCamera* baseCamera);
     void RecordPddiDraw(unsigned primitiveType,unsigned vertexCount,bool indexed,

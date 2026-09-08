@@ -371,17 +371,21 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     if( SharOpenXR::IsVrModeEnabled() && !mTarget->IsCar() )
     {
-        // On foot, replace the character model's authored eye height with the
-        // user's real eye height above the Quest stage floor. Keep the base
-        // exactly over the character root: the legacy first-person X/Z offset
-        // otherwise becomes a visible forward displacement after recentering
-        // while crouched. Horizontal HMD motion then remains purely local.
+        // Keep the base over the character root. Body IK uses the model's
+        // stable head/neck attachment height. RelativePose still applies
+        // physical crouch once; do not sample live animated bones here.
         position.x-=mTargetPositionOffset.x;
         position.z-=mTargetPositionOffset.z;
-        float physicalHeadHeight=0.0f;
-        if( SharOpenXR::GetPhysicalHeadHeight( &physicalHeadHeight ) )
+        float cameraHeight=0.0f;
+        bool haveModelHeight=false;
+#if defined(SHAR_VR_BODY_IK)
+        Avatar* neckAvatar=GetAvatarManager()->GetAvatarForPlayer(GetPlayerID());
+        Character* neckCharacter=neckAvatar?neckAvatar->GetCharacter():NULL;
+        haveModelHeight=neckCharacter&&neckCharacter->GetVrNeckCameraHeight(&cameraHeight);
+#endif
+        if( haveModelHeight || SharOpenXR::GetPhysicalHeadHeight( &cameraHeight ) )
         {
-            position.y+=physicalHeadHeight-mTargetPositionOffset.y;
+            position.y+=cameraHeight-mTargetPositionOffset.y;
         }
     }
     if( SharOpenXR::IsVrModeEnabled() && mTarget->IsCar() )

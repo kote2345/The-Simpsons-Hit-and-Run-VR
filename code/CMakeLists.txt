@@ -144,6 +144,7 @@ set(SRR2_SOURCES
 	"main/win32main.cpp"
 	"main/win32crashhandler.cpp"
 	"vr/openxrmanager.cpp"
+	"vr/vr_body_ik.cpp"
 	"vr/openxr_desktop_runtime.cpp"
 	"vr/openxr_shared_frame.cpp"
 	"vr/openxr_shared_graphics.cpp"

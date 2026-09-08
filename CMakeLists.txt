@@ -8,6 +8,11 @@ set(SRR2_FILENAME "Simpsons")
 set(SRR2_REGION "NTSC" CACHE STRING "Select PAL for the EFIGS multi-language version")
 set_property(CACHE SRR2_REGION PROPERTY STRINGS "NTSC" "PAL")
 
+option(SRR2_VR_BODY_IK "Experimental on-foot render-only full body IK" ON)
+if(SRR2_VR_BODY_IK)
+	add_definitions(-DSHAR_VR_BODY_IK=1)
+endif()
+
 option(SRR2_USE_DLMALLOC "Use Doug Lea's memory allocator for fixed-size heaps" OFF)
 option(SRR2_REROUTE_ALL_HEAP_ALLOCATIONS "Reroute all memory allocations by new operator to internal heaps" OFF)
 option(SRR2_USE_BINK "Use RAD Game Tools Bink SDK instead of FFmpeg" OFF) #lo vuelvo a poner a off
