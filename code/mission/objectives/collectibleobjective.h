@@ -84,6 +84,9 @@ protected:
 
     unsigned int mNumCollectibles;
     unsigned int mNumCollected;
+    // OpenXR on foot: mission locator currently occupied by the player.
+    // Body contact only selects it; grip completes collection.
+    int mPendingCollectibleIndex;
 
 	struct CollectibleLocatorData
 	{
