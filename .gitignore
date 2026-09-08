@@ -50,6 +50,9 @@ vcpkg_installed/
 **/__pycache__/
 *.pyc
 
+# Local development documentation
+docs/
+
 
 # OS files
 .DS_Store
