@@ -15,6 +15,13 @@
 // Foundation Tech
 #include <raddebug.hpp>
 
+#if defined(RAD_ANDROID)
+#include <android/log.h>
+#define VRPICKUP_LOG(...) __android_log_print(ANDROID_LOG_INFO, "VRPICKUP", __VA_ARGS__)
+#else
+#define VRPICKUP_LOG(...) ((void)0)
+#endif
+
 #include <poser/joint.hpp>
 #include <poser/poseengine.hpp>
 #include <poser/pose.hpp>
@@ -33,6 +40,9 @@
 #include <ai/actionbuttonmanager.h>
 #include <presentation/presentation.h>
 #include <worldsim/character/character.h>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxr_shared_input.h>
+#endif
 #include <worldsim/character/charactercontroller.h>
 #include <ai/statemanager.h>
 #include <worldsim/avatarmanager.h>
@@ -3256,6 +3266,7 @@ Collectible::Collectible( ActionEventLocator* pActionEventLocator )
 :
 ActionEventHandler( pActionEventLocator ),
 mAnimatedIcon( NULL ),
+mPendingCollector( NULL ),
 mbCollected( false )
 //mpGameObject( 0 )
 {  
@@ -3392,6 +3403,7 @@ void Collectible::OnReset( void )
 void Collectible::ResetCollectible()
 {
     mbCollected = false;
+    mPendingCollector = NULL;
 }
 
 
@@ -3420,27 +3432,40 @@ void Collectible::OnUpdate( float timeins )
             if ( IsRespawnTimeExpired( ) )
             {
                 mbCollected = false;
+                mPendingCollector = NULL;
                 SetRespawnTime( sfCollectibleRespawnTime );
 
                 // Reactivate the trigger volumes.
-                //
                 mpActionEventLocator->SetFlag( Locator::ACTIVE, true );
 
                 // Allow display.
-                //
-                //mpGameObject->SetVisible( true );
                 mAnimatedIcon->ShouldRender( true );
             }
             else
             {
-                UpdateRespawnTime( timeins );     
+                UpdateRespawnTime( timeins );
             }
         }
     }
     else
     {
-        //mpGameObject->GetAnimController()->Advance( timeins * 1000.0f * mpGameObject->GetAnimationDirection() );
-        mAnimatedIcon->Update( rmt::FtoL(timeins * 1000.0f) );
+        if ( mAnimatedIcon )
+            mAnimatedIcon->Update( rmt::FtoL(timeins * 1000.0f) );
+
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+        // Proven functional interaction model: the normal pickup trigger only
+        // selects the nearby collectible. It never collects on body contact.
+        // While selected, either controller grip may complete the pickup.
+        if ( mPendingCollector && TryGripCollect( mPendingCollector ) )
+        {
+            VRPICKUP_LOG("AB GRIP_CANDIDATE_SUCCESS this=%p locator=%p char=%p leftGrip=%.3f rightGrip=%.3f",
+                         this, mpActionEventLocator, mPendingCollector,
+                         SharOpenXR::GetHandGripValue(0), SharOpenXR::GetHandGripValue(1));
+            Character* collector = mPendingCollector;
+            mPendingCollector = NULL;
+            FinishCollect( collector );
+        }
+#endif
     }
 }
 /*
@@ -3451,40 +3476,144 @@ Description:    Comment
 
 Parameters:     ( Character* pCharacter )
 
-Return:         void 
+Return:         void
 
 =============================================================================
 */
-void Collectible::OnEnter( Character* pCharacter )
+void Collectible::FinishCollect( Character* pCharacter )
 {
-    if ( !IsCollected() )
+    if ( IsCollected() )
     {
-        // Make it disappear.
-        //
-        //mpGameObject->SetVisible( false );
+        VRPICKUP_LOG("AB FinishCollect ignored-already-collected this=%p locator=%p char=%p",
+                     this, mpActionEventLocator, pCharacter);
+        return;
+    }
+
+    rmt::Vector dbgItem(0.0f, 0.0f, 0.0f);
+    rmt::Vector dbgPlayer(0.0f, 0.0f, 0.0f);
+    if ( mpActionEventLocator ) mpActionEventLocator->GetLocation( &dbgItem );
+    if ( pCharacter ) pCharacter->GetPosition( dbgPlayer );
+    VRPICKUP_LOG("AB FINISH_COLLECT this=%p locator=%p char=%p incar=%d item=(%.3f %.3f %.3f) player=(%.3f %.3f %.3f)",
+                 this, mpActionEventLocator, pCharacter,
+                 pCharacter ? (int)pCharacter->IsInCar() : -1,
+                 dbgItem.x, dbgItem.y, dbgItem.z, dbgPlayer.x, dbgPlayer.y, dbgPlayer.z);
+
+    OnCollectEffects( pCharacter );
+
+    if ( mAnimatedIcon )
         mAnimatedIcon->ShouldRender( false );
 
-        // Deactivate the trigger volumes.
-        //
+    if ( mpActionEventLocator )
         mpActionEventLocator->SetFlag( Locator::ACTIVE, false );
-        // Maybe play an animation?
-        //
 
-        // Maybe play a sound effect.
-        //
+    mbCollected = true;
+    GetEventManager()->TriggerEvent( EVENT_COLLECT_OBJECT );
+}
 
-        // We collected it.
-        //
-        mbCollected = true;
+bool Collectible::TryGripCollect( Character* pCharacter )
+{
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if ( !pCharacter || pCharacter->IsInCar() || !mpActionEventLocator )
+        return false;
 
-        GetEventManager()->TriggerEvent( EVENT_COLLECT_OBJECT );
+    // Keep the proven trigger-as-candidate behavior, then require the same
+    // controller that is gripping to be physically close to the pickup.
+    // GetHandWorldPosition() is backed by the exact rendered-hand world pose.
+    static const float GRIP_THRESHOLD = 0.20f;
+    static const float HAND_PROXIMITY_RADIUS = 0.70f;
+
+    rmt::Vector itemPos;
+    // Use the rendered pickup drawable's actual world-space centre. The
+    // ActionEventLocator is typically at the trigger/floor origin and can sit
+    // well below the visible wrench/card/nitro mesh.
+    if ( mAnimatedIcon )
+        mAnimatedIcon->GetPosition( itemPos );
+    else
+        mpActionEventLocator->GetLocation( &itemPos );
+
+    bool anyGripActive = false;
+    for ( unsigned hand = 0; hand < 2; ++hand )
+    {
+        const float grip = SharOpenXR::GetHandGripValue( hand );
+        if ( grip < 0.05f )
+            continue;
+
+        anyGripActive = true;
+
+        rmt::Vector handPos;
+        const bool handValid = SharOpenXR::GetHandWorldPosition( hand, &handPos );
+        float distance = -1.0f;
+        if ( handValid )
+        {
+            rmt::Vector delta = handPos;
+            delta.Sub( itemPos );
+            distance = delta.Magnitude();
+        }
+
+        VRPICKUP_LOG("AB HAND_PROBE this=%p locator=%p hand=%u grip=%.3f valid=%d distance=%.3f radius=%.2f item=(%.3f %.3f %.3f) handpos=(%.3f %.3f %.3f)",
+                     this, mpActionEventLocator, hand, grip, handValid ? 1 : 0,
+                     distance, HAND_PROXIMITY_RADIUS, itemPos.x, itemPos.y, itemPos.z,
+                     handValid ? handPos.x : 0.0f, handValid ? handPos.y : 0.0f,
+                     handValid ? handPos.z : 0.0f);
+
+        if ( grip >= GRIP_THRESHOLD && handValid && distance <= HAND_PROXIMITY_RADIUS )
+        {
+            VRPICKUP_LOG("AB HAND_GRIP_SUCCESS this=%p locator=%p hand=%u grip=%.3f distance=%.3f",
+                         this, mpActionEventLocator, hand, grip, distance);
+            return true;
+        }
     }
+
+    if ( !anyGripActive )
+        return false;
+    return false;
+#else
+    (void)pCharacter;
+    return false;
+#endif
+}
+
+void Collectible::OnEnter( Character* pCharacter )
+{
+    if ( IsCollected() )
+        return;
+
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // On-foot VR: body contact only selects this pickup as the nearby candidate.
+    // It NEVER performs collection. Grip is checked independently in OnUpdate.
+    if ( !pCharacter || !pCharacter->IsInCar() )
+    {
+        mPendingCollector = pCharacter;
+        rmt::Vector dbgItem(0.0f, 0.0f, 0.0f);
+        rmt::Vector dbgPlayer(0.0f, 0.0f, 0.0f);
+        if ( mpActionEventLocator ) mpActionEventLocator->GetLocation( &dbgItem );
+        if ( pCharacter ) pCharacter->GetPosition( dbgPlayer );
+        VRPICKUP_LOG("AB BODY_ENTER_ARMED this=%p locator=%p char=%p item=(%.3f %.3f %.3f) player=(%.3f %.3f %.3f)",
+                     this, mpActionEventLocator, pCharacter,
+                     dbgItem.x, dbgItem.y, dbgItem.z, dbgPlayer.x, dbgPlayer.y, dbgPlayer.z);
+        return;
+    }
+    VRPICKUP_LOG("AB VEHICLE_ENTER_ALLOWED this=%p locator=%p char=%p",
+                 this, mpActionEventLocator, pCharacter);
+#endif
+
+    VRPICKUP_LOG("AB OnEnter calling FinishCollect this=%p locator=%p char=%p",
+                 this, mpActionEventLocator, pCharacter);
+    FinishCollect( pCharacter );
 }
 
 void Collectible::OnExit( Character* pCharacter )
 {
-    // Do nothing.
-    //
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if ( !pCharacter || mPendingCollector == pCharacter )
+    {
+        VRPICKUP_LOG("AB BODY_EXIT_DISARMED this=%p locator=%p char=%p",
+                     this, mpActionEventLocator, pCharacter);
+        mPendingCollector = NULL;
+    }
+#else
+    (void)pCharacter;
+#endif
 }
 
 /*
@@ -3567,19 +3696,10 @@ Return:         void
 
 =============================================================================
 */
-void CollectibleFood::OnEnter( Character* pCharacter )
+void CollectibleFood::OnCollectEffects( Character* pCharacter )
 {
-    if ( !IsCollected() )
-    {
-        // used to add turbo here, is this class even neccesary any more
-
-        // Maybe play an animation?
-        //
-
-        // Maybe play a sound effect.
-        //
-    }
-    Collectible::OnEnter( pCharacter );
+    (void)pCharacter;
+    // used to add turbo here, is this class even neccesary any more
 }
 
 AnimatedIcon* CollectibleCard::mAnimatedCollectionThing = NULL;
@@ -3715,43 +3835,35 @@ Return:         void
 
 =============================================================================
 */
-void CollectibleCard::OnEnter( Character* pCharacter )
+void CollectibleCard::OnCollectEffects( Character* pCharacter )
 {
-    if ( !IsCollected() )
+    (void)pCharacter;
+    // Talk to the collector card DB.
+    Card* collectedCard = GetCardGallery()->AddCollectedCardByName( tEntity::MakeUID(mpActionEventLocator->GetObjName()) );
+    if( collectedCard != NULL )
     {
-        // Talk to the collector card DB.
-        //
-        Card* collectedCard = GetCardGallery()->AddCollectedCardByName( tEntity::MakeUID(mpActionEventLocator->GetObjName()) );
-        if( collectedCard != NULL )
-        {
-            // Update collected cards in character sheet
-            //
-            GetCharacterSheetManager()->AddCard( static_cast<RenderEnums::LevelEnum>( collectedCard->GetLevel() - 1 ),
-                                                 collectedCard->GetLevelID() - 1 );
-        }
+        GetCharacterSheetManager()->AddCard( static_cast<RenderEnums::LevelEnum>( collectedCard->GetLevel() - 1 ),
+                                             collectedCard->GetLevelID() - 1 );
+    }
 
-        // Maybe play an animation?
-        //
+    if ( mAnimatedCollectionThing )
+    {
         mAnimatedCollectionThing->Reset();
         rmt::Vector pos;
         mpActionEventLocator->GetLocation( &pos );
         mAnimatedCollectionThing->ShouldRender( true );
         mAnimatedCollectionThing->Move( pos );
-
-        // Maybe play a sound effect.
-        //
-        GetEventManager()->TriggerEvent( EVENT_CARD_COLLECTED, reinterpret_cast<void*>( collectedCard ) );
-
-        //Rumble the controller.
-        int playerID = mpActionEventLocator->GetPlayerID();
-        int controllerID = GetInputManager()->GetControllerIDforPlayer( playerID );
-        if ( controllerID != -1 )
-        {
-            GetInputManager()->GetController( controllerID )->ApplyEffect( RumbleEffect::MEDIUM, 250 );
-            GetInputManager()->GetController( controllerID )->ApplyEffect( RumbleEffect::HARD2, 250 );
-        }
     }
-    Collectible::OnEnter( pCharacter );
+
+    GetEventManager()->TriggerEvent( EVENT_CARD_COLLECTED, reinterpret_cast<void*>( collectedCard ) );
+
+    int playerID = mpActionEventLocator->GetPlayerID();
+    int controllerID = GetInputManager()->GetControllerIDforPlayer( playerID );
+    if ( controllerID != -1 )
+    {
+        GetInputManager()->GetController( controllerID )->ApplyEffect( RumbleEffect::MEDIUM, 250 );
+        GetInputManager()->GetController( controllerID )->ApplyEffect( RumbleEffect::HARD2, 250 );
+    }
 }
 
 //=============================================================================
@@ -3896,41 +4008,28 @@ Return:         void
 
 =============================================================================
 */
-void WrenchIcon::OnEnter( Character* pCharacter )
+void WrenchIcon::OnCollectEffects( Character* pCharacter )
 {
-    if ( !IsCollected() )
+    (void)pCharacter;
+    if ( mAnimatedCollectionThing )
     {
-       
-
-        // Maybe play an animation?     
         mAnimatedCollectionThing->Reset();
         rmt::Vector pos;
         mpActionEventLocator->GetLocation( &pos );
         mAnimatedCollectionThing->ShouldRender( true );
         mAnimatedCollectionThing->Move( pos );
-
-        // Maybe play a sound effect.
-        //
-
-        //check which context we're in. If we are in regular gameplay then trigger Repair Car Event. 
-        if ( GetGameFlow()->GetCurrentContext() == CONTEXT_GAMEPLAY)
-        {
-            GetEventManager()->TriggerEvent(EVENT_REPAIR_CAR);
-        }
-        //we must be in super sprint mode then just repair the car since we arent going to summon the helper bee thingy
-        else
-        {
-            int playerid = mpActionEventLocator->GetPlayerID();
-
-            GetAvatarManager()->GetAvatarForPlayer(playerid)->GetVehicle()->ResetDamageState();
-        }
-        //Fire off a event for the sound manager
-        GetEventManager()->TriggerEvent(EVENT_COLLECTED_WRENCH);
-
-
     }
-    Collectible::OnEnter( pCharacter );
-    //update the respawnentity
+
+    if ( GetGameFlow()->GetCurrentContext() == CONTEXT_GAMEPLAY)
+    {
+        GetEventManager()->TriggerEvent(EVENT_REPAIR_CAR);
+    }
+    else
+    {
+        int playerid = mpActionEventLocator->GetPlayerID();
+        GetAvatarManager()->GetAvatarForPlayer(playerid)->GetVehicle()->ResetDamageState();
+    }
+    GetEventManager()->TriggerEvent(EVENT_COLLECTED_WRENCH);
     RespawnEntity::EntityCollected();
 }
 
@@ -3956,9 +4055,13 @@ void WrenchIcon::UpdateThing( unsigned int milliseconds )
 
 void WrenchIcon::Update(float timeins)
 {
+    // Collectible::OnUpdate finishes pending VR hand-grabs.
+    Collectible::OnUpdate( timeins );
+
     unsigned int timeinms=0;
     timeinms = rmt::FtoL(timeins * 1000.0f);
-    mAnimatedIcon->Update(timeinms);
+    // Collectible::OnUpdate already advances mAnimatedIcon; skip double update
+    // only when not collected path... still safe to update icon.
     RespawnEntity::Update(timeinms);
     //check if entity should respawn.
     if (RespawnEntity::ShouldEntityRespawn ())
@@ -4095,34 +4198,26 @@ Return:         void
 
 =============================================================================
 */
-void NitroIcon::OnEnter( Character* pCharacter )
+void NitroIcon::OnCollectEffects( Character* pCharacter )
 {
-    if ( !IsCollected() )
+    (void)pCharacter;
+    if ( mAnimatedCollectionThing )
     {
-        // Maybe play an animation?     
         mAnimatedCollectionThing->Reset();
         rmt::Vector pos;
         mpActionEventLocator->GetLocation( &pos );
         mAnimatedCollectionThing->ShouldRender( true );
         mAnimatedCollectionThing->Move( pos );
+    }
 
-        int playerid = mpActionEventLocator->GetPlayerID();
-        Avatar* player = GetAvatarManager()->GetAvatarForPlayer( playerid );
-
-        /*
-        // TODO:
-        // Maybe play a sound effect? Pass in the avatar pointer? Ask Esan
-        ::GetEventManager()->TriggerEvent( EVENT_COLLECTED_NITRO, player );
-        */
+    int playerid = mpActionEventLocator->GetPlayerID();
+    Avatar* player = GetAvatarManager()->GetAvatarForPlayer( playerid );
+    if ( player )
+    {
         Vehicle* playerVehicle = player->GetVehicle();
         if( playerVehicle )
-        {
-            // increase the nitro count...
             playerVehicle->mNumTurbos++;
-        }
     }
-    Collectible::OnEnter( pCharacter );
-    //update the respawnentity
     RespawnEntity::EntityCollected();
 }
 
@@ -4148,9 +4243,10 @@ void NitroIcon::UpdateThing( unsigned int milliseconds )
 
 void NitroIcon::Update(float timeins)
 {
+    Collectible::OnUpdate( timeins );
+
     unsigned int timeinms=0;
     timeinms = rmt::FtoL(timeins * 1000.0f);
-    mAnimatedIcon->Update(timeinms);
     RespawnEntity::Update(timeinms);
     //check if entity should respawn.
     if (RespawnEntity::ShouldEntityRespawn ())

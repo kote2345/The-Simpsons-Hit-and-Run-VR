@@ -21,6 +21,9 @@ const CharacterHands margeHands={VR_HAND_MESH(marge,l),VR_HAND_MESH(marge,r)};
 const CharacterHands apuHands  ={VR_HAND_MESH(apu,l),  VR_HAND_MESH(apu,r)};
 #undef VR_HAND_MESH
 
+rmt::Vector renderedHandWorldPosition[2];
+bool renderedHandWorldPositionValid[2]={false,false};
+
 pddiShader* GetHandShader()
 {
     tShader* characterShader=p3d::find<tShader>("char_swatches_lit_m");
@@ -58,6 +61,16 @@ pddiShader* GetHandShader()
 
 void RenderTrackedHandMeshes(const rmt::Matrix worldPoses[2],const bool valid[2])
 {
+    // Cache the controller/grip-pose origins from the exact world matrices used
+    // to render the visible hands. Gameplay pickup tests consume these values
+    // on the following update, guaranteeing visual and interaction positions
+    // share one coordinate transform.
+    for(unsigned hand=0;hand<2;++hand)
+    {
+        renderedHandWorldPositionValid[hand]=valid&&valid[hand];
+        if(renderedHandWorldPositionValid[hand])
+            renderedHandWorldPosition[hand]=worldPoses[hand].Row(3);
+    }
     Character* player=GetCharacterManager()?GetCharacterManager()->GetCharacter(0):NULL;
     if(!player) return;
     const CharacterHands* hands=&homerHands;
@@ -83,5 +96,18 @@ void RenderTrackedHandMeshes(const rmt::Matrix worldPoses[2],const bool valid[2]
         }
         p3d::pddi->EndPrims(stream);
     }
+}
+
+bool GetRenderedHandWorldPosition(unsigned hand,rmt::Vector* outPosition)
+{
+    if(hand>=2||!outPosition||!renderedHandWorldPositionValid[hand])return false;
+    *outPosition=renderedHandWorldPosition[hand];
+    return true;
+}
+
+void ResetRenderedHandWorldPositions()
+{
+    renderedHandWorldPositionValid[0]=false;
+    renderedHandWorldPositionValid[1]=false;
 }
 }
