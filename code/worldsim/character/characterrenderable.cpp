@@ -1,3 +1,4 @@
+#include <vr/vr_body_ik.h>
 #include <worldsim/character/characterrenderable.h>
 #include <mission/gameplaymanager.h>
 #include <p3d/texture.hpp>
@@ -10,7 +11,7 @@
 #include <pddi/pddi.hpp>
 #include <camera/supercammanager.h>
 #include <contexts/bootupcontext.h>
-#if defined(SRR2_OPENXR)
+#if defined(RAD_ANDROID)
 #include <vr/openxrmanager.h>
 #include <p3d/primgroup.hpp>
 #endif
@@ -147,7 +148,7 @@ Return:         void
 
 =============================================================================
 */
-void CharacterRenderable::Display( rmt::Vector iPosn, tPose* pose )
+void CharacterRenderable::Display( rmt::Vector iPosn, tPose* pose, bool vrBody )
 {
 BEGIN_PROFILE("CharRender Cull")
     tPointCamera* pCam = (tPointCamera*)GetSuperCamManager()->GetSCC(0)->GetCamera();
@@ -161,7 +162,7 @@ END_PROFILE("CharRender Cull")
     dist *= dist;
 
     bool hideForNearCamera=sqrDistFromCam<dist;
-#if defined(SRR2_OPENXR)
+#if defined(RAD_ANDROID)
     if(hideForNearCamera && SharOpenXR::IsVrModeEnabled())
     {
         // The original third-person renderer hides every character within
@@ -186,12 +187,12 @@ END_PROFILE("CharRender Cull")
         }
     }
 #endif
-    if ( hideForNearCamera )
+    if ( hideForNearCamera && !vrBody )
     {
         return;
     }
 
-    if( mbInAnyonesFrustrum )
+    if( mbInAnyonesFrustrum || vrBody )
     {
 
         if(sqrDistFromCam > 900.0f )
@@ -214,6 +215,7 @@ END_PROFILE("CharRender Cull")
         if ( mIsShocked == false )
         {
             DisplayModel( pose );
+            if(vrBody) SharOpenXR::MarkBodyIKDrawn();
         }
         else
         {
@@ -582,11 +584,11 @@ void CharacterRenderable::DisplayModel( tPose* pose )
         draw->ProcessShaders( blendAlpha );
         tShaderIntBroadcast emissiveFade( PDDI_SP_EMISSIVEALPHA, mFadeAlpha );
         draw->ProcessShaders( emissiveFade );
-#if defined(SRR2_OPENXR)
+#if defined(RAD_ANDROID)
         p3dSetEnhancedCharacterMaterials(SharOpenXR::IsEnhancedMaterialsEnabled());
 #endif
         draw->Display( pose );
-#if defined(SRR2_OPENXR)
+#if defined(RAD_ANDROID)
         p3dSetEnhancedCharacterMaterials(false);
 #endif
     }
