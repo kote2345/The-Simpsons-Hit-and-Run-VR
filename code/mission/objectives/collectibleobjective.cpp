@@ -14,6 +14,13 @@
 //========================================
 // Foundation Tech
 #include <raddebug.hpp>
+
+#if defined(RAD_ANDROID)
+#include <android/log.h>
+#define VRPICKUP_LOG(...) __android_log_print(ANDROID_LOG_INFO, "VRPICKUP", __VA_ARGS__)
+#else
+#define VRPICKUP_LOG(...) ((void)0)
+#endif
 #include <p3d/utility.hpp>
 #include <string.h>
 
@@ -45,6 +52,9 @@
 //#include <roads/roadmanager.h>
 
 #include <worldsim/avatarmanager.h>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxr_shared_input.h>
+#endif
 #include <worldsim/redbrick/vehicle.h>
 
 //******************************************************************************
@@ -76,6 +86,7 @@ const float DEFAULT_DIST = 5.0f;
 CollectibleObjective::CollectibleObjective() :
     mNumCollectibles( 0 ),
     mNumCollected( 0 ),
+    mPendingCollectibleIndex( -1 ),
     mCollectEffect( NULL ),
     mAllowUserDump( false ),
     mCurrentFocus( MAX_COLLECTIBLES )
@@ -188,13 +199,46 @@ void CollectibleObjective::SetCollectEffectName( const char* name )
 void CollectibleObjective::HandleEvent( EventEnum id, void* pEventData )
 {
     EventLocator* locator = static_cast<EventLocator*>( pEventData );
+    if( !locator )
+        return;
 
-    if( locator && locator->GetPlayerEntered() && CheckCollectibleLocators( locator ) )
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    Avatar* avatar = GetAvatarManager()->GetAvatarForPlayer( 0 );
+    if( !avatar || !avatar->IsInCar() )
+    {
+        int matchedIndex = -1;
+        for( unsigned int i = 0; i < mNumCollectibles; ++i )
+        {
+            if( locator == mCollectibles[ i ].pLocator )
+            {
+                matchedIndex = static_cast<int>( i );
+                break;
+            }
+        }
+
+        if( locator->GetPlayerEntered() )
+        {
+            mPendingCollectibleIndex = matchedIndex;
+            VRPICKUP_LOG("MISSION BODY_ENTER_ARMED locator=%p idx=%d", locator, matchedIndex);
+        }
+        else if( matchedIndex >= 0 && mPendingCollectibleIndex == matchedIndex )
+        {
+            VRPICKUP_LOG("MISSION BODY_EXIT_DISARMED locator=%p idx=%d", locator, matchedIndex);
+            mPendingCollectibleIndex = -1;
+        }
+        // On-foot body events never collect.
+        return;
+    }
+#endif
+
+    if( !locator->GetPlayerEntered() )
+        return;
+
+    VRPICKUP_LOG("MISSION VEHICLE locator path locator=%p", locator);
+    if( CheckCollectibleLocators( locator ) )
     {
         if( mNumCollected == mNumCollectibles )
-        {
             SetFinished( true );
-        }
     }
 }
 
@@ -238,7 +282,85 @@ void CollectibleObjective::OnUpdate( unsigned int elapsedTime )
         mCollectEffect->Update( elapsedTime );
     }
 
-    
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // Proven functional interaction model: mission body trigger selects the
+    // nearby mission collectible, but only a grip press can collect it.
+    Avatar* avatar = GetAvatarManager()->GetAvatarForPlayer( 0 );
+    if( avatar && !avatar->IsInCar() && mPendingCollectibleIndex >= 0 &&
+        static_cast<unsigned int>(mPendingCollectibleIndex) < mNumCollectibles )
+    {
+        const unsigned int idx = static_cast<unsigned int>( mPendingCollectibleIndex );
+        if( mCollectibles[ idx ].bTriggered || !mCollectibles[ idx ].pLocator ||
+            !mCollectibles[ idx ].pLocator->GetFlag( Locator::ACTIVE ) )
+        {
+            mPendingCollectibleIndex = -1;
+        }
+        else
+        {
+            static const float GRIP_THRESHOLD = 0.20f;
+            static const float HAND_PROXIMITY_RADIUS = 0.70f;
+
+            rmt::Vector itemPos;
+            // Measure against the rendered collectible centre, not the locator
+            // trigger origin (which is often at ground level below the model).
+            if( mCollectibles[ idx ].mAnimatedIcon )
+                mCollectibles[ idx ].mAnimatedIcon->GetPosition( itemPos );
+            else
+                mCollectibles[ idx ].pLocator->GetLocation( &itemPos );
+
+            bool handGripMatch = false;
+            unsigned matchedHand = 0;
+            float matchedGrip = 0.0f;
+            float matchedDistance = -1.0f;
+
+            for( unsigned hand = 0; hand < 2; ++hand )
+            {
+                const float grip = SharOpenXR::GetHandGripValue( hand );
+                if( grip < 0.05f )
+                    continue;
+
+                rmt::Vector handPos;
+                const bool handValid = SharOpenXR::GetHandWorldPosition( hand, &handPos );
+                float distance = -1.0f;
+                if( handValid )
+                {
+                    rmt::Vector delta = handPos;
+                    delta.Sub( itemPos );
+                    distance = delta.Magnitude();
+                }
+
+                VRPICKUP_LOG("MISSION HAND_PROBE idx=%u hand=%u grip=%.3f valid=%d distance=%.3f radius=%.2f item=(%.3f %.3f %.3f) handpos=(%.3f %.3f %.3f)",
+                             idx, hand, grip, handValid ? 1 : 0, distance,
+                             HAND_PROXIMITY_RADIUS, itemPos.x, itemPos.y, itemPos.z,
+                             handValid ? handPos.x : 0.0f, handValid ? handPos.y : 0.0f,
+                             handValid ? handPos.z : 0.0f);
+
+                if( grip >= GRIP_THRESHOLD && handValid && distance <= HAND_PROXIMITY_RADIUS )
+                {
+                    handGripMatch = true;
+                    matchedHand = hand;
+                    matchedGrip = grip;
+                    matchedDistance = distance;
+                    break;
+                }
+            }
+
+            if( handGripMatch )
+            {
+                bool shouldReset = false;
+                if( OnCollection( idx, shouldReset ) )
+                {
+                    VRPICKUP_LOG("MISSION HAND_GRIP_SUCCESS idx=%u hand=%u grip=%.3f distance=%.3f",
+                                 idx, matchedHand, matchedGrip, matchedDistance);
+                    Collect( idx, shouldReset );
+                    if( mNumCollected == mNumCollectibles )
+                        SetFinished( true );
+                }
+                mPendingCollectibleIndex = -1;
+            }
+        }
+    }
+#endif
 }
 
 //=============================================================================
@@ -383,6 +505,7 @@ void CollectibleObjective::GetCollectiblePathInfo( unsigned int index, RoadManag
 //=============================================================================
 void CollectibleObjective::OnFinalize()
 {
+    mPendingCollectibleIndex = -1;
     //Finalize the collectible objective
     OnFinalizeCollectibleObjective();
 
@@ -429,9 +552,12 @@ bool CollectibleObjective::CheckCollectibleLocators( Locator* locator )
     {
         if( locator == mCollectibles[ i ].pLocator ) 
         {
+            VRPICKUP_LOG("MISSION CheckCollectibleLocators MATCH idx=%u locator=%p", i, locator);
             bool shouldReset = false;
             if ( OnCollection( i, shouldReset ) )
             {
+                VRPICKUP_LOG("MISSION LOCATOR_PATH calling Collect idx=%u shouldReset=%d",
+                             i, (int)shouldReset);
                 Collect( i, shouldReset );
                 found = true;
                 break;
@@ -456,6 +582,15 @@ void CollectibleObjective::Collect( unsigned int index, bool shouldReset )
 {
     rAssert( index >= 0 && index < mNumCollectibles
         && mCollectibles[ index ].pLocator != NULL );
+
+    rmt::Vector dbgItem(0.0f, 0.0f, 0.0f);
+    mCollectibles[ index ].pLocator->GetLocation( &dbgItem );
+    Avatar* dbgAvatar = GetAvatarManager()->GetAvatarForPlayer( 0 );
+    VRPICKUP_LOG("MISSION COLLECT idx=%u shouldReset=%d alreadyTriggered=%d locator=%p avatar=%p incar=%d item=(%.3f %.3f %.3f)",
+                 index, (int)shouldReset, (int)mCollectibles[ index ].bTriggered,
+                 mCollectibles[ index ].pLocator, dbgAvatar,
+                 dbgAvatar ? (int)dbgAvatar->IsInCar() : -1,
+                 dbgItem.x, dbgItem.y, dbgItem.z);
 
     if( !mCollectibles[ index ].bTriggered )
     {
