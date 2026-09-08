@@ -1,5 +1,6 @@
+#include <vr/vr_body_ik.h>
 #include <worldsim/character/character.h>
-#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#if defined(RAD_ANDROID)
 #include <vr/openxrmanager.h>
 #endif
 
@@ -1572,7 +1573,7 @@ void Character::PreSimUpdate( float timeins )
         UpdateGroundPlane( timeins );
     }
 
-#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#if defined(RAD_ANDROID)
     // A fast tracked-controller sweep reuses the original kick damage/event
     // rules. One hit per hand is allowed per short swing, preventing a hand
     // resting inside a prop from dealing damage every simulation tick.
@@ -4957,6 +4958,26 @@ void Character::OnTransitToAICtrl()
     RelocateAndReset( mPrevSimTransform.Row(3), dir );
 }
 
+bool Character::GetVrNeckCameraHeight(float* height) const
+{
+    if(!height||!mpCharacterRenderable||!mpCharacterRenderable->GetDrawable())return false;
+    tSkeleton* skeleton=mpCharacterRenderable->GetDrawable()->GetSkeleton();
+    if(!skeleton)return false;
+    int head=skeleton->FindJointIndex("Head");
+    // Same head attachment used by CharacterTarget and the body IK head mask.
+    // Its pivot is the neck/head connection, not the top of the skull/hair.
+    if(head<0&&skeleton->GetNumJoint()>17)head=17;
+    if(head<0)return false;
+    // Small eye clearance above the neck anchor. Keep in sync with the
+    // head-target subtraction in vr_body_ik.cpp (world units, not model scale).
+    const float neckEyeClearance=0.10f;
+    const float value=(skeleton->GetJoint(head)->worldMatrix.Row(3).y-
+                       skeleton->GetJoint(0)->worldMatrix.Row(3).y)*mScale+mYAdjust+neckEyeClearance;
+    // Comparison also rejects NaNs. Use existing camera fallback if unavailable.
+    if(!(value>0.10f&&value<3.0f))return false;
+    *height=value;return true;
+}
+
 void Character::Display(void)
 {
     if(IS_DRAW_LONG) return;
@@ -5048,6 +5069,12 @@ void Character::Display(void)
         }
     }
 
+    // Solve on a private render copy, after native animation and model scale.
+    // Account for BOTH translations used by the draw stack below.
+    tPose* bodyPose = SharOpenXR::BuildBodyIKPose(
+        this, pose, rootPos + rmt::Vector(0.0f, mYAdjust, 0.0f));
+    if(bodyPose) pose = bodyPose;
+
     // Each puppet may update its pose again before the auxiliary CSM pass.
     // Keep a private root-relative snapshot for this character; otherwise the
     // shared drawable pose can contain another character's (usually player's)
@@ -5070,7 +5097,9 @@ void Character::Display(void)
     p3d::stack->Push();
     p3d::stack->Translate(rootPos);
 
-    mpCharacterRenderable->Display( mSphere.centre, pose );
+    // CSM snapshot above keeps the head; only the eye copy hides it.
+    if(bodyPose) SharOpenXR::HideBodyIKHead(pose);
+    mpCharacterRenderable->Display( mSphere.centre, pose, bodyPose != NULL );
 
     p3d::stack->Pop();
     p3d::stack->Pop();
