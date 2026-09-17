@@ -56,6 +56,10 @@ struct SharedVrState
     bool wheelMeshHidden;
     float wheelGrabOrientAngle[2];
     rmt::Matrix wheelGrabOrientRot[2];
+    // Keep newly-added state at the end so older translation units retain the
+    // offsets of all pre-existing fields during incremental builds.
+    bool vehicleGripToggleEnabled;
+    bool wheelGripPressed[2];
 
     SharedVrState();
 };

@@ -32,6 +32,7 @@ void SetSharedVolumetricLightEnabled(bool enabled);
 void SetSharedHdrEnabled(bool enabled);
 void SetSharedVehicleComfortEnabled(bool enabled);
 void SetSharedBodyIKEnabled(bool enabled);
+void SetSharedVehicleGripToggleEnabled(bool enabled);
 }
 
 #endif

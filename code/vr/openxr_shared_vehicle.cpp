@@ -247,6 +247,7 @@ void ResetVrVehicleState()
 {
     SharedVrState& s=GetSharedVrState();
     s.wheelGrabbed[0]=s.wheelGrabbed[1]=false;s.wheelHonk=false;
+    s.wheelGripPressed[0]=s.wheelGripPressed[1]=false;
     s.wheelAngle=s.wheelVisualAngle=s.wheelTrim=s.yokeThrottle=0.0f;
     s.yokeFullGasLatched=s.yokeFullBrakeLatched=false;
     s.wheelAdjustMode=false;s.wheelAdjustHoldSec=0.0f;s.wheelAdjustVehicle[0]=0;
@@ -261,6 +262,13 @@ void UpdateVrVehicleState(const VrVehicleInput& in,VrVehicleHapticSink haptic,
     s.gripValue[0]=in.grip[0];s.gripValue[1]=in.grip[1];
     s.stickClick[0]=in.stickClick[0];s.stickClick[1]=in.stickClick[1];
     s.wheelHonk=false;
+    bool gripRising[2]={false,false};
+    for(unsigned hand=0;hand<2;++hand)
+    {
+        const bool pressed=in.grip[hand]>GRAB;
+        gripRising[hand]=pressed&&!s.wheelGripPressed[hand];
+        s.wheelGripPressed[hand]=pressed;
+    }
 
     const bool bothClicks=in.stickClick[0]&&in.stickClick[1];
     const float dt=in.deltaSeconds>0.0f&&in.deltaSeconds<0.1f?in.deltaSeconds:1.0f/72.0f;
@@ -310,17 +318,32 @@ void UpdateVrVehicleState(const VrVehicleInput& in,VrVehicleHapticSink haptic,
         float handY[2]={0,0},handZ[2]={0,0};bool held[2]={false,false};
         for(unsigned hand=0;hand<2;++hand)
         {
-            if(!in.handValid[hand]){s.wheelGrabbed[hand]=false;continue;}
+            if(s.vehicleGripToggleEnabled&&gripRising[hand]&&s.wheelGrabbed[hand])
+                s.wheelGrabbed[hand]=false;
+            if(!in.handValid[hand])
+            {
+                if(!s.vehicleGripToggleEnabled)s.wheelGrabbed[hand]=false;
+                continue;
+            }
             const rmt::Vector p=in.handPose[hand].Row(3);const rmt::Vector d=p-centre;
             const bool close=std::sqrt(d.x*d.x+d.y*d.y)<s.activeWheelRadius+0.24f&&
                              std::fabs(d.z)<0.28f&&std::fabs(d.y)<0.28f;
-            if(!s.wheelGrabbed[hand])
+            if(s.vehicleGripToggleEnabled)
             {
-                if(in.grip[hand]>GRAB&&close){s.wheelGrabbed[hand]=true;
+                if(gripRising[hand]&&!s.wheelGrabbed[hand]&&close){s.wheelGrabbed[hand]=true;
                     s.wheelGrabOffset[hand]=p.y;s.wheelGrabOrientRot[hand]=in.handPose[hand];
                     s.wheelGrabOrientRot[hand].Row(3).Set(0,0,0);}
             }
-            else if(in.grip[hand]<=RELEASE)s.wheelGrabbed[hand]=false;
+            else
+            {
+                if(!s.wheelGrabbed[hand])
+                {
+                    if(in.grip[hand]>GRAB&&close){s.wheelGrabbed[hand]=true;
+                        s.wheelGrabOffset[hand]=p.y;s.wheelGrabOrientRot[hand]=in.handPose[hand];
+                        s.wheelGrabOrientRot[hand].Row(3).Set(0,0,0);}
+                }
+                else if(in.grip[hand]<=RELEASE)s.wheelGrabbed[hand]=false;
+            }
             if(s.wheelGrabbed[hand]){held[hand]=true;handY[hand]=p.y-s.wheelGrabOffset[hand];handZ[hand]=d.z;}
         }
         if(held[0]||held[1])
@@ -351,17 +374,32 @@ void UpdateVrVehicleState(const VrVehicleInput& in,VrVehicleHapticSink haptic,
             const float radial=std::sqrt(x*x+y*y),angle=std::atan2(x,y);
             if(!s.wheelGrabbed[hand]&&radial<0.10f&&std::fabs(z)<0.16f)s.wheelHonk=true;
             const bool squeezed=in.grip[hand]>(s.wheelGrabbed[hand]?RELEASE:GRAB);
-            if(!s.wheelGrabbed[hand])
+            if(s.vehicleGripToggleEnabled)
             {
-                if(squeezed&&std::fabs(radial-s.activeWheelRadius)<0.12f&&
-                   std::fabs(z)<0.16f&&radial>0.06f){s.wheelGrabbed[hand]=true;
+                if(gripRising[hand]&&s.wheelGrabbed[hand])
+                    s.wheelGrabbed[hand]=false;
+                else if(gripRising[hand]&&std::fabs(radial-s.activeWheelRadius)<0.12f&&
+                        std::fabs(z)<0.16f&&radial>0.06f){s.wheelGrabbed[hand]=true;
                     s.wheelGrabOffset[hand]=hand?OPTIMAL:-OPTIMAL;
                     s.wheelGrabTarget[hand]=s.wheelAngle;s.wheelGrabAngle[hand]=angle;
                     s.wheelGrabOrientAngle[hand]=s.wheelAngle+s.wheelGrabOffset[hand];
                     s.wheelGrabOrientRot[hand]=in.handPose[hand];s.wheelGrabOrientRot[hand].Row(3).Set(0,0,0);}
-                continue;
+                if(!s.wheelGrabbed[hand])continue;
             }
-            if(!squeezed){s.wheelGrabbed[hand]=false;continue;}
+            else
+            {
+                if(!s.wheelGrabbed[hand])
+                {
+                    if(squeezed&&std::fabs(radial-s.activeWheelRadius)<0.12f&&
+                       std::fabs(z)<0.16f&&radial>0.06f){s.wheelGrabbed[hand]=true;
+                        s.wheelGrabOffset[hand]=hand?OPTIMAL:-OPTIMAL;
+                        s.wheelGrabTarget[hand]=s.wheelAngle;s.wheelGrabAngle[hand]=angle;
+                        s.wheelGrabOrientAngle[hand]=s.wheelAngle+s.wheelGrabOffset[hand];
+                        s.wheelGrabOrientRot[hand]=in.handPose[hand];s.wheelGrabOrientRot[hand].Row(3).Set(0,0,0);}
+                    continue;
+                }
+                if(!squeezed){s.wheelGrabbed[hand]=false;continue;}
+            }
             if(s.wheelGrabAngle[hand]>1e9f){s.wheelGrabAngle[hand]=angle;s.wheelGrabTarget[hand]=s.wheelAngle;}
             float delta=std::max(-2.5f,std::min(2.5f,Unwrap(angle-s.wheelGrabAngle[hand])));
             sum+=std::max(-MAX_ANGLE,std::min(MAX_ANGLE,s.wheelGrabTarget[hand]+delta));++count;

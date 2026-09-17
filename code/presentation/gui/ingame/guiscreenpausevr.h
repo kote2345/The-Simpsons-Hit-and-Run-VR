@@ -27,9 +27,9 @@ private:
     void UpdateNumericValue( int row );
     CGuiMenu* m_pMenu;
     Scrooby::Page* m_pPage;
-    Scrooby::Group* m_pRows[8];
-    Scrooby::Text* m_pLabels[8];
-    Scrooby::Text* m_pValues[8];
+    Scrooby::Group* m_pRows[9];
+    Scrooby::Text* m_pLabels[9];
+    Scrooby::Text* m_pValues[9];
     int m_numericValues[2];
     int m_numRows;
     bool m_frontendLayout;

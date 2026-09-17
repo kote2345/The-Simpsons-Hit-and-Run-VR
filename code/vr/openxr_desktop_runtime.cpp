@@ -592,6 +592,8 @@ void SetVehicleComfortEnabled(bool enabled) { SetSharedVehicleComfortEnabled(ena
 bool IsVehicleComfortEnabled() { return GetSharedVrState().vehicleComfortEnabled; }
 void SetBodyIKEnabled(bool enabled) { SetSharedBodyIKEnabled(enabled); }
 bool IsBodyIKEnabled() { return GetSharedVrState().bodyIkEnabled; }
+void SetVehicleGripToggleEnabled(bool enabled) { SetSharedVehicleGripToggleEnabled(enabled); }
+bool IsVehicleGripToggleEnabled() { return GetSharedVrState().vehicleGripToggleEnabled; }
 bool IsHorizontalMenuInputDominant() { return Desktop::menuHorizontalInputDominant; }
 bool IsVerticalMenuInputDominant() { return Desktop::menuVerticalInputDominant; }
 void SetVrBaseHeading(const rmt::Vector& heading) { SharedVrState& s=GetSharedVrState();s.vrBaseHeading=heading;s.vrBaseHeading.y=0.0f;s.vrBaseHeadingValid=s.vrBaseHeading.NormalizeSafe()>0.0001f; }
