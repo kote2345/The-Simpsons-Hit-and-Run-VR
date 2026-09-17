@@ -16,6 +16,7 @@ enum { VR_MISSION_HUD_GROUP_COUNT=20 };
 enum { VR_HUD_GROUP_INSTANCES=8 };
 static Scrooby::Group* gVrRadarGroup[VR_HUD_GROUP_INSTANCES]={NULL};
 static Scrooby::Group* gVrMissionHudGroup[VR_MISSION_HUD_GROUP_COUNT][VR_HUD_GROUP_INSTANCES]={{NULL}};
+static bool gVrCollectorCardCaptureEnabled=false;
 void ScroobyDisplayVrRadarMap();
 #if defined(SRR2_VR_RENDERER_VULKAN)
 static void DisplayVrRadarModels(FeOwner* parent)
@@ -64,6 +65,10 @@ void ScroobySetVrMissionHudGroup(unsigned slot,Scrooby::Group* group)
             return;
         }
     }
+}
+void ScroobySetVrCollectorCardCaptureEnabled(bool enabled)
+{
+    gVrCollectorCardCaptureEnabled=enabled;
 }
 #endif
 
@@ -132,7 +137,8 @@ void FeGroup::Display()
     int missionSlot=-1;
     for(int slot=0;slot<VR_MISSION_HUD_GROUP_COUNT;++slot)
         for(unsigned instance=0;instance<VR_HUD_GROUP_INSTANCES;++instance)
-            if(self==gVrMissionHudGroup[slot][instance]
+            if(self==gVrMissionHudGroup[slot][instance] &&
+               (slot!=19 || gVrCollectorCardCaptureEnabled)
 #if !defined(SRR2_VR_RENDERER_VULKAN)
                && SharOpenXR::IsSpatialHudEnabled()
 #endif

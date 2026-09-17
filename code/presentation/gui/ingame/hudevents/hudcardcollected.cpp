@@ -28,6 +28,7 @@
 
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 void ScroobySetVrMissionHudGroup(unsigned slot,Scrooby::Group* group);
+void ScroobySetVrCollectorCardCaptureEnabled(bool enabled);
 #endif
 
 #ifdef RAD_WIN32
@@ -106,6 +107,9 @@ void
 HudCardCollected::Start()
 {
     this->OnStart();
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    ScroobySetVrCollectorCardCaptureEnabled( true );
+#endif
 
     m_currentSubState = STATE_CARD_TRANSITION_IN;
 
@@ -144,6 +148,9 @@ HudCardCollected::Start()
 void
 HudCardCollected::Stop()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    ScroobySetVrCollectorCardCaptureEnabled( false );
+#endif
     this->OnStop();
 }
 

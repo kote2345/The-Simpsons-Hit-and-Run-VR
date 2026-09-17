@@ -525,6 +525,13 @@ void EndRadarCapture()
 bool BeginMissionHudCapture(unsigned slot,int xMin,int yMin,int xMax,int yMax)
 {
     RefreshRuntime();
+#if defined(SRR2_VR_RENDERER_VULKAN)
+    // ItemCollected owns slot 19. Its nested HUD groups must not replace the
+    // card's active target: preserving it lets both the card art and CardText
+    // finish in the same stereo capture.
+    if(g.missionHudActiveSlot==19)
+        return false;
+#endif
     if(!g.multiviewImageAcquired || g.activeEye>1 ||
        g.gameplayHudCaptureActive || slot>=HudState::MISSION_HUD_COUNT
 #if !defined(SRR2_VR_RENDERER_VULKAN)
