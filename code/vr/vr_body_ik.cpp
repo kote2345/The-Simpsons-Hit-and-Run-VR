@@ -213,7 +213,7 @@ int FindThumbRoot(tPose* pose,int wrist,unsigned hand,
     }
     return best;
 }
-void ApplyGripFingers(tPose* p,int wrist,unsigned hand)
+void ApplyGripFingers(tPose* p,int wrist,unsigned hand,bool homerRig)
 {
     const float rawGrip=GetHandGripValue(hand);
     float grip=std::isfinite(rawGrip)?rawGrip:0.0f;
@@ -265,18 +265,22 @@ void ApplyGripFingers(tPose* p,int wrist,unsigned hand)
         thumbAcrossSign=ChooseThumbAcrossSign(thumbDirection,targetDirection,palm.Row(1));
     }
     int fingerJoints=0,thumbJoints=0;
-    for(int i=0;i<p->GetNumJoint();++i)
+    // Do not rely on authored joint indices being parent-before-child. Homer
+    // has a hand joint whose parent is ordered later than it; processing by
+    // index leaves that branch with a stale world matrix and a stray polygon.
+    for(int depthPass=0;depthPass<p->GetNumJoint();++depthPass)
+        for(int i=0;i<p->GetNumJoint();++i)
     {
         if(i==wrist||!Descendant(p,i,wrist))continue;
         const tSkeleton::Joint* joint=skeleton->GetJoint(i);
-        if(joint->parentIndex<0||joint->parentIndex>=i)continue;
+        if(joint->parentIndex<0||joint->parentIndex>=p->GetNumJoint())continue;
         int root=i,depth=0;
         while(skeleton->GetJoint(root)->parentIndex!=wrist&&depth<p->GetNumJoint())
         {
             root=skeleton->GetJoint(root)->parentIndex;++depth;
             if(root<0)break;
         }
-        if(root<0||depth>=p->GetNumJoint())continue;
+        if(root<0||depth>=p->GetNumJoint()||depth!=depthPass)continue;
         const bool thumb=(root==thumbRoot);
         ++fingerJoints;if(thumb)++thumbJoints;
         const rmt::Matrix& rest=joint->restPose;
@@ -285,6 +289,18 @@ void ApplyGripFingers(tPose* p,int wrist,unsigned hand)
         {
             if(thumb)
             {
+                // Homer has a two-joint thumb whose distal joint also carries
+                // a small mesh wedge. The extra distal opposition bends that
+                // wedge away from the rest of the thumb, so keep the authored
+                // child rotation while still updating it from the moved root.
+                if(homerRig&&depth>0)
+                {
+                    local=rest;
+                    local.Row(3)=rest.Row(3);
+                    p->GetJoint(i)->objectMatrix=local;
+                    p->GetJoint(i)->worldMatrix.Mult(local,p->GetJoint(joint->parentIndex)->worldMatrix);
+                    continue;
+                }
                 // PURE SIDEWAYS THUMB OPPOSITION. No flex/curl axis is used.
                 // Convert the CURRENT palm normal to this CURRENT parent frame
                 // and rotate only around that axis. Palm-up: left thumb sweeps
@@ -624,12 +640,13 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         rmt::Matrix calibratedWrist;calibratedWrist.Mult(wristToGrip,neutralRoll);
         // Pitch AFTER the mirrored roll, around the common grip-local X.
         // Positive X rotation sends +Z forward toward -Y in SHAR's math.
-        const float neutralDownTiltRadians=5.0f*0.01745329252f;
+        const float neutralDownTiltRadians=95.0f*0.01745329252f;
         rmt::Matrix downTilt;downTilt.Identity();downTilt.FillRotateX(neutralDownTiltRadians);
         rmt::Matrix tiltedWrist;tiltedWrist.Mult(calibratedWrist,downTilt);
         rmt::Matrix wrist;wrist.Mult(tiltedWrist,hands[i]);
         MatchRotation(p,arms[i].end,wrist);
-        ApplyGripFingers(p,arms[i].end,static_cast<unsigned>(i));
+        const bool homerRig=player->GetUID()==tEntity::MakeUID("homer");
+        ApplyGripFingers(p,arms[i].end,static_cast<unsigned>(i),homerRig);
     }
     // Use the animated head pose as the neutral anatomical orientation.
     // The tracked culling camera is composed as HMD-local * gameplay-camera,
