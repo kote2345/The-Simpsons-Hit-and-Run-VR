@@ -22,6 +22,15 @@
 
 #include <raddebug.hpp>
 
+#if defined(SRR2_OPENXR)
+#include <vr/openxrmanager.h>
+#include <worldsim/avatar.h>
+#include <worldsim/avatarmanager.h>
+#include <worldsim/character/charactermanager.h>
+#include <worldsim/character/character.h>
+#include <worldsim/redbrick/vehicle.h>
+#endif
+
 //===========================================================================
 // Global Data, Local Data, Local Classes
 //===========================================================================
@@ -63,10 +72,47 @@ HudMapCam::~HudMapCam()
 void
 HudMapCam::Update( unsigned int milliseconds )
 {
-    // adjust kull cam rotation to match main camera heading
-    //
+    // Adjust KullCam rotation to match the gameplay heading. In VR the active
+    // eye camera also contains the live HMD yaw; using it here makes the 3D
+    // radar rotate when the player looks around. The OpenXR gameplay camera
+    // is the same base camera used for world simulation, before HMD tracking.
     rmt::Vector camHeading;
-    GetSuperCamManager()->GetSCC( this->GetPlayerID() )->GetActiveSuperCam()->GetHeading( &camHeading );
+    bool haveGameplayHeading = false;
+#if defined(SRR2_OPENXR)
+    // Resolve the vehicle from the same character state that drives the
+    // in-car HUD.  The map camera must follow the chassis yaw, not a render
+    // camera whose orientation may contain the HMD pose.
+    CharacterManager* characters = GetCharacterManager();
+    Character* player = characters ? characters->GetCharacter( 0 ) : NULL;
+    AvatarManager* avatars = GetAvatarManager();
+    Avatar* avatar = avatars ? avatars->GetAvatarForPlayer( 0 ) : NULL;
+    Vehicle* vehicle = ( player && player->IsInCar() ) ?
+        player->GetTargetVehicle() : NULL;
+    if( !vehicle && avatar && avatar->IsInCar() )
+        vehicle = avatar->GetVehicle();
+    if( vehicle )
+    {
+        // A vehicle radar is chassis-relative: neither HMD yaw nor the
+        // view/stick camera yaw is allowed to rotate its 3D projection.
+        // The vehicle transform is the simulation's authoritative world
+        // basis.  It is independent of the render camera and HMD pose.
+        camHeading = vehicle->GetTransform().Row( 2 );
+        haveGameplayHeading = true;
+    }
+    else if( SharOpenXR::IsVrModeEnabled() )
+    {
+        rmt::Matrix gameplayCamera;
+        if( SharOpenXR::GetGameplayCamera( &gameplayCamera ) )
+        {
+            camHeading = gameplayCamera.Row( 2 );
+            haveGameplayHeading = true;
+        }
+    }
+#endif
+    if( !haveGameplayHeading )
+    {
+        GetSuperCamManager()->GetSCC( this->GetPlayerID() )->GetActiveSuperCam()->GetHeading( &camHeading );
+    }
     camHeading.y = 0;
 
     if( camHeading.MagnitudeSqr() > 0 )

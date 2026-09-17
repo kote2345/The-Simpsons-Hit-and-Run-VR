@@ -894,6 +894,21 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     }
 #endif
 
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // The shared HUD and vehicle controls are authored in gameplay-camera
+    // space.  Seed that space from the actual world layer once per frame;
+    // presentation/mission layers have independent cameras and must not
+    // replace it (their previous overwrite made car-fixed HUD planes inherit
+    // view/HMD yaw on PCVR).
+    {
+        RenderLayer* gameplayLayer=mpRenderLayers[RenderEnums::LevelSlot];
+        if(multiviewActive && gameplayLayer && gameplayLayer->GetNumViews()>0 && gameplayLayer->pCam(0))
+        {
+            SharOpenXR::PrepareMultiviewCamera(gameplayLayer->pCam(0));
+        }
+    }
+#endif
+
     for (unsigned int renderPass = 0; renderPass < renderPasses; ++renderPass)
     {
         bool eyeActive = false;
@@ -901,6 +916,19 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
         eyeActive = (renderPasses == 2) && SharOpenXR::BeginEye(renderPass);
         if (renderPasses == 2 && !eyeActive)
             continue;
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+        // BeginEye resets the culling base for the new eye. Seed it from the
+        // gameplay layer before Mission/Presentation layers can overwrite it;
+        // the car HUD and radar are world-locked against this base camera.
+        if(!multiviewActive)
+        {
+            RenderLayer* gameplayLayer=mpRenderLayers[RenderEnums::LevelSlot];
+            if(gameplayLayer && gameplayLayer->GetNumViews()>0 && gameplayLayer->pCam(0))
+            {
+                SharOpenXR::PrepareMultiviewCamera(gameplayLayer->pCam(0));
+            }
+        }
+#endif
 #endif
 
       for (int i = RenderEnums::numLayers - 1; i > -1; i--)
@@ -957,8 +985,7 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
                         bool haveEyeCamera=false;
                         if(multiviewActive)
                         {
-                            haveEyeCamera=SharOpenXR::PrepareMultiviewCamera(camera) &&
-                                          SharOpenXR::GetLatestCullingCamera(&eyeCamera);
+                            haveEyeCamera=SharOpenXR::GetLatestCullingCamera(&eyeCamera);
                         }
                         else
                         {

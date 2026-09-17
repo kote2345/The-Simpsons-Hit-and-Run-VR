@@ -1454,9 +1454,10 @@ bool BeginMultiview()
 }
 bool PrepareMultiviewCamera(tCamera* base)
 {
-    if(!g.multiviewRendering||!base)return false;
+    if(!base)return false;
     if(!g.cullingBaseValid){g.cullingBaseCamera=base->GetCameraToWorldMatrix();
         g.cullingBaseValid=true;}
+    if(!g.multiviewRendering)return true;
     const XrView views[2]={g.eyes[0].view,g.eyes[1].view};rmt::Matrix centre;
     return BuildSharedMultiviewCameras(g.origin,views,g.cullingBaseCamera,
         g.multiviewProjection,g.multiviewViewAdjustment,&centre);

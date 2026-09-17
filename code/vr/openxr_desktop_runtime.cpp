@@ -482,8 +482,10 @@ bool BeginMultiview()
 }
 bool PrepareMultiviewCamera(tCamera* base)
 {
- if(!base||!Desktop::multiviewRendering||!Desktop::originValid)return false;
- Desktop::cullingBaseCamera=base->GetCameraToWorldMatrix();Desktop::cullingBaseValid=true;
+ if(!base||!Desktop::originValid)return false;
+ if(!Desktop::cullingBaseValid)
+ { Desktop::cullingBaseCamera=base->GetCameraToWorldMatrix();Desktop::cullingBaseValid=true; }
+ if(!Desktop::multiviewRendering)return true;
  rmt::Matrix centre;return BuildSharedMultiviewCameras(Desktop::origin,
      Desktop::currentViews,Desktop::cullingBaseCamera,Desktop::multiviewProjection,
      Desktop::multiviewAdjustment,&centre);

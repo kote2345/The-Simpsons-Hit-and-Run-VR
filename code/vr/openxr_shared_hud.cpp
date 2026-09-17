@@ -29,6 +29,7 @@ typedef unsigned char GLboolean;
 #include <worldsim/character/character.h>
 #include <worldsim/character/charactermanager.h>
 #include <worldsim/coins/coinmanager.h>
+#include <worldsim/redbrick/vehicle.h>
 
 #define XRLOG(...) SDL_Log("OpenXR HUD: " __VA_ARGS__)
 #define XRERR(...) SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,"OpenXR HUD: " __VA_ARGS__)
@@ -139,6 +140,34 @@ static void MakeProjection(const XrFovf& f,float n,float z,rmt::Matrix* m){Share
 }
 
 static void DrawRadarPlane();
+
+static void BuildVehicleHudAnchor(const rmt::Matrix& cameraBase,
+                                  float x,float y,float z,
+                                  rmt::Matrix& anchor)
+{
+    // This point is authored in the seated gameplay-camera space. Keep its
+    // position relative to the seated base, but take orientation exclusively
+    // from the vehicle heading shared by FirstPersonCam. The eye/HMD pose is
+    // composed later in DrawRadarPlane and must never become the panel basis.
+    const SharedVrState& state=GetSharedVrState();
+    rmt::Vector forward=state.vrBaseHeading;
+    forward.y=0.0f;
+    if(!state.vrBaseHeadingValid || forward.NormalizeSafe()<0.0001f)
+    {
+        forward=cameraBase.Row(2);
+        forward.y=0.0f;
+        if(forward.NormalizeSafe()<0.0001f) forward.Set(0.0f,0.0f,1.0f);
+    }
+    rmt::Vector right(forward.z,0.0f,-forward.x);
+    right.NormalizeSafe();
+    anchor.Identity();
+    anchor.Row(0)=right;
+    anchor.Row(1).Set(0.0f,1.0f,0.0f);
+    anchor.Row(2)=forward;
+    anchor.Row(3)=cameraBase.Row(3)+right*x+
+                  anchor.Row(1)*y+forward*z;
+}
+
 static void DrawMissionHudPlanes();
 static void DrawGameplayHud();
 
@@ -861,6 +890,8 @@ static void DrawRadarPlane()
 
     Eye& eye=g.eyes[g.activeEye-1];
     float vertices[24];
+    bool vehiclePlaneWorldSpace=false;
+    rmt::Matrix vehiclePlaneAnchor,vehiclePlaneWorldToEye,vehiclePlaneProjection;
     if(!spatial)
     {
         // Original HUD: keep the complete captured HudMap0 group as one
@@ -912,10 +943,11 @@ static void DrawRadarPlane()
     Character* player=GetCharacterManager()->GetCharacter(0);
     const bool fixedToVehicle=player&&player->IsInCar()&&
         !IsThirdPersonVehicleMode();
+    vehiclePlaneWorldSpace=fixedToVehicle;
     rmt::Vector handPosition;
     rmt::Matrix handWorld;
     if(fixedToVehicle){anchor.Identity();anchor.Row(3).Set(0.30f,g.activeWheelCentre.y,0.54f);
-        const rmt::Matrix local=anchor;anchor.Mult(local,g.cullingBaseCamera);}
+        BuildVehicleHudAnchor(g.cullingBaseCamera,0.30f,g.activeWheelCentre.y,0.54f,anchor);}
     else{if(!g.handPoseValid[1]) return;
         rmt::Matrix hand=PoseToGame(RelativePose(g.origin,g.handPoses[1]));
         handWorld.Mult(hand,g.cullingBaseCamera);
@@ -923,20 +955,6 @@ static void DrawRadarPlane()
     const rmt::Matrix eyeLocal=PoseToGame(RelativePose(g.origin,eye.view.pose));
     rmt::Matrix eyeWorld,worldToEye,anchorToEye,proj,mvp;
     eyeWorld.Mult(eyeLocal,g.cullingBaseCamera);
-    if(fixedToVehicle)
-    {
-        const rmt::Vector position=anchor.Row(3);
-        rmt::Vector forward=g.cullingBaseCamera.Row(2);
-        forward.y=0.0f;
-        if(forward.NormalizeSafe()<0.0001f) forward.Set(0.0f,0.0f,1.0f);
-        rmt::Vector right(forward.z,0.0f,-forward.x);
-        right.NormalizeSafe();
-        anchor.Identity();
-        anchor.Row(0)=right;
-        anchor.Row(1).Set(0.0f,1.0f,0.0f);
-        anchor.Row(2)=forward;
-        anchor.Row(3)=position;
-    }
     if(!fixedToVehicle){const rmt::Vector towardElbow=handWorld.Row(1)*0.10f;
         // Keep the tracked attachment point at the geometric centre of the
         // quad. An extra vertical offset made the map orbit around its lower
@@ -947,6 +965,12 @@ static void DrawRadarPlane()
     worldToEye.InvertOrtho(eyeWorld);
     anchorToEye.Mult(anchor,worldToEye); MakeProjection(eye.view.fov,0.05f,1000.0f,&proj);
     mvp.MultFull(anchorToEye,proj);
+    if(vehiclePlaneWorldSpace)
+    {
+        vehiclePlaneAnchor=anchor;
+        vehiclePlaneWorldToEye=worldToEye;
+        vehiclePlaneProjection=proj;
+    }
     // Map0 and the authored HudMap0 bezel are both 0.115 m high. The previous
     // vehicle branch doubled only Map0 to 0.23 m, making roads escape the
     // frame and exaggerating apparent rotation while looking around.
@@ -958,6 +982,18 @@ static void DrawRadarPlane()
     const float uv[4][2]={{g.radarUv[0],g.radarUv[1]},{g.radarUv[2],g.radarUv[1]},
                           {g.radarUv[0],g.radarUv[3]},{g.radarUv[2],g.radarUv[3]}};
     for(int i=0;i<4;++i){
+#if defined(SRR2_VR_RENDERER_VULKAN)
+        if(vehiclePlaneWorldSpace)
+        {
+            const rmt::Vector world=vehiclePlaneAnchor.Row(3)+
+                                    vehiclePlaneAnchor.Row(0)*xy[i][0]+
+                                    vehiclePlaneAnchor.Row(1)*xy[i][1];
+            vertices[i*6]=world.x;vertices[i*6+1]=world.y;
+            vertices[i*6+2]=world.z;vertices[i*6+3]=1.0f;
+            vertices[i*6+4]=uv[i][0];vertices[i*6+5]=uv[i][1];
+            continue;
+        }
+#endif
         rmt::Vector4 p(xy[i][0],xy[i][1],0.0f,1.0f);
         p.Transform(mvp);
         vertices[i*6]=p.x;vertices[i*6+1]=p.y;vertices[i*6+2]=p.z;
@@ -1027,8 +1063,37 @@ static void DrawRadarPlane()
     {
         const float a0=-rmt::PI_BY2+segment*(rmt::PI*2.0f/radarSegments);
         const float a1=-rmt::PI_BY2+(segment+1)*(rmt::PI*2.0f/radarSegments);
-        const float positions[3][2]={{cx,cy},{cx+rmt::Cos(a0)*rx,cy+rmt::Sin(a0)*ry},
-            {cx+rmt::Cos(a1)*rx,cy+rmt::Sin(a1)*ry}};
+        float positions[3][3];
+        if(vehiclePlaneWorldSpace)
+        {
+            const float localRadiusX=(g.radarUv[2]-g.radarUv[0])*640.0f*
+                                      0.0005f*maskScaleX;
+            const float localRadiusY=(g.radarUv[3]-g.radarUv[1])*480.0f*
+                                      0.0005f*maskScaleY;
+            const float angles[3]={0.0f,a0,a1};
+            for(unsigned p=0;p<3;++p)
+            {
+                const float lx=p==0?0.0f:rmt::Cos(angles[p])*localRadiusX;
+                const float ly=p==0?0.0f:rmt::Sin(angles[p])*localRadiusY;
+                const rmt::Vector world=vehiclePlaneAnchor.Row(3)+
+                                        vehiclePlaneAnchor.Row(0)*lx+
+                                        vehiclePlaneAnchor.Row(1)*ly;
+                positions[p][0]=world.x; positions[p][1]=world.y;
+                positions[p][2]=world.z;
+            }
+        }
+        else
+        {
+            const float clipPositions[3][2]={{cx,cy},
+                {cx+rmt::Cos(a0)*rx,cy+rmt::Sin(a0)*ry},
+                {cx+rmt::Cos(a1)*rx,cy+rmt::Sin(a1)*ry}};
+            for(unsigned p=0;p<3;++p)
+            {
+                positions[p][0]=clipPositions[p][0];
+                positions[p][1]=clipPositions[p][1];
+                positions[p][2]=0.0f;
+            }
+        }
         const float texcoords[3][2]={{cu,cv},{cu+rmt::Cos(a0)*ru,cv-rmt::Sin(a0)*rv},
             {cu+rmt::Cos(a1)*ru,cv-rmt::Sin(a1)*rv}};
         for(unsigned point=0;point<3;++point)
@@ -1037,6 +1102,7 @@ static void DrawRadarPlane()
             vertex=corners[0];
             vertex.position[0]=positions[point][0];
             vertex.position[1]=positions[point][1];
+            vertex.position[2]=positions[point][2];
             vertex.uv[0]=texcoords[point][0];
             vertex.uv[1]=texcoords[point][1];
         }
@@ -1068,7 +1134,9 @@ static void DrawRadarPlane()
         gVulkanContext.DrawPddiGeometry(g.eyes[0].vulkanImages[imageIndex],
             NormalizeVulkanRenderFormat(g.eyes[0].vulkanFormat),eye.width,eye.height,g.activeEye-1,
             buffer,VK_NULL_HANDLE,offset,radarSegments*3,0,VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-            identity,identity,g.vulkanRadarDescriptor,VK_NULL_HANDLE,
+            vehiclePlaneWorldSpace?vehiclePlaneProjection.m[0]:identity,
+            vehiclePlaneWorldSpace?vehiclePlaneWorldToEye.m[0]:identity,
+            g.vulkanRadarDescriptor,VK_NULL_HANDLE,
             VK_NULL_HANDLE,VK_NULL_HANDLE,material);
     return;
 #endif
@@ -1452,8 +1520,8 @@ static void DrawMissionHudPlanes()
             {
                 anchor.Identity();
                 anchor.Row(3).Set(0.30f,g.activeWheelCentre.y,0.54f);
-                const rmt::Matrix local=anchor;
-                anchor.Mult(local,g.cullingBaseCamera);
+                BuildVehicleHudAnchor(g.cullingBaseCamera,0.30f,
+                                      g.activeWheelCentre.y,0.54f,anchor);
             }
             else
             {
@@ -1566,10 +1634,16 @@ static void DrawMissionHudPlanes()
             // rows can retain vehicle pitch/roll or numerical scale/shear,
             // which deforms the supposedly rectangular HUD quad.
             const rmt::Vector position=anchor.Row(3);
-            rmt::Vector forward=g.cullingBaseCamera.Row(2);
+            rmt::Vector forward=GetSharedVrState().vrBaseHeading;
             forward.y=0.0f;
-            if(forward.NormalizeSafe()<0.0001f)
-                forward.Set(0.0f,0.0f,1.0f);
+            if(!GetSharedVrState().vrBaseHeadingValid ||
+               forward.NormalizeSafe()<0.0001f)
+            {
+                forward=g.cullingBaseCamera.Row(2);
+                forward.y=0.0f;
+                if(forward.NormalizeSafe()<0.0001f)
+                    forward.Set(0.0f,0.0f,1.0f);
+            }
             rmt::Vector right(forward.z,0.0f,-forward.x);
             right.NormalizeSafe();
             anchor.Identity();

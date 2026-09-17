@@ -446,6 +446,23 @@ void RenderVrVehicleControls(const rmt::Matrix& cameraBase,bool yoke,
                              const rmt::Matrix handPose[2],const bool handValid[2])
 {
     SharedVrState& s=GetSharedVrState();
+    static unsigned vehicleRenderLogTick=0;
+    if((vehicleRenderLogTick++%60u)==0u)
+    {
+        CharacterManager* characters=GetCharacterManager();
+        Character* player=characters?characters->GetCharacter(0):NULL;
+        Vehicle* vehicle=player&&player->IsInCar()?player->GetTargetVehicle():NULL;
+        rmt::Matrix vehicleWorld;vehicleWorld.Identity();
+        if(vehicle) vehicleWorld=vehicle->GetTransform();
+        SDL_Log("VR WHEELPOSE vehicle=%p yoke=%d grabbed=%d,%d cameraPos=(%.3f %.3f %.3f) cameraFwd=(%.3f %.3f %.3f) vehiclePos=(%.3f %.3f %.3f) vehicleFwd=(%.3f %.3f %.3f) wheelLocal=(%.3f %.3f %.3f) yaw=%.3f pitch=%.3f",
+                vehicle,yoke?1:0,s.wheelGrabbed[0]?1:0,s.wheelGrabbed[1]?1:0,
+                cameraBase.Row(3).x,cameraBase.Row(3).y,cameraBase.Row(3).z,
+                cameraBase.Row(2).x,cameraBase.Row(2).y,cameraBase.Row(2).z,
+                vehicleWorld.Row(3).x,vehicleWorld.Row(3).y,vehicleWorld.Row(3).z,
+                vehicleWorld.Row(2).x,vehicleWorld.Row(2).y,vehicleWorld.Row(2).z,
+                s.activeWheelCentre.x,s.activeWheelCentre.y,s.activeWheelCentre.z,
+                s.activeWheelYaw,s.activeWheelPitch);
+    }
     static tShader* shader=NULL;
     if(!shader){shader=new tShader("simple");shader->AddRef();
         shader->SetInt(PDDI_SP_ISLIT,1);shader->SetInt(PDDI_SP_SHADEMODE,PDDI_SHADE_GOURAUD);
