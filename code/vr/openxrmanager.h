@@ -135,6 +135,8 @@ namespace SharOpenXR
     int GetVehicleControlMode();
     void SetVehicleComfortEnabled(bool enabled);
     bool IsVehicleComfortEnabled();
+    void SetBodyIKEnabled(bool enabled);
+    bool IsBodyIKEnabled();
     bool IsThirdPersonVehicleMode();
     bool GetVrSteeringWheelValue(float* value);
     void ApplyControllerHaptics(float amplitude,unsigned durationMs);

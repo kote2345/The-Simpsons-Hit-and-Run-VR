@@ -17,6 +17,7 @@ struct SharedVrState
     bool enhancedMaterialsEnabled;
     bool gtaoEnabled;
     bool vehicleComfortEnabled;
+    bool bodyIkEnabled;
     bool customMaterialsEnabled;
     bool spatialHudEnabled;
     bool developerMenusEnabled;

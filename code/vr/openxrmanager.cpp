@@ -154,6 +154,7 @@ struct State
     bool& enhancedMaterialsEnabled=SharOpenXR::GetSharedVrState().enhancedMaterialsEnabled;
     bool& gtaoEnabled=SharOpenXR::GetSharedVrState().gtaoEnabled;
     bool& vehicleComfortEnabled=SharOpenXR::GetSharedVrState().vehicleComfortEnabled;
+    bool& bodyIkEnabled=SharOpenXR::GetSharedVrState().bodyIkEnabled;
     bool& customMaterialsEnabled=SharOpenXR::GetSharedVrState().customMaterialsEnabled;
     int& enhancedMaterialModel=SharOpenXR::GetSharedVrState().enhancedMaterialModel;
     bool& spatialHudEnabled=SharOpenXR::GetSharedVrState().spatialHudEnabled;
@@ -862,6 +863,8 @@ void SetVehicleComfortEnabled(bool enabled)
     SetSharedVehicleComfortEnabled(enabled);
 }
 bool IsVehicleComfortEnabled(){ return g.vehicleComfortEnabled; }
+void SetBodyIKEnabled(bool enabled){ SetSharedBodyIKEnabled(enabled); }
+bool IsBodyIKEnabled(){ return g.bodyIkEnabled; }
 bool IsThirdPersonVehicleMode(){ return g.vehicleControlMode==2; }
 bool GetVrSteeringWheelValue(float* value)
 {

@@ -590,6 +590,8 @@ void ApplyControllerHaptics(float amplitude,unsigned durationMs)
 }
 void SetVehicleComfortEnabled(bool enabled) { SetSharedVehicleComfortEnabled(enabled); }
 bool IsVehicleComfortEnabled() { return GetSharedVrState().vehicleComfortEnabled; }
+void SetBodyIKEnabled(bool enabled) { SetSharedBodyIKEnabled(enabled); }
+bool IsBodyIKEnabled() { return GetSharedVrState().bodyIkEnabled; }
 bool IsHorizontalMenuInputDominant() { return Desktop::menuHorizontalInputDominant; }
 bool IsVerticalMenuInputDominant() { return Desktop::menuVerticalInputDominant; }
 void SetVrBaseHeading(const rmt::Vector& heading) { SharedVrState& s=GetSharedVrState();s.vrBaseHeading=heading;s.vrBaseHeading.y=0.0f;s.vrBaseHeadingValid=s.vrBaseHeading.NormalizeSafe()>0.0001f; }

@@ -31,6 +31,7 @@ void SetSharedGiIndirectOnly(bool enabled);
 void SetSharedVolumetricLightEnabled(bool enabled);
 void SetSharedHdrEnabled(bool enabled);
 void SetSharedVehicleComfortEnabled(bool enabled);
+void SetSharedBodyIKEnabled(bool enabled);
 }
 
 #endif

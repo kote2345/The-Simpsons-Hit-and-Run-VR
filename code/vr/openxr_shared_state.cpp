@@ -6,7 +6,7 @@ namespace SharOpenXR
 SharedVrState::SharedVrState()
     : vrModeEnabled(true),seatedMode(false),snapTurnEnabled(true),
       csmEnabled(true),enhancedMaterialsEnabled(true),gtaoEnabled(true),
-      vehicleComfortEnabled(true),customMaterialsEnabled(true),
+      vehicleComfortEnabled(true),bodyIkEnabled(true),customMaterialsEnabled(true),
       spatialHudEnabled(true),developerMenusEnabled(false),
       giIndirectOnly(false),enhancedUiConvergence(false),
       volumetricLightEnabled(true),hdrEnabled(true),

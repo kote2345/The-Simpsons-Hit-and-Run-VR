@@ -332,7 +332,7 @@ bool WasBodyIKDrawn(){return drawn;}
 void MarkBodyIKDrawn(){drawn=true;}
 tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& origin)
 {
-    if(!IsVrModeEnabled()||!player||!GetCharacterManager()||
+    if(!IsVrModeEnabled()||!IsBodyIKEnabled()||!player||!GetCharacterManager()||
        player!=GetCharacterManager()->GetCharacter(0)||player->IsInCar()||
        !player->GetController()||!player->GetController()->IsActive()||
        !player->GetStateManager()||player->GetStateManager()->GetState()!=CharacterAi::LOCO||
