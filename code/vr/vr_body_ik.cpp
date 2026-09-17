@@ -14,6 +14,7 @@
 #include <p3d/anim/skeleton.hpp>
 #include <SDL.h>
 #include <cstdio>
+#include <limits>
 
 namespace SharOpenXR
 {
@@ -96,10 +97,14 @@ bool SolveChain(tPose* p,const Chain& c,const rmt::Vector& target,const rmt::Vec
     const rmt::Vector upperSegment=b-a,lowerSegment=e-b;
     const float upperLength=upperSegment.Magnitude(),lowerLength=lowerSegment.Magnitude();
     if(upperLength<1e-4f||lowerLength<1e-4f)return false;
-    // Begin a small extension near full reach to retain a little elbow bend.
-    // Only the arm call opts in; legs retain their original segment lengths.
-    const float stretch=Clamp((target-a).Magnitude()/((upperLength+lowerLength)*0.98f),
-                              1.0f,maxStretch);
+    // Keep a small amount of elbow bend, but never leave the tracked wrist
+    // beyond the chain's reachable sphere.  Arms may be substantially shorter
+    // than the player's, so the arm call passes an unlimited stretch budget;
+    // legs retain their original segment lengths (maxStretch == 1).
+    const float requiredStretch=(target-a).Magnitude()/
+        ((upperLength+lowerLength)*0.98f);
+    const float stretch=maxStretch>1.0f?
+        Clamp(requiredStretch,1.0f,maxStretch):Clamp(requiredStretch,1.0f,1.0f);
     if(stretch>1.0f)
     {
         // Lengthen joint spacing on this private pose without enlarging hands
@@ -415,7 +420,16 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         if(!SolveChain(p,legs[i],foot[i].Row(3),bodyForward))return NULL;
         MatchRotation(p,legs[i].end,foot[i]);
         const rmt::Vector pole=right*(i==0?-0.65f:0.65f)-forward*0.30f+rmt::Vector(0,-0.55f,0);
-        const float maxArmStretch=1.08f; // At most 8% extra visual reach.
+        // OpenXR hands are measured in the player's space, while the chosen
+        // character can have a shorter arm span.  The solver already applies
+        // stretch only when the target is near/outside the native reach; give
+        // it enough headroom to keep the rendered wrist on the tracked hand.
+        // This affects the private render pose only, never gameplay physics.
+        // Calculate whatever visual extension is required for this character's
+        // arm to reach the tracked wrist exactly.  This only modifies the
+        // private render pose; gameplay physics and the authored skeleton stay
+        // unchanged.
+        const float maxArmStretch=std::numeric_limits<float>::max();
         if(!SolveChain(p,arms[i],hands[i].Row(3),pole,maxArmStretch))return NULL;
         // Bind wrist axes alone still contain the model's T-pose arm yaw.
         // Express them in a neutral anatomical grip frame first. The frame

@@ -902,9 +902,14 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
     // view/HMD yaw on PCVR).
     {
         RenderLayer* gameplayLayer=mpRenderLayers[RenderEnums::LevelSlot];
-        if(multiviewActive && gameplayLayer && gameplayLayer->GetNumViews()>0 && gameplayLayer->pCam(0))
+        // During a context switch the level layer can still be present in the
+        // slot while its views are being torn down.  IsRenderReady() is the
+        // render-thread ownership check; do not call pCam until it succeeds.
+        if(multiviewActive && gameplayLayer && gameplayLayer->IsRenderReady() &&
+           gameplayLayer->GetNumViews()>0 && gameplayLayer->pView(0))
         {
-            SharOpenXR::PrepareMultiviewCamera(gameplayLayer->pCam(0));
+            tCamera* gameplayCamera=gameplayLayer->pView(0)->GetCamera();
+            if(gameplayCamera) SharOpenXR::PrepareMultiviewCamera(gameplayCamera);
         }
     }
 #endif
@@ -920,12 +925,14 @@ void RenderManager::ContextUpdate( unsigned int iElapsedTime )
         // BeginEye resets the culling base for the new eye. Seed it from the
         // gameplay layer before Mission/Presentation layers can overwrite it;
         // the car HUD and radar are world-locked against this base camera.
-        if(!multiviewActive)
+        if(!multiviewActive && currentXrContext==CONTEXT_GAMEPLAY)
         {
             RenderLayer* gameplayLayer=mpRenderLayers[RenderEnums::LevelSlot];
-            if(gameplayLayer && gameplayLayer->GetNumViews()>0 && gameplayLayer->pCam(0))
+            if(gameplayLayer && gameplayLayer->IsRenderReady() &&
+               gameplayLayer->GetNumViews()>0 && gameplayLayer->pView(0))
             {
-                SharOpenXR::PrepareMultiviewCamera(gameplayLayer->pCam(0));
+                tCamera* gameplayCamera=gameplayLayer->pView(0)->GetCamera();
+                if(gameplayCamera) SharOpenXR::PrepareMultiviewCamera(gameplayCamera);
             }
         }
 #endif
