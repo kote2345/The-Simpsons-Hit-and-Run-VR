@@ -23,8 +23,10 @@ SharedVrState::SharedVrState()
       wheelAdjustHoldSec(0.0f),activeWheelCentre(0.0f,-0.32f,0.52f),
       activeYokeAnchor(0.0f,-0.33f,0.40f),activeWheelYaw(0.0f),
       activeWheelPitch(0.0f),activeWheelRadius(0.18f),wheelMeshHidden(false),
-      vehicleGripToggleEnabled(false)
+      vehicleGripToggleEnabled(false),vehicleBodyAnchorValid(false)
 {
+    vehicleBodyAnchorWorld.Identity();
+    vehicleBodyCameraWorld.Identity();
     for(unsigned i=0;i<2;++i)
     {
         wheelGrabbed[i]=false;wheelGripPressed[i]=false;gripValue[i]=wheelGrabAngle[i]=0.0f;

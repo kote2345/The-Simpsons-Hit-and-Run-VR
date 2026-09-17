@@ -60,6 +60,9 @@ struct SharedVrState
     // offsets of all pre-existing fields during incremental builds.
     bool vehicleGripToggleEnabled;
     bool wheelGripPressed[2];
+    bool vehicleBodyAnchorValid;
+    rmt::Matrix vehicleBodyAnchorWorld;
+    rmt::Matrix vehicleBodyCameraWorld;
 
     SharedVrState();
 };

@@ -2,6 +2,8 @@
 #include <worldsim/character/character.h>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
+#include <vr/openxr_shared_state.h>
+#include <SDL.h>
 #endif
 
 #include <choreo/animation.hpp>
@@ -31,6 +33,7 @@
 #include <render/RenderManager/RenderManager.h>
 #include <worldsim/redbrick/vehicle.h>
 #include <worldsim/redbrick/trafficlocomotion.h>
+#include <worldsim/traffic/trafficmanager.h>
 #include <worldsim/character/footprint/footprintmanager.h>
 #include <worldsim/harass/chasemanager.h>
 #include <ai/actor/intersectionlist.h>
@@ -5043,6 +5046,7 @@ void Character::Display(void)
     backToTheOrigin.InvertOrtho();
 
     rmt::Vector rootPos = pose->GetJoint(0)->worldMatrix.Row(3);
+    const rmt::Vector animatedRootPos=rootPos;
     mLastRenderRootPos = rootPos;
     mHasLastRenderRootPos = true;
     
@@ -5067,7 +5071,95 @@ void Character::Display(void)
 
     tPose* bodyPose = SharOpenXR::BuildBodyIKPose(
         this, pose, rootPos + rmt::Vector(0.0f, mYAdjust, 0.0f));
-    if(bodyPose) pose=bodyPose;
+    if(bodyPose)
+    {
+        // Character::Display always places the drawable at the animated
+        // passenger root. Vehicle IK may solve the private pose at the VR
+        // driver's anchor, so apply that root displacement to the render
+        // stack itself and keep the pose root-relative. This is visual-only:
+        // gameplay position/physics remain on the original puppet transform.
+        rmt::Vector bodyRootOffset=bodyPose->GetJoint(0)->worldMatrix.Row(3);
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+        Vehicle* renderVehicle=IsInCar()?GetTargetVehicle():NULL;
+        const bool trafficVehicle=renderVehicle &&
+            TrafficManager::GetInstance()->IsVehicleTrafficVehicle(renderVehicle);
+        if(trafficVehicle)
+        {
+            rmt::Vector driverRoot=renderVehicle->GetDriverLocation();
+            driverRoot.Transform(renderVehicle->GetTransform());
+            rmt::Vector vehicleOrigin=renderVehicle->GetTransform().Row(3);
+            bodyRootOffset=driverRoot-vehicleOrigin;
+            rootPos=driverRoot;
+            for(int i=0;i<bodyPose->GetNumJoint();++i)
+                bodyPose->GetJoint(i)->worldMatrix.Row(3)-=bodyRootOffset;
+        }
+        else
+        {
+        const bool haveVrVehicleAnchor=IsInCar() &&
+            SharOpenXR::GetSharedVrState().vehicleBodyAnchorValid;
+        if(haveVrVehicleAnchor)
+        {
+            const rmt::Matrix& anchor=SharOpenXR::GetSharedVrState().vehicleBodyAnchorWorld;
+            rmt::Vector desiredRoot=anchor.Row(3)-anchor.Row(1)*0.96f;
+            rmt::Vector vehicleOrigin=GetTargetVehicle()->GetTransform().Row(3);
+            bodyRootOffset=desiredRoot-vehicleOrigin;
+            rootPos=desiredRoot;
+            for(int i=0;i<bodyPose->GetNumJoint();++i)
+                bodyPose->GetJoint(i)->worldMatrix.Row(3)-=bodyRootOffset;
+        }
+        else
+#endif
+        if(IsInCar() && bodyRootOffset.MagnitudeSqr()>0.000001f)
+        {
+            rootPos+=bodyRootOffset;
+            for(int i=0;i<bodyPose->GetNumJoint();++i)
+                bodyPose->GetJoint(i)->worldMatrix.Row(3)-=bodyRootOffset;
+        }
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+        }
+#endif
+        pose=bodyPose;
+    }
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    {
+        static Vehicle* loggedVehicle=NULL;
+        static int loggedPose=-1;
+        Vehicle* logVehicle=IsInCar()?GetTargetVehicle():NULL;
+        const int poseState=bodyPose?1:0;
+        if(logVehicle&&(loggedVehicle!=logVehicle||loggedPose!=poseState))
+        {
+            rmt::Vector playerWorld;GetPosition(playerWorld);
+            rmt::Vector driverWorld=logVehicle->GetDriverLocation();
+            driverWorld.Transform(logVehicle->GetTransform());
+            rmt::Vector passengerWorld=logVehicle->GetPassengerLocation();
+            passengerWorld.Transform(logVehicle->GetTransform());
+            rmt::Vector poseRoot=bodyPose?bodyPose->GetJoint(0)->worldMatrix.Row(3):rmt::Vector(0,0,0);
+            SDL_Log("VR BODY DISPLAY vehicle=%p pose=%d player=(%.3f %.3f %.3f) animatedRoot=(%.3f %.3f %.3f) finalRoot=(%.3f %.3f %.3f) poseRoot=(%.3f %.3f %.3f) driver=(%.3f %.3f %.3f) passenger=(%.3f %.3f %.3f)",
+                logVehicle,poseState,playerWorld.x,playerWorld.y,playerWorld.z,
+                animatedRootPos.x,animatedRootPos.y,animatedRootPos.z,
+                rootPos.x,rootPos.y,rootPos.z,
+                poseRoot.x,poseRoot.y,poseRoot.z,
+                driverWorld.x,driverWorld.y,driverWorld.z,
+                passengerWorld.x,passengerWorld.y,passengerWorld.z);
+            loggedVehicle=logVehicle;loggedPose=poseState;
+        }
+    }
+    if(!bodyPose && IsInCar() && GetTargetVehicle() &&
+            TrafficManager::GetInstance()->IsVehicleTrafficVehicle(GetTargetVehicle()))
+    {
+        rmt::Vector driverRoot=GetTargetVehicle()->GetDriverLocation();
+        driverRoot.Transform(GetTargetVehicle()->GetTransform());
+        rootPos=driverRoot;
+    }
+    else if(!bodyPose && IsInCar() && SharOpenXR::GetSharedVrState().vehicleBodyAnchorValid)
+    {
+        // If IK is temporarily unavailable (for example while the traffic
+        // camera changes type), still move the native body render root to the
+        // same VR driver's seat used by the camera.
+        const rmt::Matrix& anchor=SharOpenXR::GetSharedVrState().vehicleBodyAnchorWorld;
+        rootPos=anchor.Row(3)-anchor.Row(1)*0.96f;
+    }
+#endif
 
     // Each puppet may update its pose again before the auxiliary CSM pass.
     // Keep a private root-relative snapshot for this character; otherwise the

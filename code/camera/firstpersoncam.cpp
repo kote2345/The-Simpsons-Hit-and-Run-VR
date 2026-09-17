@@ -29,6 +29,7 @@
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <SDL.h>
 #include <vr/openxrmanager.h>
+#include <vr/openxr_shared_state.h>
 #include <worldsim/avatarmanager.h>
 #include <worldsim/avatar.h>
 #include <worldsim/character/character.h>
@@ -401,6 +402,7 @@ void FirstPersonCam::Update( unsigned int milliseconds )
             mVrVehicleTiltValid=false;
             mVrVehicleCameraLogged=false;
             mVrAnchoredVehicle=vehicle;
+            SharOpenXR::GetSharedVrState().vehicleBodyAnchorValid=false;
         }
         BuildVrStabilizedVehicleTransform(vehicle->GetTransform(),
             static_cast<float>(milliseconds)/1000.0f,!mVrVehicleTiltValid,
@@ -441,6 +443,9 @@ void FirstPersonCam::Update( unsigned int milliseconds )
             rmt::Matrix anchorWorld;
             anchorWorld.Mult(mVrVehicleAnchorLocal,vrVehicleTransform);
             position=anchorWorld.Row(3);
+            SharOpenXR::SharedVrState& vrState=SharOpenXR::GetSharedVrState();
+            vrState.vehicleBodyAnchorWorld=anchorWorld;
+            vrState.vehicleBodyAnchorValid=true;
         }
     }
 #endif
@@ -540,6 +545,22 @@ void FirstPersonCam::Update( unsigned int milliseconds )
                 position.x,position.y,position.z,target.x,target.y,target.z,
                 mat.Row(2).x,mat.Row(2).y,mat.Row(2).z);
         mVrVehicleCameraLogged=true;
+    }
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(SharOpenXR::IsVrModeEnabled() && mTarget->IsCar() &&
+       mVrVehicleAnchorValid)
+    {
+        // Keep the exact final VR camera-to-world frame available to body IK.
+        // The generic gameplay/culling base is captured before the seated
+        // traffic-camera anchor is applied, so using it for controller poses
+        // leaves the hands on the original passenger socket.
+        rmt::Matrix bodyCamera=mat;
+        bodyCamera.Row(3)=position;
+        SharOpenXR::SharedVrState& vrState=SharOpenXR::GetSharedVrState();
+        vrState.vehicleBodyCameraWorld=bodyCamera;
+        vrState.vehicleBodyAnchorWorld.Row(3)=position;
+        vrState.vehicleBodyAnchorValid=true;
     }
 #endif
 

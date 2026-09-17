@@ -2,6 +2,8 @@
 #if defined(SHAR_VR_BODY_IK) && defined(SRR2_OPENXR)
 #include <vr/vr_body_ik_math.h>
 #include <vr/openxrmanager.h>
+#include <vr/openxr_shared_state.h>
+#include <vr/openxr_shared_vehicle.h>
 #include <worldsim/character/character.h>
 #include <worldsim/character/charactermanager.h>
 #include <worldsim/character/charactercontroller.h>
@@ -10,6 +12,8 @@
 #include <camera/supercam.h>
 #include <camera/supercamcentral.h>
 #include <camera/supercammanager.h>
+#include <worldsim/redbrick/vehicle.h>
+#include <worldsim/traffic/trafficmanager.h>
 #include <p3d/anim/pose.hpp>
 #include <p3d/anim/skeleton.hpp>
 #include <SDL.h>
@@ -346,17 +350,55 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
        !animated||!animated->GetSkeleton()||!GetSuperCamManager())return NULL;
     SuperCamCentral* central=GetSuperCamManager()->GetSCC(0);
     SuperCam* camera=central?central->GetActiveSuperCam():NULL;
-    if(!camera||camera->GetType()==SuperCam::ANIMATED_CAM||
-       camera->GetType()==SuperCam::RELATIVE_ANIMATED_CAM||
-       camera->GetType()==SuperCam::CONVERSATION_CAM)return NULL;
+    // Traffic vehicles may use a relative/animated first-person camera even
+    // though the VR camera has already supplied the final seated transform.
+    // Those camera types must not disable the vehicle body pose; retain the
+    // original rejection for on-foot cinematic cameras.
+    if(!camera||(!player->IsInCar()&&
+       (camera->GetType()==SuperCam::ANIMATED_CAM||
+        camera->GetType()==SuperCam::RELATIVE_ANIMATED_CAM||
+        camera->GetType()==SuperCam::CONVERSATION_CAM)))return NULL;
     rmt::Matrix head,base,hands[2],local;
-    if(!GetActiveCullingCamera(&head)||!GetGameplayCamera(&base))return NULL;
+    if(!GetActiveCullingCamera(&head)||!GetGameplayCamera(&base))
+    {ReportRig(player,10,"fallback: VR camera pose unavailable");return NULL;}
     // Solve seated IK in the vehicle's local frame. The puppet is parented to
     // this same transform, while OpenXR poses arrive in world camera space.
     const bool inCar=player->IsInCar()&&player->GetTargetVehicle();
+    if(inCar)
+    {
+        static Vehicle* loggedVehicle=NULL;
+        static int loggedAnchor=-1;
+        Vehicle* vehicle=player->GetTargetVehicle();
+        const SharedVrState& state=GetSharedVrState();
+        const int anchor=state.vehicleBodyAnchorValid?1:0;
+        if(loggedVehicle!=vehicle||loggedAnchor!=anchor)
+        {
+            const rmt::Vector driver=vehicle->GetDriverLocation();
+            const rmt::Vector passenger=vehicle->GetPassengerLocation();
+            SDL_Log("VR BODY IK input vehicle=%p traffic=%d state=%d control=%d anchor=%d driverLocal=(%.3f %.3f %.3f) passengerLocal=(%.3f %.3f %.3f)",
+                vehicle,TrafficManager::GetInstance()->IsVehicleTrafficVehicle(vehicle)?1:0,
+                player->GetStateManager()->GetState(),state.vehicleControlMode,anchor,
+                driver.x,driver.y,driver.z,passenger.x,passenger.y,passenger.z);
+            loggedVehicle=vehicle;loggedAnchor=anchor;
+        }
+    }
     rmt::Matrix vehicleWorld,vehicleToWorld,worldToVehicle;
     vehicleToWorld.Identity();worldToVehicle.Identity();
     rmt::Vector targetOrigin=origin,anchorOffsetWorld(0,0,0);
+    rmt::Matrix trackingBase=base;
+    if(inCar)
+    {
+        const SharOpenXR::SharedVrState& vrState=SharOpenXR::GetSharedVrState();
+        if(vrState.vehicleBodyAnchorValid)
+            trackingBase=vrState.vehicleBodyCameraWorld;
+        // GetActiveCullingCamera is composed from the pre-anchor gameplay
+        // base. Rebuild its tracked HMD pose on top of the exact seated VR
+        // camera frame so head and hand targets use the driver's socket.
+        rmt::Matrix inverseBase=base;
+        inverseBase.InvertOrtho();
+        rmt::Matrix trackedHead;trackedHead.Mult(head,inverseBase);
+        head.Mult(trackedHead,trackingBase);
+    }
     if(inCar)
     {
         vehicleWorld=player->GetParentTransform();
@@ -364,25 +406,66 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         vehicleToWorld.Row(3).Set(0,0,0);
         worldToVehicle=vehicleToWorld;
         worldToVehicle.InvertOrtho();
-        // The driver's socket is the stable body anchor used by the VR
-        // camera. Compensate for Character::Display's Y-adjust stack offset
-        // and move the private pose root to this socket below.
-        rmt::Vector anchor=player->GetTargetVehicle()->GetDriverLocation();
-        anchor.Transform(vehicleWorld);
+        if(!SharOpenXR::GetSharedVrState().vehicleBodyAnchorValid)
+        {
+            // The camera anchor may not have been published yet on the first
+            // render pass. Build the same deterministic driver's eye frame as
+            // FirstPersonCam instead of falling back to the passenger base.
+            rmt::Vector driverEye=player->GetTargetVehicle()->GetDriverLocation();
+            driverEye.y+=0.96f;
+            driverEye.Transform(vehicleWorld);
+            trackingBase=vehicleWorld;
+            trackingBase.Row(3)=driverEye;
+        }
+        // Use the already stabilized VR gameplay-camera anchor rather than
+        // Character's original in-car seat. Traffic vehicles intentionally
+        // keep the player puppet on the passenger socket, while the VR
+        // camera/wheel are on the driver's side. Convert the camera eye point
+        // to vehicle-local space and remove the same eye height used by the
+        // VR camera, yielding the body root at the driver's seat.
+        const float vrDriverEyeHeight=0.96f;
+        rmt::Vector cameraAnchorWorld=trackingBase.Row(3);
+        const SharOpenXR::SharedVrState& vrState=SharOpenXR::GetSharedVrState();
+        if(vrState.vehicleBodyAnchorValid)
+            cameraAnchorWorld=vrState.vehicleBodyAnchorWorld.Row(3);
+        rmt::Vector cameraRelative=cameraAnchorWorld-vehicleWorld.Row(3);
+        rmt::Vector cameraLocal;
+        worldToVehicle.RotateVector(cameraRelative,&cameraLocal);
+        cameraLocal.y-=vrDriverEyeHeight;
+        rmt::Vector anchorRelative;
+        vehicleToWorld.RotateVector(cameraLocal,&anchorRelative);
+        rmt::Vector anchor=vehicleWorld.Row(3)+anchorRelative;
         targetOrigin=anchor;
         targetOrigin.y+=player->GetYAdjust();
-        rmt::Vector currentRoot=origin;
-        currentRoot.y-=player->GetYAdjust();
-        anchorOffsetWorld=anchor-currentRoot;
+        // The private pose is converted to vehicle-local coordinates below.
+        // Its root therefore must be expressed from the vehicle origin, not
+        // as a delta from the original passenger puppet root.
+        anchorOffsetWorld=anchor-vehicleWorld.Row(3);
+    }
+    rmt::Vector targetOriginLocal(0,0,0);
+    if(inCar)
+    {
+        rmt::Vector relative=targetOrigin-vehicleWorld.Row(3);
+        worldToVehicle.RotateVector(relative,&targetOriginLocal);
     }
     for(int i=0;i<2;++i)
     {
-        if(!GetControllerLocalPose(i,&local))return NULL;
-        hands[i].Mult(local,base);hands[i].Row(3)-=targetOrigin;
+        bool haveWheelPose=false;
+        if(inCar)
+        {
+            const SharedVrState& state=GetSharedVrState();
+            Vehicle* vehicle=player->GetTargetVehicle();
+            const bool yoke=vehicle&&IsVrYokeVehicle(vehicle->GetName());
+            haveWheelPose=state.vehicleControlMode==1&&GetVrVehicleHandPose(i,yoke,&local);
+        }
+        if(!haveWheelPose&&!GetControllerLocalPose(i,&local))
+        {ReportRig(player,11+i,"fallback: controller pose unavailable");return NULL;}
+        hands[i].Mult(local,trackingBase);hands[i].Row(3)-=targetOrigin;
         if(inCar)
         {
             rmt::Matrix converted;converted.Mult(hands[i],worldToVehicle);
             hands[i]=converted;
+            hands[i].Row(3)+=targetOriginLocal;
         }
         for(int row=0;row<4;++row)if(!Finite(hands[i].Row(row)))return NULL;
     }
@@ -390,6 +473,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     if(inCar)
     {
         rmt::Matrix converted;converted.Mult(head,worldToVehicle);head=converted;
+        head.Row(3)+=targetOriginLocal;
     }
     for(int row=0;row<4;++row)if(!Finite(head.Row(row)))return NULL;
     Chain arms[2],legs[2];
@@ -468,11 +552,17 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         chest=p->GetSkeleton()->GetJoint(chest)->parentIndex;
     if(chest>0&&chest!=pelvis&&Descendant(p,headIndex,chest))
     {
-        const float angle=Clamp(std::atan2(bodyForward.x*forward.z-bodyForward.z*forward.x,
-                                          bodyForward.DotProduct(forward)),-0.65f,0.65f);
-        const float c=std::cos(angle),s=std::sin(angle);
-        rmt::Vector limited(bodyForward.x*c-bodyForward.z*s,0,bodyForward.x*s+bodyForward.z*c);
-        MoveBranch(p,chest,Rotation(bodyForward,limited),Position(p,chest));
+        // On foot the torso follows the gameplay/head heading.  In a vehicle
+        // the torso is anchored to the chassis; applying head yaw here made a
+        // small headset turn spin the entire body by roughly 30 degrees.
+        if(!inCar)
+        {
+            const float angle=Clamp(std::atan2(bodyForward.x*forward.z-bodyForward.z*forward.x,
+                                              bodyForward.DotProduct(forward)),-0.65f,0.65f);
+            const float c=std::cos(angle),s=std::sin(angle);
+            rmt::Vector limited(bodyForward.x*c-bodyForward.z*s,0,bodyForward.x*s+bodyForward.z*c);
+            MoveBranch(p,chest,Rotation(bodyForward,limited),Position(p,chest));
+        }
         rmt::Vector from=Position(p,headIndex)-Position(p,chest);
         rmt::Vector to=headTarget-Position(p,chest);
         // Limit spine lean to avoid folding during extreme tracking offsets.
@@ -482,8 +572,15 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     }
     for(int i=0;i<2;++i)
     {
-        if(!SolveChain(p,legs[i],foot[i].Row(3),bodyForward))return NULL;
-        MatchRotation(p,legs[i].end,foot[i]);
+        if(!SolveChain(p,legs[i],foot[i].Row(3),bodyForward))
+        {
+            // A transient tracking/animation singularity must not discard
+            // the complete body pose. Keep this leg's animated pose and
+            // continue solving the other limbs.
+            ReportRig(player,20+i,"partial: leg IK solve failed");
+        }
+        else
+            MatchRotation(p,legs[i].end,foot[i]);
         const rmt::Vector pole=right*(i==0?-0.65f:0.65f)-forward*0.30f+rmt::Vector(0,-0.55f,0);
         // OpenXR hands are measured in the player's space, while the chosen
         // character can have a shorter arm span.  The solver already applies
@@ -495,7 +592,13 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         // private render pose; gameplay physics and the authored skeleton stay
         // unchanged.
         const float maxArmStretch=std::numeric_limits<float>::max();
-        if(!SolveChain(p,arms[i],hands[i].Row(3),pole,maxArmStretch))return NULL;
+        if(!SolveChain(p,arms[i],hands[i].Row(3),pole,maxArmStretch))
+        {
+            // Keep the animated arm for this frame instead of switching the
+            // entire character back to the non-VR pose.
+            ReportRig(player,22+i,"partial: arm IK solve failed");
+            continue;
+        }
         // Bind wrist axes alone still contain the model's T-pose arm yaw.
         // Express them in a neutral anatomical grip frame first. The frame
         // is derived separately for each arm, so mirrored rigs do not need
@@ -533,7 +636,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     // so remove the gameplay camera again to recover only the user's physical
     // head rotation. At a neutral headset pose this becomes identity, leaving
     // the character head exactly in its authored straight-ahead orientation.
-    rmt::Matrix baseForPose=base;
+    rmt::Matrix baseForPose=inCar?trackingBase:base;
     if(inCar)
     {
         rmt::Matrix converted;converted.Mult(baseForPose,worldToVehicle);

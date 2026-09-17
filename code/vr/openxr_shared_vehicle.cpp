@@ -161,7 +161,39 @@ void UpdateVrInCarCharacterVisibility()
     if(!player)return;
 
     static Character* hiddenPlayer=NULL;
+    static Character* hiddenTrafficDriver=NULL;
     SharedVrState& state=GetSharedVrState();
+    Vehicle* vehicle=player->IsInCar()?player->GetTargetVehicle():NULL;
+    Character* driver=vehicle?vehicle->GetDriver():NULL;
+    const bool trafficVehicle=vehicle&&
+        TrafficManager::GetInstance()->IsVehicleTrafficVehicle(vehicle);
+
+    // Traffic cars already contain an AI driver at the driver's socket.  In
+    // VR first-person mode the local player's tracked body is rendered there
+    // instead; leaving the AI driver visible makes its legs overlap the
+    // player's passenger-seat torso and looks like IK is split between seats.
+    const bool hideTrafficDriver=state.vrModeEnabled&&vehicle&&trafficVehicle&&
+        state.vehicleControlMode!=2&&driver&&driver!=player;
+    static Vehicle* loggedVisibilityVehicle=NULL;
+    static int loggedVisibilityState=-1;
+    const int visibilityState=hideTrafficDriver?1:0;
+    if(vehicle&&(loggedVisibilityVehicle!=vehicle||loggedVisibilityState!=visibilityState))
+    {
+        SDL_Log("VR VEHICLE VIS vehicle=%p traffic=%d driver=%p driverVisible=%d hideDriver=%d playerVisible=%d",
+            vehicle,trafficVehicle?1:0,driver,driver&&driver->IsVisible()?1:0,
+            hideTrafficDriver?1:0,player->IsVisible()?1:0);
+        loggedVisibilityVehicle=vehicle;loggedVisibilityState=visibilityState;
+    }
+    if(hideTrafficDriver)
+    {
+        if(driver->IsVisible())driver->RemoveFromWorldScene();
+        hiddenTrafficDriver=driver;
+    }
+    else if(hiddenTrafficDriver)
+    {
+        if(!hiddenTrafficDriver->IsVisible())hiddenTrafficDriver->AddToWorldScene();
+        hiddenTrafficDriver=NULL;
+    }
     // Keep the seated body in the world when body IK is enabled.  The old
     // vehicle visibility rule removed the local character for every first-
     // person driving mode, which left only the fallback tracked-hand meshes
@@ -176,8 +208,8 @@ void UpdateVrInCarCharacterVisibility()
             hiddenPlayer=player;
         }
 
-        Vehicle* vehicle=player->GetTargetVehicle();
-        Character* driver=vehicle?vehicle->GetDriver():NULL;
+        vehicle=player->GetTargetVehicle();
+        driver=vehicle?vehicle->GetDriver():NULL;
         if(driver&&driver!=player)
         {
             const bool traffic=TrafficManager::GetInstance()->
@@ -390,7 +422,10 @@ void UpdateVrVehicleState(const VrVehicleInput& in,VrVehicleHapticSink haptic,
                     s.wheelGrabbed[hand]=false;
                 else if(gripRising[hand]&&std::fabs(radial-s.activeWheelRadius)<0.12f&&
                         std::fabs(z)<0.16f&&radial>0.06f){s.wheelGrabbed[hand]=true;
-                    s.wheelGrabOffset[hand]=hand?OPTIMAL:-OPTIMAL;
+                    // Preserve the actual point where this hand touched the
+                    // rim.  A fixed +/-90 degree offset made the hand snap
+                    // to a different part of the wheel on every grab.
+                    s.wheelGrabOffset[hand]=Unwrap(angle-s.wheelAngle);
                     s.wheelGrabTarget[hand]=s.wheelAngle;s.wheelGrabAngle[hand]=angle;
                     s.wheelGrabOrientAngle[hand]=s.wheelAngle+s.wheelGrabOffset[hand];
                     s.wheelGrabOrientRot[hand]=in.handPose[hand];s.wheelGrabOrientRot[hand].Row(3).Set(0,0,0);}
@@ -402,7 +437,10 @@ void UpdateVrVehicleState(const VrVehicleInput& in,VrVehicleHapticSink haptic,
                 {
                     if(squeezed&&std::fabs(radial-s.activeWheelRadius)<0.12f&&
                        std::fabs(z)<0.16f&&radial>0.06f){s.wheelGrabbed[hand]=true;
-                        s.wheelGrabOffset[hand]=hand?OPTIMAL:-OPTIMAL;
+                        // Keep the hand at its real grab point on the rim;
+                        // left/right hand identity must not determine the
+                        // angular attachment offset.
+                        s.wheelGrabOffset[hand]=Unwrap(angle-s.wheelAngle);
                         s.wheelGrabTarget[hand]=s.wheelAngle;s.wheelGrabAngle[hand]=angle;
                         s.wheelGrabOrientAngle[hand]=s.wheelAngle+s.wheelGrabOffset[hand];
                         s.wheelGrabOrientRot[hand]=in.handPose[hand];s.wheelGrabOrientRot[hand].Row(3).Set(0,0,0);}
@@ -446,7 +484,10 @@ bool GetVrVehicleHandPose(unsigned hand,bool yoke,rmt::Matrix* pose)
                          s.activeYokeAnchor.y+x*sr+y*cp*cr,
                          s.activeYokeAnchor.z+y*sp);return true;
     }
-    const float angle=s.wheelVisualAngle+s.wheelGrabOffset[hand];
+    // The tracked hand is rigidly attached to the logical steering angle.
+    // The mesh may be smoothed separately, but using wheelVisualAngle here
+    // introduces a visible lag between the hand and the rim.
+    const float angle=s.wheelAngle+s.wheelGrabOffset[hand];
     RotateAroundAxis(Unwrap(s.wheelGrabOrientAngle[hand]-angle),s.wheelGrabOrientRot[hand],*pose);
     pose->Row(3)=WheelPoint(s,s.activeWheelRadius*std::sin(angle),s.activeWheelRadius*std::cos(angle),0);
     return true;
