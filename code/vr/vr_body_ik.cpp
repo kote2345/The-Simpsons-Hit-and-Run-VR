@@ -338,9 +338,11 @@ void MarkBodyIKDrawn(){drawn=true;}
 tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& origin)
 {
     if(!IsVrModeEnabled()||!IsBodyIKEnabled()||!player||!GetCharacterManager()||
-       player!=GetCharacterManager()->GetCharacter(0)||player->IsInCar()||
+       player!=GetCharacterManager()->GetCharacter(0)||
        !player->GetController()||!player->GetController()->IsActive()||
-       !player->GetStateManager()||player->GetStateManager()->GetState()!=CharacterAi::LOCO||
+       !player->GetStateManager()||
+       (player->GetStateManager()->GetState()!=CharacterAi::LOCO &&
+        player->GetStateManager()->GetState()!=CharacterAi::INCAR)||
        !animated||!animated->GetSkeleton()||!GetSuperCamManager())return NULL;
     SuperCamCentral* central=GetSuperCamManager()->GetSCC(0);
     SuperCam* camera=central?central->GetActiveSuperCam():NULL;
@@ -349,13 +351,46 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
        camera->GetType()==SuperCam::CONVERSATION_CAM)return NULL;
     rmt::Matrix head,base,hands[2],local;
     if(!GetActiveCullingCamera(&head)||!GetGameplayCamera(&base))return NULL;
+    // Solve seated IK in the vehicle's local frame. The puppet is parented to
+    // this same transform, while OpenXR poses arrive in world camera space.
+    const bool inCar=player->IsInCar()&&player->GetTargetVehicle();
+    rmt::Matrix vehicleWorld,vehicleToWorld,worldToVehicle;
+    vehicleToWorld.Identity();worldToVehicle.Identity();
+    rmt::Vector targetOrigin=origin,anchorOffsetWorld(0,0,0);
+    if(inCar)
+    {
+        vehicleWorld=player->GetParentTransform();
+        vehicleToWorld=vehicleWorld;
+        vehicleToWorld.Row(3).Set(0,0,0);
+        worldToVehicle=vehicleToWorld;
+        worldToVehicle.InvertOrtho();
+        // The driver's socket is the stable body anchor used by the VR
+        // camera. Compensate for Character::Display's Y-adjust stack offset
+        // and move the private pose root to this socket below.
+        rmt::Vector anchor=player->GetTargetVehicle()->GetDriverLocation();
+        anchor.Transform(vehicleWorld);
+        targetOrigin=anchor;
+        targetOrigin.y+=player->GetYAdjust();
+        rmt::Vector currentRoot=origin;
+        currentRoot.y-=player->GetYAdjust();
+        anchorOffsetWorld=anchor-currentRoot;
+    }
     for(int i=0;i<2;++i)
     {
         if(!GetControllerLocalPose(i,&local))return NULL;
-        hands[i].Mult(local,base);hands[i].Row(3)-=origin;
+        hands[i].Mult(local,base);hands[i].Row(3)-=targetOrigin;
+        if(inCar)
+        {
+            rmt::Matrix converted;converted.Mult(hands[i],worldToVehicle);
+            hands[i]=converted;
+        }
         for(int row=0;row<4;++row)if(!Finite(hands[i].Row(row)))return NULL;
     }
-    head.Row(3)-=origin;
+    head.Row(3)-=targetOrigin;
+    if(inCar)
+    {
+        rmt::Matrix converted;converted.Mult(head,worldToVehicle);head=converted;
+    }
     for(int row=0;row<4;++row)if(!Finite(head.Row(row)))return NULL;
     Chain arms[2],legs[2];
     // OpenXR 0 is LEFT. The separate OBJ hands' reversed labels do not apply
@@ -375,13 +410,43 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     for(int i=0;i<animated->GetNumJoint();++i)
         for(int row=0;row<4;++row)if(!Finite(animated->GetJoint(i)->worldMatrix.Row(row)))return NULL;
     tPose* p=scratch.Copy(animated);
+    if(inCar)
+    {
+        for(int i=0;i<p->GetNumJoint();++i)
+        {
+            rmt::Matrix converted;converted.Mult(p->GetJoint(i)->worldMatrix,worldToVehicle);
+            p->GetJoint(i)->worldMatrix=converted;
+        }
+        rmt::Vector anchorOffset;
+        worldToVehicle.RotateVector(anchorOffsetWorld,&anchorOffset);
+        rmt::Matrix identity;identity.Identity();
+        MoveBranch(p,0,identity,anchorOffset);
+    }
     // The gameplay camera contains stick yaw but excludes physical HMD yaw.
     // Rotate the WHOLE render pose around its motion root before capturing
     // ankle targets, so planted targets cannot undo a snap/smooth body turn.
     rmt::Vector nativeForward;player->GetFacing(nativeForward);nativeForward.y=0;
     nativeForward=Unit(nativeForward,rmt::Vector(0,0,1));
-    const rmt::Vector bodyForward=Unit(rmt::Vector(base.Row(2).x,0,base.Row(2).z),nativeForward);
-    MoveBranch(p,0,Rotation(nativeForward,bodyForward),Position(p,0));
+    rmt::Vector bodyForward;
+    rmt::Vector bodyRotationSource=nativeForward;
+    if(inCar)
+    {
+        // Character::UpdateParentTransform attaches the seated puppet to the
+        // The character mesh is authored facing local -Z.  The seated puppet
+        // must therefore use the opposite of the vehicle's +Z travel axis so
+        // its visible front points through the windshield.
+        bodyForward=rmt::Vector(0,0,-1);
+        bodyRotationSource=Unit(
+            rmt::Vector(p->GetJoint(0)->worldMatrix.Row(2).x,0,
+                        p->GetJoint(0)->worldMatrix.Row(2).z),bodyForward);
+    }
+    else
+    {
+        // On foot the gameplay camera carries the normal locomotion/stick yaw.
+        bodyForward=Unit(rmt::Vector(base.Row(2).x,0,base.Row(2).z),
+                         nativeForward);
+    }
+    MoveBranch(p,0,Rotation(bodyRotationSource,bodyForward),Position(p,0));
     rmt::Matrix foot[2]={p->GetJoint(legs[0].end)->worldMatrix,p->GetJoint(legs[1].end)->worldMatrix};
     const rmt::Vector forward=Unit(rmt::Vector(head.Row(2).x,0,head.Row(2).z),rmt::Vector(0,0,1));
     rmt::Vector right;right.CrossProduct(rmt::Vector(0,1,0),forward);
@@ -468,7 +533,13 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     // so remove the gameplay camera again to recover only the user's physical
     // head rotation. At a neutral headset pose this becomes identity, leaving
     // the character head exactly in its authored straight-ahead orientation.
-    rmt::Matrix inverseBase=base;
+    rmt::Matrix baseForPose=base;
+    if(inCar)
+    {
+        rmt::Matrix converted;converted.Mult(baseForPose,worldToVehicle);
+        baseForPose=converted;
+    }
+    rmt::Matrix inverseBase=baseForPose;
     for(int row=0;row<3;++row)inverseBase.Row(row)=Unit(inverseBase.Row(row),identity.Row(row));
     inverseBase.Row(3).Set(0,0,0);inverseBase.InvertOrtho();
     rmt::Matrix trackedHead=head;
@@ -480,6 +551,14 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     neutralHead.Row(3).Set(0,0,0);
     rmt::Matrix headRotation;headRotation.Mult(physicalHead,neutralHead);
     MatchRotation(p,headIndex,headRotation);
+    if(inCar)
+    {
+        for(int i=0;i<p->GetNumJoint();++i)
+        {
+            rmt::Matrix converted;converted.Mult(p->GetJoint(i)->worldMatrix,vehicleToWorld);
+            p->GetJoint(i)->worldMatrix=converted;
+        }
+    }
     ReportRig(player,0,"active [GRIP_POSE_V2 FIST_V8_THUMB HEAD_NEUTRAL_V1]: tracked arms, neutral-relative head and animated-foot leg IK");
     return p;
 }

@@ -162,8 +162,12 @@ void UpdateVrInCarCharacterVisibility()
 
     static Character* hiddenPlayer=NULL;
     SharedVrState& state=GetSharedVrState();
+    // Keep the seated body in the world when body IK is enabled.  The old
+    // vehicle visibility rule removed the local character for every first-
+    // person driving mode, which left only the fallback tracked-hand meshes
+    // visible and prevented the IK pose from ever being displayed.
     const bool hide=state.vrModeEnabled&&player->IsInCar()&&
-                    state.vehicleControlMode!=2;
+                    state.vehicleControlMode!=2&&!state.bodyIkEnabled;
     if(hide)
     {
         if(player->IsVisible())
@@ -200,7 +204,13 @@ void UpdateVrInCarCharacterVisibility()
         if(!player->IsVisible()&&player->IsInCar())
         {
             Vehicle* vehicle=player->GetTargetVehicle();
-            if(!vehicle||vehicle->mVisibleCharacters)player->AddToWorldScene();
+            // A body-IK pose is rendered from the local player's drawable,
+            // so it must be restored even when the vehicle itself normally
+            // suppresses seated character drawables. The previous condition
+            // left the player permanently removed after switching from the
+            // fallback hand-only vehicle mode.
+            if(state.bodyIkEnabled||!vehicle||vehicle->mVisibleCharacters)
+                player->AddToWorldScene();
         }
         hiddenPlayer=NULL;
     }
