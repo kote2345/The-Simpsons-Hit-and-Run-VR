@@ -141,14 +141,27 @@ static void MakeProjection(const XrFovf& f,float n,float z,rmt::Matrix* m){Share
 
 static void DrawRadarPlane();
 
+// The steering wheel is the common vehicle-HUD parent. Keep the map assembly
+// (radar texture, frame and 3D map) one panel-width to its right so it does not
+// cover the other controls attached to the wheel.
+static const float VEHICLE_HUD_MAP_X_OFFSET=0.30f;
+
 static void BuildVehicleHudAnchor(const rmt::Matrix& cameraBase,
                                   float x,float y,float z,
                                   rmt::Matrix& anchor)
 {
-    // This point is authored in the seated gameplay-camera space. Keep its
-    // position relative to the seated base, but take orientation exclusively
-    // from the vehicle heading shared by FirstPersonCam. The eye/HMD pose is
-    // composed later in DrawRadarPlane and must never become the panel basis.
+    // This point is authored in the same seated gameplay-camera space as the
+    // steering wheel and the rest of the in-car HUD. Preserve the complete
+    // local-to-world position from that parent first; only the panel basis is
+    // rebuilt below so HMD pitch/roll cannot deform the HUD quad.
+    rmt::Matrix local;
+    local.Identity();
+    local.Row(3).Set(x,y,z);
+    rmt::Matrix parentWorld;
+    parentWorld.Mult(local,cameraBase);
+
+    // The eye/HMD pose is composed later in DrawRadarPlane and must never
+    // become the panel basis.
     const SharedVrState& state=GetSharedVrState();
     rmt::Vector forward=state.vrBaseHeading;
     forward.y=0.0f;
@@ -164,8 +177,7 @@ static void BuildVehicleHudAnchor(const rmt::Matrix& cameraBase,
     anchor.Row(0)=right;
     anchor.Row(1).Set(0.0f,1.0f,0.0f);
     anchor.Row(2)=forward;
-    anchor.Row(3)=cameraBase.Row(3)+right*x+
-                  anchor.Row(1)*y+forward*z;
+    anchor.Row(3)=parentWorld.Row(3);
 }
 
 static void DrawMissionHudPlanes();
@@ -946,8 +958,11 @@ static void DrawRadarPlane()
     vehiclePlaneWorldSpace=fixedToVehicle;
     rmt::Vector handPosition;
     rmt::Matrix handWorld;
-    if(fixedToVehicle){anchor.Identity();anchor.Row(3).Set(0.30f,g.activeWheelCentre.y,0.54f);
-        BuildVehicleHudAnchor(g.cullingBaseCamera,0.30f,g.activeWheelCentre.y,0.54f,anchor);}
+    if(fixedToVehicle){
+        BuildVehicleHudAnchor(g.cullingBaseCamera,
+                              g.activeWheelCentre.x+VEHICLE_HUD_MAP_X_OFFSET,
+                              g.activeWheelCentre.y,
+                              g.activeWheelCentre.z,anchor);}
     else{if(!g.handPoseValid[1]) return;
         rmt::Matrix hand=PoseToGame(RelativePose(g.origin,g.handPoses[1]));
         handWorld.Mult(hand,g.cullingBaseCamera);
@@ -1498,10 +1513,10 @@ static void DrawMissionHudPlanes()
             // radar, with a small gap above its upper edge.
             if(fixedToVehicle)
             {
-                anchor.Identity();
-                anchor.Row(3).Set(0.30f,g.activeWheelCentre.y+0.15f,0.54f);
-                const rmt::Matrix local=anchor;
-                anchor.Mult(local,g.cullingBaseCamera);
+                BuildVehicleHudAnchor(g.cullingBaseCamera,
+                                      g.activeWheelCentre.x,
+                                      g.activeWheelCentre.y+0.15f,
+                                      g.activeWheelCentre.z,anchor);
             }
             else
             {
@@ -1518,10 +1533,10 @@ static void DrawMissionHudPlanes()
         {
             if(fixedToVehicle)
             {
-                anchor.Identity();
-                anchor.Row(3).Set(0.30f,g.activeWheelCentre.y,0.54f);
-                BuildVehicleHudAnchor(g.cullingBaseCamera,0.30f,
-                                      g.activeWheelCentre.y,0.54f,anchor);
+                BuildVehicleHudAnchor(g.cullingBaseCamera,
+                                      g.activeWheelCentre.x+VEHICLE_HUD_MAP_X_OFFSET,
+                                      g.activeWheelCentre.y,
+                                      g.activeWheelCentre.z,anchor);
             }
             else
             {
@@ -1537,12 +1552,12 @@ static void DrawMissionHudPlanes()
         {
             if(fixedToVehicle)
             {
-                anchor.Identity();
                 // The original coin readout belongs directly below the radar,
                 // not on the opposite side of the dashboard.
-                anchor.Row(3).Set(0.30f,g.activeWheelCentre.y-0.17f,0.54f);
-                const rmt::Matrix local=anchor;
-                anchor.Mult(local,g.cullingBaseCamera);
+                BuildVehicleHudAnchor(g.cullingBaseCamera,
+                                      g.activeWheelCentre.x,
+                                      g.activeWheelCentre.y-0.17f,
+                                      g.activeWheelCentre.z,anchor);
             }
             else
             {
