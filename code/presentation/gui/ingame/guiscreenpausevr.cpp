@@ -7,11 +7,14 @@
 #include <Page.h>
 #include <Layer.h>
 #include <Group.h>
+#include <Polygon.h>
+#include <Sprite.h>
 #include <Text.h>
 #include <FeText.h>
 
 namespace {
 const char* const Labels[9]={"Mode","Seated Mode","Turn Mode","Turn Speed","Vehicle Control","Vehicle Comfort","Body IK","Developer Menus","Wheel Grip"};
+const float VR_SETTINGS_FRAME_HEIGHT_SCALE=1.5f;
 const float SmoothSpeeds[5]={45,90,120,180,240},SnapAngles[5]={15,30,45,60,90};
 const char* const ModeValues[]={"Original","VR"};
 const char* const ToggleValues[]={"Off","On"};
@@ -21,6 +24,53 @@ const char* const SnapAngleValues[]={"15","30","45","60","90"};
 const char* const VehicleValues[]={"Stick","VR Wheel","Third Person"};
 const char* const GripValues[]={"Hold","Toggle"};
 int Closest(const float* v,float x){int b=0;for(int i=1;i<5;++i)if(rmt::Fabs(v[i]-x)<rmt::Fabs(v[b]-x))b=i;return b;}
+
+void ScalePolygonHeight(Scrooby::Polygon* polygon,float scale,int& centerY)
+{
+    if(!polygon||polygon->GetNumOfVertexes()<1)
+    {
+        centerY=0;
+        return;
+    }
+
+    int minY=0,maxY=0,x=0,y=0;
+    polygon->GetVertexLocation(0,x,minY);
+    maxY=minY;
+    for(int i=1;i<polygon->GetNumOfVertexes();++i)
+    {
+        polygon->GetVertexLocation(i,x,y);
+        if(y<minY)minY=y;
+        if(y>maxY)maxY=y;
+    }
+
+    centerY=(minY+maxY)/2;
+    for(int i=0;i<polygon->GetNumOfVertexes();++i)
+    {
+        polygon->GetVertexLocation(i,x,y);
+        polygon->SetVertexLocation(i,x,centerY+static_cast<int>((y-centerY)*scale));
+    }
+}
+
+void ScaleFrameSpriteHeight(Scrooby::Sprite* sprite,int centerY,float scale)
+{
+    if(!sprite)return;
+
+    int originX=0,originY=0,width=0,height=0;
+    sprite->GetOriginPosition(originX,originY);
+    sprite->GetBoundingBoxSize(width,height);
+    const int spriteCenterX=originX+width/2;
+    const int spriteCenterY=originY+height/2;
+    const int targetCenterY=centerY+static_cast<int>((spriteCenterY-centerY)*scale);
+    const int scaledHeight=static_cast<int>(height*scale);
+
+    // The PC Scrooby runtime keeps the authored sprite size separate from
+    // its transform matrix. Resize the authored box and rebuild the sprite
+    // transform so the change affects the rendered border itself.
+    sprite->ResetTransformation();
+    sprite->SetBoundingBoxSize(width,scaledHeight);
+    sprite->ResizeToBoundingBox();
+    sprite->SetPositionOfCenter(spriteCenterX,targetCenterY);
+}
 }
 
 CGuiScreenPauseVR::CGuiScreenPauseVR(Scrooby::Screen* screen,CGuiEntity* parent)
@@ -42,6 +92,30 @@ CGuiScreenPauseVR::CGuiScreenPauseVR(Scrooby::Screen* screen,CGuiEntity* parent)
         m_frontendLayout=true;
     }
     rAssert(m_pPage);
+
+    // Scale the translucent polygon directly; Frame's group transform does
+    // not affect these loaded Scrooby elements on the PC runtime.
+    Scrooby::Page* board=m_pScroobyScreen->GetPage("BigBoard");
+    if(board)
+    {
+        int centerY=0;
+        ScalePolygonHeight(board->GetPolygon("Frame_Bgd"),VR_SETTINGS_FRAME_HEIGHT_SCALE,centerY);
+        if(Scrooby::Group* frame=board->GetGroup("Frame"))
+        {
+            // Scale every frame element around the polygon's center. This
+            // stretches the side pieces and also moves/scales the horizontal
+            // pieces and corners to the new top and bottom positions.
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_Top"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_Bottom"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_Left"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_Right"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_TopLeft"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_TopRight"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_BottomLeft"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+            ScaleFrameSpriteHeight(frame->GetSprite("Frame_BottomRight"),centerY,VR_SETTINGS_FRAME_HEIGHT_SCALE);
+        }
+    }
+
     // The frontend has no dedicated VR page and supplies Controller only as a
     // canvas. Hide the other platform pages and keep the selected page's layer
     // alive; its authored Menu group is hidden separately below.

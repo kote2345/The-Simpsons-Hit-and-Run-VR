@@ -943,6 +943,16 @@ CGuiScreen::RestoreButtons()
 
         }
     }
+
+#if defined(SRR2_OPENXR)
+    // PC frontend assets label the back action as ESC.  VR menus are closed
+    // with the controller menu/back action, so the keyboard hint is both
+    // misleading and unnecessary in the headset.
+    if( m_buttonIcons[ BUTTON_ICON_BACK ] != NULL )
+    {
+        m_buttonIcons[ BUTTON_ICON_BACK ]->SetVisible( false );
+    }
+#endif
 }
 
 bool
