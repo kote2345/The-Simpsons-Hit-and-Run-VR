@@ -2,6 +2,7 @@
 #include <worldsim/character/character.h>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
+#include <vr/openxr_shared_vehicle.h>
 #include <vr/openxr_shared_state.h>
 #include <SDL.h>
 #endif
@@ -113,6 +114,28 @@
 #endif
 
 const static rmt::Vector vUp( 0.0f, 1.0f, 0.0f );
+
+static void ApplyVrVehicleNpcPassengerSeat(Character* character)
+{
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(!character||!GetCharacterManager()||
+       character==GetCharacterManager()->GetCharacter(0)||
+       !character->IsInCar()||!SharOpenXR::IsVrModeEnabled()||
+       SharOpenXR::IsThirdPersonVehicleMode())
+        return;
+
+    Vehicle* vehicle=character->GetTargetVehicle();
+    if(!vehicle||!vehicle->IsUserDrivingCar()||
+       SharOpenXR::GetVrVehicleNpcDriver(vehicle)!=character)
+        return;
+
+    rmt::Vector seat=vehicle->GetPassengerLocation();
+    seat.y=character->GetPuppet()->GetPosition().y;
+    character->GetPuppet()->SetPosition(seat);
+#else
+    (void)character;
+#endif
+}
 
 const float KICK_ANGLE = 45;
 
@@ -296,6 +319,7 @@ Return:         void
 void NPCharacter::OnPostSimUpdate( float timeins )
 {
     UpdatePuppet( timeins );
+    ApplyVrVehicleNpcPassengerSeat(this);
 }
 /*
 ==============================================================================
@@ -2014,6 +2038,7 @@ void Character::OnUpdateRoot( float timeins )
 #endif
 
     UpdatePuppet( timeins );
+    ApplyVrVehicleNpcPassengerSeat(this);
 }
 /*
 ==============================================================================
@@ -5081,9 +5106,10 @@ void Character::Display(void)
         rmt::Vector bodyRootOffset=bodyPose->GetJoint(0)->worldMatrix.Row(3);
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
         Vehicle* renderVehicle=IsInCar()?GetTargetVehicle():NULL;
+        const bool renderLocalPlayer=this==GetCharacterManager()->GetCharacter(0);
         const bool trafficVehicle=renderVehicle &&
             TrafficManager::GetInstance()->IsVehicleTrafficVehicle(renderVehicle);
-        if(trafficVehicle)
+        if(renderLocalPlayer && trafficVehicle)
         {
             rmt::Vector driverRoot=renderVehicle->GetDriverLocation();
             driverRoot.Transform(renderVehicle->GetTransform());
@@ -5095,7 +5121,7 @@ void Character::Display(void)
         }
         else
         {
-        const bool haveVrVehicleAnchor=IsInCar() &&
+        const bool haveVrVehicleAnchor=renderLocalPlayer && IsInCar() &&
             SharOpenXR::GetSharedVrState().vehicleBodyAnchorValid;
         if(haveVrVehicleAnchor)
         {
@@ -5144,14 +5170,17 @@ void Character::Display(void)
             loggedVehicle=logVehicle;loggedPose=poseState;
         }
     }
-    if(!bodyPose && IsInCar() && GetTargetVehicle() &&
+    if(!bodyPose && this==GetCharacterManager()->GetCharacter(0) &&
+            SharOpenXR::IsVrModeEnabled() && IsInCar() && GetTargetVehicle() &&
             TrafficManager::GetInstance()->IsVehicleTrafficVehicle(GetTargetVehicle()))
     {
         rmt::Vector driverRoot=GetTargetVehicle()->GetDriverLocation();
         driverRoot.Transform(GetTargetVehicle()->GetTransform());
         rootPos=driverRoot;
     }
-    else if(!bodyPose && IsInCar() && SharOpenXR::GetSharedVrState().vehicleBodyAnchorValid)
+    else if(!bodyPose && this==GetCharacterManager()->GetCharacter(0) &&
+            SharOpenXR::IsVrModeEnabled() && IsInCar() &&
+            SharOpenXR::GetSharedVrState().vehicleBodyAnchorValid)
     {
         // If IK is temporarily unavailable (for example while the traffic
         // camera changes type), still move the native body render root to the

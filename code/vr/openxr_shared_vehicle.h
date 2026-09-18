@@ -4,8 +4,12 @@
 #include <radmath/radmath.hpp>
 #include <openxr/openxr.h>
 
+class Character;
+class Vehicle;
+
 namespace SharOpenXR
 {
+
 struct VrVehicleInput
 {
     bool active;
@@ -22,6 +26,10 @@ typedef void (*VrVehicleHapticSink)(void* context,unsigned hand,
                                     float amplitude,unsigned durationMs);
 
 void ResetVrVehicleState();
+// Returns the character occupying the authored driver seat of a vehicle.
+// Mission stages can seat an NPC without assigning Vehicle::mpDriver, so this
+// also resolves an in-car mission character when the explicit driver is null.
+Character* GetVrVehicleNpcDriver(Vehicle* vehicle);
 // Keep the seated player/NPC meshes consistent for every OpenXR backend.
 // This must run even when no physical-wheel control mode is selected.
 void UpdateVrInCarCharacterVisibility();

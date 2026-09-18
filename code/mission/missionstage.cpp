@@ -1162,6 +1162,20 @@ void MissionStage::Reset()
 
             if ( mCharacters[ i ].locator == NULL )
             {
+                // A current vehicle can already have an automatically
+                // generated d_* driver from its vehicle config.  When the
+                // mission explicitly places a character in that vehicle,
+                // that generated character is a duplicate occupant and must
+                // not remain in the driver's seat.
+                Character* generatedDriver = mCharacters[ i ].vehicle->GetDriver();
+                Character* player = GetCharacterManager()->GetCharacter(0);
+                if(generatedDriver && generatedDriver != player &&
+                   generatedDriver->GetName() &&
+                   strncmp(generatedDriver->GetName(), "d_", 2) == 0)
+                {
+                    mCharacters[ i ].vehicle->SetDriver(NULL);
+                    GetCharacterManager()->RemoveCharacter(generatedDriver);
+                }
                 GetAvatarManager()->PutCharacterInCar( 
                     mCharacters[ i ].character, 
                     mCharacters[ i ].vehicle );

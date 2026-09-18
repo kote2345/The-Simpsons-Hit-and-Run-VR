@@ -154,6 +154,36 @@ bool IsVrYokeVehicle(const char* name)
     return name&&std::strcmp(name,"honor_v")==0;
 }
 
+Character* GetVrVehicleNpcDriver(Vehicle* vehicle)
+{
+    if(!vehicle||!GetCharacterManager())return NULL;
+
+    Character* player=GetCharacterManager()->GetCharacter(0);
+    Character* explicitDriver=vehicle->GetDriver();
+    Character* fallbackDriver=NULL;
+
+    if(explicitDriver&&explicitDriver!=player&&
+       explicitDriver->GetTargetVehicle()==vehicle&&explicitDriver->IsInCar())
+        fallbackDriver=explicitDriver;
+
+    // A mission stage may put a named character into the current vehicle
+    // without assigning Vehicle::mpDriver. Prefer that mission occupant over
+    // an automatically generated d_* driver, if both happen to exist.
+    for(int i=1;i<CharacterManager::GetMaxCharacters();++i)
+    {
+        Character* character=GetCharacterManager()->GetCharacter(i);
+        if(!character||character==player||character==explicitDriver||
+           character->GetTargetVehicle()!=vehicle||!character->IsInCar())
+            continue;
+        if(character->GetRole()!=Character::ROLE_DRIVER)
+            return character;
+        if(!fallbackDriver)
+            fallbackDriver=character;
+    }
+
+    return fallbackDriver;
+}
+
 void UpdateVrInCarCharacterVisibility()
 {
     CharacterManager* characters=GetCharacterManager();
@@ -161,38 +191,50 @@ void UpdateVrInCarCharacterVisibility()
     if(!player)return;
 
     static Character* hiddenPlayer=NULL;
-    static Character* hiddenTrafficDriver=NULL;
+    static Character* movedNpcDriver=NULL;
+    static Vehicle* movedNpcVehicle=NULL;
     SharedVrState& state=GetSharedVrState();
     Vehicle* vehicle=player->IsInCar()?player->GetTargetVehicle():NULL;
-    Character* driver=vehicle?vehicle->GetDriver():NULL;
-    const bool trafficVehicle=vehicle&&
-        TrafficManager::GetInstance()->IsVehicleTrafficVehicle(vehicle);
+    Character* driver=vehicle?GetVrVehicleNpcDriver(vehicle):NULL;
 
-    // Traffic cars already contain an AI driver at the driver's socket.  In
-    // VR first-person mode the local player's tracked body is rendered there
-    // instead; leaving the AI driver visible makes its legs overlap the
-    // player's passenger-seat torso and looks like IK is split between seats.
-    const bool hideTrafficDriver=state.vrModeEnabled&&vehicle&&trafficVehicle&&
+    // When the player takes over a vehicle in first-person VR, the original
+    // driver character must be moved out of the driver's socket. This applies
+    // to both mission and traffic vehicles and is independent of whether the
+    // local player's body IK is enabled.
+    const bool moveNpcDriver=state.vrModeEnabled&&vehicle&&
         state.vehicleControlMode!=2&&driver&&driver!=player;
     static Vehicle* loggedVisibilityVehicle=NULL;
     static int loggedVisibilityState=-1;
-    const int visibilityState=hideTrafficDriver?1:0;
+    const int visibilityState=moveNpcDriver?1:0;
     if(vehicle&&(loggedVisibilityVehicle!=vehicle||loggedVisibilityState!=visibilityState))
     {
-        SDL_Log("VR VEHICLE VIS vehicle=%p traffic=%d driver=%p driverVisible=%d hideDriver=%d playerVisible=%d",
-            vehicle,trafficVehicle?1:0,driver,driver&&driver->IsVisible()?1:0,
-            hideTrafficDriver?1:0,player->IsVisible()?1:0);
+        SDL_Log("VR VEHICLE VIS vehicle=%p explicitDriver=%p driver=%p driverVisible=%d moveDriver=%d playerVisible=%d",
+            vehicle,vehicle?vehicle->GetDriver():NULL,driver,driver&&driver->IsVisible()?1:0,
+            moveNpcDriver?1:0,player->IsVisible()?1:0);
         loggedVisibilityVehicle=vehicle;loggedVisibilityState=visibilityState;
     }
-    if(hideTrafficDriver)
+    if(moveNpcDriver)
     {
-        if(driver->IsVisible())driver->RemoveFromWorldScene();
-        hiddenTrafficDriver=driver;
+        rmt::Vector passenger=vehicle->GetPassengerLocation();
+        passenger.y=driver->GetPuppet()->GetPosition().y;
+        driver->GetPuppet()->SetPosition(passenger);
+        movedNpcDriver=driver;
+        movedNpcVehicle=vehicle;
     }
-    else if(hiddenTrafficDriver)
+    else
     {
-        if(!hiddenTrafficDriver->IsVisible())hiddenTrafficDriver->AddToWorldScene();
-        hiddenTrafficDriver=NULL;
+        if(movedNpcDriver)
+        {
+            if(movedNpcVehicle&&movedNpcDriver->IsInCar()&&
+               movedNpcDriver->GetTargetVehicle()==movedNpcVehicle)
+            {
+                rmt::Vector driverSeat=movedNpcVehicle->GetDriverLocation();
+                driverSeat.y=movedNpcDriver->GetPuppet()->GetPosition().y;
+                movedNpcDriver->GetPuppet()->SetPosition(driverSeat);
+            }
+            movedNpcDriver=NULL;
+            movedNpcVehicle=NULL;
+        }
     }
     // Keep the seated body in the world when body IK is enabled.  The old
     // vehicle visibility rule removed the local character for every first-
@@ -208,24 +250,6 @@ void UpdateVrInCarCharacterVisibility()
             hiddenPlayer=player;
         }
 
-        vehicle=player->GetTargetVehicle();
-        driver=vehicle?vehicle->GetDriver():NULL;
-        if(driver&&driver!=player)
-        {
-            const bool traffic=TrafficManager::GetInstance()->
-                IsVehicleTrafficVehicle(vehicle);
-            if(traffic)
-            {
-                if(driver->IsVisible())driver->RemoveFromWorldScene();
-            }
-            else
-            {
-                if(!driver->IsVisible())driver->AddToWorldScene();
-                rmt::Vector passenger=vehicle->GetPassengerLocation();
-                passenger.y=driver->GetPuppet()->GetPosition().y;
-                driver->GetPuppet()->SetPosition(passenger);
-            }
-        }
         return;
     }
 
@@ -233,7 +257,7 @@ void UpdateVrInCarCharacterVisibility()
     // mode/camera change while the character remains seated.
     if(hiddenPlayer==player)
     {
-        if(!player->IsVisible()&&player->IsInCar())
+        if(!player->IsVisible())
         {
             Vehicle* vehicle=player->GetTargetVehicle();
             // A body-IK pose is rendered from the local player's drawable,
@@ -241,7 +265,8 @@ void UpdateVrInCarCharacterVisibility()
             // suppresses seated character drawables. The previous condition
             // left the player permanently removed after switching from the
             // fallback hand-only vehicle mode.
-            if(state.bodyIkEnabled||!vehicle||vehicle->mVisibleCharacters)
+            if(!state.vrModeEnabled||!player->IsInCar()||state.bodyIkEnabled||
+               !vehicle||vehicle->mVisibleCharacters)
                 player->AddToWorldScene();
         }
         hiddenPlayer=NULL;

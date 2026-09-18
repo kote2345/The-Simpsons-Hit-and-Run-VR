@@ -381,6 +381,33 @@ void AvatarManager::PutCharacterInCar( Character* pCharacter, Vehicle* pVehicle 
             return;
         }
     }
+
+    // Mission stages also use this helper for NPCs placed in the current
+    // vehicle.  They are not entries in mAvatarArray, so the old code left
+    // them on foot with no target vehicle and no InCar state.
+    if(pCharacter != GetCharacterManager()->GetCharacter(0))
+    {
+        pCharacter->GetActionController()->Clear();
+        pCharacter->SetInCar(true);
+        pCharacter->UpdateTransformToInCar();
+        pCharacter->SetTargetVehicle(pVehicle);
+
+        if(pVehicle->GetLocomotionType() == VL_TRAFFIC)
+        {
+            pVehicle->SetLocomotion(VL_PHYSICS);
+            pVehicle->mHijackedByUser = true;
+        }
+
+        if(pCharacter->GetStateManager()->GetState() == CharacterAi::INCAR)
+        {
+            pCharacter->GetStateManager()->ResetState();
+        }
+        else
+        {
+            pCharacter->GetStateManager()->SetState<CharacterAi::InCar>();
+        }
+        pCharacter->SetDesiredSpeed(0.0f);
+    }
 }
 
 //=============================================================================

@@ -211,12 +211,10 @@ void MissionObjective::Initialize()
 
             static_cast<NPCController*>(character->GetController())->TransitToState(NPCController::NONE);
             character->SetTargetVehicle( vehicle );
+            vehicle->SetDriver(character);
+            character->SetRole(Character::ROLE_DRIVER);
             character->AddToWorldScene();
             character->GetStateManager()->SetState<CharacterAi::InCar>();
-
-            vehicle->SetDriver(character);
-
-            character->SetRole(Character::ROLE_DRIVER);
         }
         else
         {

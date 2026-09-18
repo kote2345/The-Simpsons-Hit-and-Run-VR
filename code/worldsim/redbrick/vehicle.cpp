@@ -54,6 +54,10 @@
 #include <worldsim/avatarmanager.h>
 #include <worldsim/avatar.h>
 #include <worldsim/character/character.h>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#include <vr/openxr_shared_vehicle.h>
+#endif
 
 
 #include <choreo/puppet.hpp>
@@ -2829,16 +2833,30 @@ void Vehicle::MoveCharactersTowardsRestPosition(float dt)
     float rate = 0.5f;
     
     Avatar* playerAvatar = GetAvatarManager()->GetAvatarForPlayer(0);
-    if( mpDriver && mpDriver != playerAvatar->GetCharacter() )
+    Character* npcDriver = mpDriver;
+    bool npcUsesPassengerSeat = false;
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(SharOpenXR::IsVrModeEnabled() && !SharOpenXR::IsThirdPersonVehicleMode() &&
+       mUserDrivingCar)
+    {
+        Character* resolvedDriver = SharOpenXR::GetVrVehicleNpcDriver(this);
+        if(resolvedDriver)
+        {
+            npcDriver = resolvedDriver;
+            npcUsesPassengerSeat = true;
+        }
+    }
+#endif
+    if( npcDriver && npcDriver != playerAvatar->GetCharacter() )
     {
         // there is both a driver and us
         //
         // sort of clunky to set every frame but whatever...
-        mNPCRestSeatingPosition = mDriverLocation;
-        mOurRestSeatingPosition = mPassengerLocation;
+        mNPCRestSeatingPosition = npcUsesPassengerSeat ? mPassengerLocation : mDriverLocation;
+        mOurRestSeatingPosition = npcUsesPassengerSeat ? mDriverLocation : mPassengerLocation;
         
         // hackey, hackey - need to slide lisa up a little because of dress poking through car
-        if(mpDriver->IsLisa())
+        if(npcDriver->IsLisa() && !npcUsesPassengerSeat)
         {
             mNPCRestSeatingPosition.y += 0.12f;
         }
@@ -2880,7 +2898,7 @@ void Vehicle::MoveCharactersTowardsRestPosition(float dt)
             
         
         // driver    
-        choreo::Puppet* npcPuppet = mpDriver->GetPuppet();
+        choreo::Puppet* npcPuppet = npcDriver->GetPuppet();
         const rmt::Vector& npcPuppetPosition = npcPuppet->GetPosition();
         rmt::Vector newNPCPuppetPosition = npcPuppetPosition;
                     
@@ -2966,11 +2984,25 @@ void Vehicle::ApplyDisplacementToCharacters(float displacement)
 {
     // now either we're driving alone or we're a passenger and there's a driver
     Avatar* playerAvatar = GetAvatarManager()->GetAvatarForPlayer(0);
-    if( mpDriver && mpDriver != playerAvatar->GetCharacter() )
+    Character* npcDriver = mpDriver;
+    bool npcUsesPassengerSeat = false;
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(SharOpenXR::IsVrModeEnabled() && !SharOpenXR::IsThirdPersonVehicleMode() &&
+       mUserDrivingCar)
+    {
+        Character* resolvedDriver = SharOpenXR::GetVrVehicleNpcDriver(this);
+        if(resolvedDriver)
+        {
+            npcDriver = resolvedDriver;
+            npcUsesPassengerSeat = true;
+        }
+    }
+#endif
+    if( npcDriver && npcDriver != playerAvatar->GetCharacter() )
     {
         // sort of clunky to set every frame but whatever...
-        mNPCRestSeatingPosition = mDriverLocation;
-        mOurRestSeatingPosition = mPassengerLocation;
+        mNPCRestSeatingPosition = npcUsesPassengerSeat ? mPassengerLocation : mDriverLocation;
+        mOurRestSeatingPosition = npcUsesPassengerSeat ? mDriverLocation : mPassengerLocation;
     
     
         // there is both a driver and us
@@ -2995,7 +3027,7 @@ void Vehicle::ApplyDisplacementToCharacters(float displacement)
         ourPuppet->SetPosition(newOurPuppetPosition);
                                             
             
-        choreo::Puppet* npcPuppet = mpDriver->GetPuppet();
+        choreo::Puppet* npcPuppet = npcDriver->GetPuppet();
         const rmt::Vector& npcPuppetPosition = npcPuppet->GetPosition();
         rmt::Vector newNPCPuppetPosition = npcPuppetPosition;
                         

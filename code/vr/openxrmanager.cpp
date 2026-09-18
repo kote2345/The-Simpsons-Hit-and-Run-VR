@@ -782,6 +782,10 @@ void SetVrModeEnabled(bool enabled)
 {
     if(g.vrModeEnabled==enabled) return;
     SetSharedVrModeEnabled(enabled);
+    // Restore a seated player immediately when returning to Original mode;
+    // otherwise the previous first-person VR visibility state can persist
+    // until the next vehicle-control update.
+    UpdateVrInCarCharacterVisibility();
     XRLOG("gameplay mode: %s",enabled?"VR":"Original");
 }
 bool IsVrModeEnabled(){ return g.vrModeEnabled; }

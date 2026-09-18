@@ -26,6 +26,7 @@
 #include <worldsim/avatarmanager.h>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
+#include <vr/openxr_shared_vehicle.h>
 #endif
 #include <worldsim/hitnrunmanager.h>
 
@@ -82,8 +83,29 @@ static bool UseVrPassengerSeatForNpcDriver(Character* character, Vehicle* vehicl
            SharOpenXR::IsVrModeEnabled() &&
            !SharOpenXR::IsThirdPersonVehicleMode() &&
            vehicle->IsUserDrivingCar() &&
-           !TrafficManager::GetInstance()->IsVehicleTrafficVehicle(vehicle) &&
            character != GetCharacterManager()->GetCharacter(0);
+#else
+    return false;
+#endif
+}
+
+static bool KeepLocalPlayerVisibleInOriginal(Character* character)
+{
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    return character && GetCharacterManager() &&
+           character == GetCharacterManager()->GetCharacter(0) &&
+           !SharOpenXR::IsVrModeEnabled();
+#else
+    return false;
+#endif
+}
+
+static bool KeepCharacterVisibleInVr(Character* character)
+{
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    return character && GetCharacterManager() &&
+           character != GetCharacterManager()->GetCharacter(0) &&
+           character->GetTargetVehicle() && SharOpenXR::IsVrModeEnabled();
 #else
     return false;
 #endif
@@ -281,7 +303,9 @@ void InCar::Enter( void )
 
     mpCharacter->SetInCar( true );
 
-    if(!mpCharacter->GetTargetVehicle()->mVisibleCharacters)
+    if(!mpCharacter->GetTargetVehicle()->mVisibleCharacters &&
+       !KeepLocalPlayerVisibleInOriginal(mpCharacter) &&
+       !KeepCharacterVisibleInVr(mpCharacter))
     {
         mpCharacter->RemoveFromWorldScene();
     }
@@ -358,9 +382,22 @@ void InCar::Update( float timeins )
        (GetGameFlow()->GetCurrentContext() != CONTEXT_SUPERSPRINT)))
     {
         mpCharacter->GetActionController()->Clear();
-        mpCharacter->GetStateManager()->SetState<GetOut>();
-        return;
+       mpCharacter->GetStateManager()->SetState<GetOut>();
+       return;
     }
+
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    // The NPC driver can already be seated before the player takes over the
+    // vehicle. Apply the VR seat after the normal vehicle state update would
+    // otherwise restore the authored driver position every frame.
+    if(mpCharacter != GetCharacterManager()->GetCharacter(0) &&
+       mIsDriver && SharOpenXR::GetVrVehicleNpcDriver(pVehicle) == mpCharacter)
+    {
+        rmt::Vector seat = GetInCarSeat(mpCharacter, pVehicle, true);
+        seat.y = mpCharacter->GetPuppet()->GetPosition().y;
+        mpCharacter->GetPuppet()->SetPosition(seat);
+    }
+#endif
 
     CharacterController::eIntention theIntention = CharacterController::NONE; 
     bool actionDown = false;
@@ -1169,7 +1206,9 @@ void GetIn::HandleEvent( EventEnum id, void* pUserData )
 
         GetAvatarManager()->PutCharacterInCar( mpCharacter, pVehicle );
 
-        if(!pVehicle->mVisibleCharacters)
+        if(!pVehicle->mVisibleCharacters &&
+           !KeepLocalPlayerVisibleInOriginal(mpCharacter) &&
+           !KeepCharacterVisibleInVr(mpCharacter))
         {
             mpCharacter->RemoveFromWorldScene();
         }
@@ -1344,7 +1383,9 @@ void GetIn::Update( float timeins )
 
 void GetIn::Exit( void )
 {
-    if(!mpCharacter->GetTargetVehicle()->mVisibleCharacters)
+    if(!mpCharacter->GetTargetVehicle()->mVisibleCharacters &&
+       !KeepLocalPlayerVisibleInOriginal(mpCharacter) &&
+       !KeepCharacterVisibleInVr(mpCharacter))
     {
         mpCharacter->RemoveFromWorldScene();
     }
