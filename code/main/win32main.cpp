@@ -14,12 +14,15 @@
 //========================================
 // Standard Library
 #include <string.h>
+#include <time.h>
+#include <mutex>
 // Foundation Tech
 #include <raddebug.hpp>
 #include <radobject.hpp>
 // file reading before radtech
 #include <stdio.h>
 #include <SDL_main.h>
+#include <SDL.h>
 
 
 #ifdef RAD_ANDROID
@@ -48,6 +51,90 @@ unsigned int sceLibcHeapSize = 16 * 1024 * 1024;
 // Logging helper (cross-platform)
 //========================================
 #if defined(RAD_ANDROID)
+static const char* const kAndroidLogPaths[] = {
+    "/storage/emulated/0/SimpsonsHitRun/SimpsonsVR.log",
+    "/storage/emulated/0/Android/data/com.simpsonsHitAndRun.vr/files/SimpsonsVR.log",
+    "/data/data/com.simpsonsHitAndRun.vr/files/SimpsonsVR.log"
+};
+static FILE* gAndroidLogFile = NULL;
+static const char* gAndroidLogPath = NULL;
+static std::mutex gAndroidLogMutex;
+
+static void OpenAndroidLogFile()
+{
+    std::lock_guard<std::mutex> lock( gAndroidLogMutex );
+
+    if( gAndroidLogFile != NULL )
+    {
+        return;
+    }
+
+    // Keep one log per launch so a previous crash cannot hide the current one.
+    // The game directory is preferred, but Quest can start native code before
+    // the all-files permission requested by the Activity has been granted.
+    for( const char* path : kAndroidLogPaths )
+    {
+        gAndroidLogFile = fopen( path, "wb" );
+        if( gAndroidLogFile != NULL )
+        {
+            gAndroidLogPath = path;
+            break;
+        }
+    }
+    if( gAndroidLogFile == NULL )
+    {
+        __android_log_print( ANDROID_LOG_ERROR, "SimpsonsHitAndRun",
+            "Could not open any native log file path" );
+        return;
+    }
+
+    time_t now = time( NULL );
+    struct tm localTime;
+    localtime_r( &now, &localTime );
+    fprintf( gAndroidLogFile,
+        "===== Simpsons Hit & Run VR native log %04d-%02d-%02d %02d:%02d:%02d =====\n",
+        localTime.tm_year + 1900, localTime.tm_mon + 1, localTime.tm_mday,
+        localTime.tm_hour, localTime.tm_min, localTime.tm_sec );
+    fprintf( gAndroidLogFile, "Path: %s\n", gAndroidLogPath );
+    fflush( gAndroidLogFile );
+}
+
+static const char* AndroidLogPriorityName( SDL_LogPriority priority )
+{
+    switch( priority )
+    {
+        case SDL_LOG_PRIORITY_VERBOSE: return "VERBOSE";
+        case SDL_LOG_PRIORITY_DEBUG:   return "DEBUG";
+        case SDL_LOG_PRIORITY_INFO:    return "INFO";
+        case SDL_LOG_PRIORITY_WARN:    return "WARN";
+        case SDL_LOG_PRIORITY_ERROR:   return "ERROR";
+        case SDL_LOG_PRIORITY_CRITICAL:return "CRITICAL";
+        default:                       return "UNKNOWN";
+    }
+}
+
+static void WriteAndroidLogFile( int category, SDL_LogPriority priority, const char* message )
+{
+    // Retry after the Activity has had a chance to grant external storage
+    // access. This keeps the preferred game-folder path usable on a fresh
+    // Quest 2 install while retaining an app-private fallback.
+    OpenAndroidLogFile();
+    std::lock_guard<std::mutex> lock( gAndroidLogMutex );
+
+    if( gAndroidLogFile == NULL )
+    {
+        return;
+    }
+
+    time_t now = time( NULL );
+    struct tm localTime;
+    localtime_r( &now, &localTime );
+    fprintf( gAndroidLogFile, "%02d:%02d:%02d [%s][category=%d] %s\n",
+        localTime.tm_hour, localTime.tm_min, localTime.tm_sec,
+        AndroidLogPriorityName( priority ), category, message ? message : "(null)" );
+    fflush( gAndroidLogFile );
+}
+
     #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, "SimpsonsHitAndRun", __VA_ARGS__)
 #elif defined(RAD_VITA)
     #define LOGI(...) sceClibPrintf(__VA_ARGS__), sceClibPrintf("\n")
@@ -79,6 +166,7 @@ static void LogOutputFunction( void *userdata, int category, SDL_LogPriority pri
     sceClibPrintf( "%s\n", message );
 	
 #elif defined(RAD_ANDROID)
+	WriteAndroidLogFile( category, priority, message );
 	LOGI("%s", message);
 
 #else
@@ -100,6 +188,11 @@ static void LogOutputFunction( void *userdata, int category, SDL_LogPriority pri
 //=============================================================================
 extern "C" int main( int argc, char *argv[] )
 {
+#ifdef RAD_ANDROID
+    // Open this before SDL/OpenXR/Vulkan initialization, since a Quest 2
+    // launch failure can happen before the first SDL log callback is installed.
+    OpenAndroidLogFile();
+#endif
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
     InstallWin32CrashHandler();
 #endif

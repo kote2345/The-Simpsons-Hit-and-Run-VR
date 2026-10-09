@@ -81,7 +81,7 @@
         <!-- Keep Release optimizations while allowing ADB shell simpleperf to
              sample native call stacks on a connected development headset. -->
         <profileable android:shell="true" />
-        <meta-data android:name="com.oculus.supportedDevices" android:value="quest3|quest3s" />
+        <meta-data android:name="com.oculus.supportedDevices" android:value="quest1|quest2|quest3|quest3s" />
         <!-- Display assets/vr_splash.png in the Quest compositor while the
              process and OpenXR session are starting. -->
         <meta-data android:name="com.oculus.ossplash" android:value="true" />
