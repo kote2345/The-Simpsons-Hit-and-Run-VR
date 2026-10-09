@@ -208,6 +208,11 @@ bool VulkanContext::Initialize(XrInstance xrInstance, XrSystemId systemId,
 
     VkInstanceCreateInfo instanceInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
     instanceInfo.pApplicationInfo = &applicationInfo;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    const char* windowExtensions[]={"VK_KHR_surface","VK_KHR_win32_surface"};
+    instanceInfo.enabledExtensionCount=2;
+    instanceInfo.ppEnabledExtensionNames=windowExtensions;
+#endif
     XrVulkanInstanceCreateInfoKHR xrInstanceInfo = {
         XR_TYPE_VULKAN_INSTANCE_CREATE_INFO_KHR };
     xrInstanceInfo.systemId = systemId;
@@ -307,12 +312,14 @@ bool VulkanContext::Initialize(XrInstance xrInstance, XrSystemId systemId,
     }
     enabledMultiview.pNext=mFragmentDensityMapSupported?&enabledDensity:NULL;
     logicalDeviceInfo.pNext=&enabledMultiview;
-    const char* densityExtension=VK_EXT_FRAGMENT_DENSITY_MAP_EXTENSION_NAME;
+    std::vector<const char*> deviceExtensions;
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+#endif
     if(mFragmentDensityMapSupported)
-    {
-        logicalDeviceInfo.enabledExtensionCount=1;
-        logicalDeviceInfo.ppEnabledExtensionNames=&densityExtension;
-    }
+        deviceExtensions.push_back(VK_EXT_FRAGMENT_DENSITY_MAP_EXTENSION_NAME);
+    logicalDeviceInfo.enabledExtensionCount=static_cast<uint32_t>(deviceExtensions.size());
+    logicalDeviceInfo.ppEnabledExtensionNames=deviceExtensions.data();
     logicalDeviceInfo.pEnabledFeatures=&enabledFeatures;
     XrVulkanDeviceCreateInfoKHR xrDeviceInfo = {
         XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR };

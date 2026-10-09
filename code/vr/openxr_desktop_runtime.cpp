@@ -36,7 +36,11 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
-namespace SharOpenXR { namespace Desktop { namespace {
+#include <main/win32platform.h>
+#include <vr/vulkan/desktop_eye_mirror.h>
+namespace SharOpenXR { namespace Desktop {
+static DesktopEyeMirror eyeMirror;
+namespace {
 void* loader=NULL; PFN_xrGetInstanceProcAddr getProc=NULL;
 XrInstance instance=XR_NULL_HANDLE; XrSystemId system=XR_NULL_SYSTEM_ID;
 XrSession session=XR_NULL_HANDLE; XrSpace space=XR_NULL_HANDLE;
@@ -157,7 +161,8 @@ static bool RecreateDesktopSwapchain(void*,float scale)
  eyeHeight=std::max(1,static_cast<int32_t>(recommendedEyeHeight*scale));
  XrSwapchainCreateInfo info={XR_TYPE_SWAPCHAIN_CREATE_INFO};
  info.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|
-     XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT|XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT;
+     XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT|XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT|
+     XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT;
  info.format=swapchainFormat;info.sampleCount=1;info.width=eyeWidth;
  info.height=eyeHeight;info.faceCount=1;info.arraySize=2;info.mipCount=1;
  if(XR_FAILED(createSwapchain(session,&info,&swapchain)))return false;
@@ -337,12 +342,12 @@ bool InitializeRuntime(){
  swapchainFormat=static_cast<VkFormat>(format);
  recommendedEyeWidth=views[0].recommendedImageRectWidth;recommendedEyeHeight=views[0].recommendedImageRectHeight;
  eyeWidth=std::max(1,static_cast<int32_t>(recommendedEyeWidth*GetSharedVrState().renderScale));eyeHeight=std::max(1,static_cast<int32_t>(recommendedEyeHeight*GetSharedVrState().renderScale));GetSharedVrState().appliedRenderScale=GetSharedVrState().renderScale;GetSharedVrState().renderScalePending=false;
- XrSwapchainCreateInfo swapInfo={XR_TYPE_SWAPCHAIN_CREATE_INFO};swapInfo.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT|XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT;swapInfo.format=format;swapInfo.sampleCount=1;swapInfo.width=eyeWidth;swapInfo.height=eyeHeight;swapInfo.faceCount=1;swapInfo.arraySize=2;swapInfo.mipCount=1;
+ XrSwapchainCreateInfo swapInfo={XR_TYPE_SWAPCHAIN_CREATE_INFO};swapInfo.usageFlags=XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT|XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT|XR_SWAPCHAIN_USAGE_TRANSFER_SRC_BIT|XR_SWAPCHAIN_USAGE_MUTABLE_FORMAT_BIT;swapInfo.format=format;swapInfo.sampleCount=1;swapInfo.width=eyeWidth;swapInfo.height=eyeHeight;swapInfo.faceCount=1;swapInfo.arraySize=2;swapInfo.mipCount=1;
  if(XR_FAILED(createSwapchain(session,&swapInfo,&swapchain))){ShutdownRuntime();return false;}
  uint32_t imageCount=0;enumerateImages(swapchain,0,&imageCount,NULL);images.resize(imageCount,{XR_TYPE_SWAPCHAIN_IMAGE_VULKAN_KHR});
  if(XR_FAILED(enumerateImages(swapchain,imageCount,&imageCount,reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data())))){ShutdownRuntime();return false;}
  SDL_Log("PCVR: OpenXR Vulkan session ready (%dx%d, format=%d, images=%u)",eyeWidth,eyeHeight,static_cast<int>(swapchainFormat),imageCount);return true;}
-void ShutdownRuntime(){GetSharedVrMenu().Reset();ResetVirtualController();running=false;ShutdownSharedHud();if(swapchain!=XR_NULL_HANDLE&&destroySwapchain)destroySwapchain(swapchain);swapchain=XR_NULL_HANDLE;images.clear();for(unsigned hand=0;hand<2;++hand){if(handSpaces[hand]!=XR_NULL_HANDLE&&destroySpace)destroySpace(handSpaces[hand]);handSpaces[hand]=XR_NULL_HANDLE;handPoseValid[hand]=false;}if(space!=XR_NULL_HANDLE&&destroySpace)destroySpace(space);space=XR_NULL_HANDLE;if(session!=XR_NULL_HANDLE&&destroySession)destroySession(session);session=XR_NULL_HANDLE;if(inputActionSet!=XR_NULL_HANDLE&&destroyActionSet)destroyActionSet(inputActionSet);inputActionSet=XR_NULL_HANDLE;GetVulkanContext().Shutdown();if(instance!=XR_NULL_HANDLE&&destroyInstance)destroyInstance(instance);instance=XR_NULL_HANDLE;if(loader)Platform::CloseLoader(loader);loader=NULL;getProc=NULL;system=XR_NULL_SYSTEM_ID;}
+void ShutdownRuntime(){eyeMirror.Shutdown();GetSharedVrMenu().Reset();ResetVirtualController();running=false;ShutdownSharedHud();if(swapchain!=XR_NULL_HANDLE&&destroySwapchain)destroySwapchain(swapchain);swapchain=XR_NULL_HANDLE;images.clear();for(unsigned hand=0;hand<2;++hand){if(handSpaces[hand]!=XR_NULL_HANDLE&&destroySpace)destroySpace(handSpaces[hand]);handSpaces[hand]=XR_NULL_HANDLE;handPoseValid[hand]=false;}if(space!=XR_NULL_HANDLE&&destroySpace)destroySpace(space);space=XR_NULL_HANDLE;if(session!=XR_NULL_HANDLE&&destroySession)destroySession(session);session=XR_NULL_HANDLE;if(inputActionSet!=XR_NULL_HANDLE&&destroyActionSet)destroyActionSet(inputActionSet);inputActionSet=XR_NULL_HANDLE;GetVulkanContext().Shutdown();if(instance!=XR_NULL_HANDLE&&destroyInstance)destroyInstance(instance);instance=XR_NULL_HANDLE;if(loader)Platform::CloseLoader(loader);loader=NULL;getProc=NULL;system=XR_NULL_SYSTEM_ID;}
 bool IsRuntimeReady(){return session!=XR_NULL_HANDLE;}
 bool BeginFrame(){
  SharedHudBeginFrame();
@@ -418,6 +423,9 @@ void EndFrame(){if(!frameActive)return;if(eyeActive)EndEye(currentEye);if(imageA
      SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                   "PCVR: vkQueueWaitIdle before swapchain release failed (%d)",
                   static_cast<int>(queueResult));
+ if(queueResult==VK_SUCCESS)
+     eyeMirror.Present(Win32Platform::GetInstance()->GetWindow(),
+         images[currentImage].image,swapchainFormat,eyeWidth,eyeHeight);
  if(!ReleaseSharedFrameImage(FrameApi(),swapchain,&sharedFrame))
      SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,"PCVR: shared swapchain release failed");
  imageAcquired=sharedFrame.imageAcquired;}
