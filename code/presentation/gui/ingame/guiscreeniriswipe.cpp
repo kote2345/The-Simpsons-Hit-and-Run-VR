@@ -119,6 +119,9 @@ CGuiScreenIrisWipe::CGuiScreenIrisWipe
 //===========================================================================
 CGuiScreenIrisWipe::~CGuiScreenIrisWipe()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SharOpenXR::SetIrisAnimation( NULL, 0.0f );
+#endif
 }
 
 //===========================================================================
@@ -222,6 +225,8 @@ void CGuiScreenIrisWipe::HandleMessage
                     m_numTransitionsPending--;
                     rAssert( m_numTransitionsPending == 0 );
 
+                    // The VR visual fade finishes its 250 ms even if the
+                    // authored opening animation has already completed.
                     GetEventManager()->TriggerEvent( EVENT_GUI_IRIS_WIPE_OPEN );
                     rReleasePrintf( "CGuiScreenIrisWipe => EVENT_GUI_IRIS_WIPE_OPEN.\n" );
                 }
@@ -261,9 +266,6 @@ void CGuiScreenIrisWipe::HandleMessage
 //===========================================================================
 void CGuiScreenIrisWipe::InitIntro()
 {
-#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
-    SharOpenXR::SetIrisBlackout( true );
-#endif
     if( m_loadingText != NULL )
     {
         // hide loading text
@@ -285,6 +287,9 @@ void CGuiScreenIrisWipe::InitIntro()
         m_pMultiController->Reset();
         m_pMultiController->SetFrameRange( 0.0f, m_numFrames * 0.5f );
         m_pMultiController->SetFrame( 0.0f );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+        SharOpenXR::SetIrisAnimation( m_pMultiController, m_numFrames );
+#endif
     }
 }
 
@@ -322,14 +327,6 @@ void CGuiScreenIrisWipe::InitRunning()
 //===========================================================================
 void CGuiScreenIrisWipe::InitOutro()
 {
-#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
-    // A mission restart leaves the authored iris closed while switching to
-    // the mission-loading screen (DoNotOpenOnNextOutro).  The OpenXR cover is
-    // separate from that animation, though, and must be released whenever we
-    // leave this screen.  Otherwise its target remains opaque until another
-    // iris transition, such as exiting a vehicle, happens to clear it.
-    SharOpenXR::SetIrisBlackout( false );
-#endif
     if( m_loadingText != NULL )
     {
         // hide loading text
@@ -340,6 +337,7 @@ void CGuiScreenIrisWipe::InitOutro()
     if( g_doNotOpenOnNextOutro )
     {
         g_doNotOpenOnNextOutro = false;
+        // Keep the VR cover closed too: this handoff explicitly skips opening.
     }
     else
     {
@@ -354,6 +352,9 @@ void CGuiScreenIrisWipe::InitOutro()
             m_pMultiController->Reset();
             m_pMultiController->SetFrameRange( m_numFrames * 0.5f, m_numFrames );
             m_pMultiController->SetFrame( m_numFrames * 0.5f );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+            SharOpenXR::SetIrisAnimation( m_pMultiController, m_numFrames, true );
+#endif
 
             //Reset the relative speed to the default
             m_relativeSpeed = DEFAULT_REL_SPEED;

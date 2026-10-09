@@ -1056,22 +1056,12 @@ void CGuiManagerInGame::HandleMessage
         }
         case GUI_MSG_START_IRIS_WIPE_OPEN:
         {
-#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
-            // Drive the OpenXR compositor fade from the authoritative GUI
-            // command.  PC frontend timing can bypass the Iris screen's
-            // InitOutro callback, while every vehicle/interior transition
-            // necessarily passes through this manager message.
-            SharOpenXR::SetIrisBlackout( false );
-#endif
             this->HandleMessage( GUI_MSG_RESUME_INGAME );
 
             break;
         }
         case GUI_MSG_START_IRIS_WIPE_CLOSE:
         {
-#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
-            SharOpenXR::SetIrisBlackout( true );
-#endif
             this->HandleMessage( GUI_MSG_GOTO_SCREEN,
                                  CGuiWindow::GUI_SCREEN_ID_IRIS_WIPE,
                                  CLEAR_WINDOW_HISTORY );

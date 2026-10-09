@@ -14,6 +14,9 @@
 //========================================
 // Foundation Tech
 #include <raddebug.hpp>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#endif
 
 #if defined(RAD_ANDROID)
 #include <android/log.h>
@@ -3507,6 +3510,9 @@ void Collectible::FinishCollect( Character* pCharacter )
         mpActionEventLocator->SetFlag( Locator::ACTIVE, false );
 
     mbCollected = true;
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    SharOpenXR::ApplyPickupHaptics();
+#endif
     GetEventManager()->TriggerEvent( EVENT_COLLECT_OBJECT );
 }
 

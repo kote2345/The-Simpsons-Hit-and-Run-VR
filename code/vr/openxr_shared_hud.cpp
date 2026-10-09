@@ -25,6 +25,7 @@ typedef unsigned char GLboolean;
 #include <vr/openxr_shared_menu.h>
 #include <vr/openxrmanager.h>
 #include <p3d/camera.hpp>
+#include <p3d/anim/multicontroller.hpp>
 #include <presentation/gui/guiscreen.h>
 #include <worldsim/character/character.h>
 #include <worldsim/character/charactermanager.h>
@@ -103,11 +104,9 @@ struct HudState
     int spatialCoinAuthoredX,spatialCoinAuthoredY;
     bool spatialCoinAuthoredPositionValid;
     int missionObjectiveFrameRect[4],missionObjectiveIconRect[4];
-    bool missionObjectiveFrameRectValid,missionObjectiveIconRectValid,irisBlackoutTarget;
-#if defined(SRR2_VR_RENDERER_VULKAN)
-    float irisBlackoutAlpha;
-    Uint32 irisBlackoutTicks;
-#endif
+    bool missionObjectiveFrameRectValid,missionObjectiveIconRectValid;
+    bool irisActive,irisOpening;
+    Uint32 irisPhaseStartTicks;
 };
 
 HudState g={};
@@ -191,20 +190,8 @@ static void ApplyIrisBlackout()
     // foveation/tile boundaries make those quads visible as rectangles.
     return;
 #else
-    // Match the proven GLES fade while keeping its target synchronized with
-    // the authored Iris screen's intro/outro lifecycle.
-    static float alpha=0.0f;
-    static Uint32 lastTicks=0;
-    const Uint32 now=SDL_GetTicks();
-    const float dt=lastTicks?std::min(0.1f,(now-lastTicks)*0.001f):0.0f;
-    lastTicks=now;
-    const float target=g.irisBlackoutTarget?1.0f:0.0f;
-    // Keep the transition visible for roughly 0.8 seconds. The old 3.5/s
-    // value reached opaque in only 0.29 s and appeared instantaneous once the
-    // original circular geometry was replaced by a full-eye cover.
-    const float step=dt*1.25f;
-    if(alpha<target) alpha=std::min(target,alpha+step);
-    else if(alpha>target) alpha=std::max(target,alpha-step);
+    // Replace the authored circle with uniform opacity at its current frame.
+    const float alpha=UpdateSharedHudIrisAlpha();
     if(alpha<=0.001f)return;
 
     if(!g.irisBlackProgram)
@@ -1180,7 +1167,7 @@ static void DrawRadarPlane()
 
 #if defined(SRR2_VR_RENDERER_VULKAN)
 static void DrawVulkanHudQuad(VkDescriptorSet texture,const float* vertices,Eye& eye,
-                              float opacity)
+                              float opacity,uint32_t rgb=0x00ffffffu)
 {
     for(unsigned i=0;i<4;++i)
         if(vertices[i*6+3]<=0.05f || !std::isfinite(vertices[i*6+3])) return;
@@ -1232,7 +1219,7 @@ static void DrawVulkanHudQuad(VkDescriptorSet texture,const float* vertices,Eye&
                 const float bottomV=vertices[17]*(1.0f-u)+vertices[23]*u;
                 const float topV=vertices[5]*(1.0f-u)+vertices[11]*u;
                 out.uv[1]=bottomV*(1.0f-v)+topV*v;
-                out.colour=(alpha<<24)|0x00ffffffu;
+                out.colour=(alpha<<24)|rgb;
             }
         }
     }
@@ -1705,10 +1692,13 @@ static void DrawMissionHudPlanes()
 
 void SetPauseCoinVisible(bool visible){g.pauseCoinVisible=visible;
 }
-void SetIrisBlackout(bool black){
-    if(g.irisBlackoutTarget!=black)
-        XRLOG("iris blackout target=%s",black?"closed":"open");
-    g.irisBlackoutTarget=black;
+void SetIrisAnimation(tMultiController* controller,float numFrames,bool opening)
+{
+    // The original GUI selects the phase; only its visual fade has a fixed
+    // duration. No controller ownership or gameplay event delays are needed.
+    g.irisActive=controller!=NULL && numFrames>0.0f;
+    g.irisOpening=opening;
+    g.irisPhaseStartTicks=SDL_GetTicks();
 }
 void DrawPauseCoinIcon()
 {
@@ -1784,10 +1774,15 @@ void DrawPauseCoinIcon()
 }
 
 void SetSharedHudRuntimeProvider(SharedHudRuntimeProvider provider){runtimeProvider=provider;}
-void SharedHudBeginFrame(){++g.hudFrameSerial;if(g.hudFrameSerial==0)++g.hudFrameSerial;std::memset(g.missionHudVisible,0,sizeof(g.missionHudVisible));RefreshRuntime();}
+void SharedHudBeginFrame()
+{
+    ++g.hudFrameSerial;if(g.hudFrameSerial==0)++g.hudFrameSerial;
+    std::memset(g.missionHudVisible,0,sizeof(g.missionHudVisible));RefreshRuntime();
+}
 void SharedHudResetVisible(){std::memset(g.missionHudVisible,0,sizeof(g.missionHudVisible));}
 void ShutdownSharedHud()
 {
+    SetIrisAnimation(NULL,0.0f);
 #if defined(SRR2_VR_RENDERER_VULKAN)
     if(g.vulkanRadarImage)gVulkanContext.DestroyTexture(g.vulkanRadarImage,g.vulkanRadarMemory,g.vulkanRadarView,g.vulkanRadarSampler,g.vulkanRadarDescriptor);
     if(g.vulkanGameplayHudImage)gVulkanContext.DestroyTexture(g.vulkanGameplayHudImage,g.vulkanGameplayHudMemory,g.vulkanGameplayHudView,g.vulkanGameplayHudSampler,g.vulkanGameplayHudDescriptor);
@@ -1813,19 +1808,28 @@ void DrawSharedPauseCoinIcon(){if(RefreshRuntime())DrawPauseCoinIcon();}
 void ApplySharedIrisBlackout(){if(RefreshRuntime())ApplyIrisBlackout();}
 float UpdateSharedHudIrisAlpha()
 {
-#if defined(SRR2_VR_RENDERER_VULKAN)
-    const Uint32 now=SDL_GetTicks();
-    const float dt=g.irisBlackoutTicks?std::min(0.1f,(now-g.irisBlackoutTicks)*0.001f):0.0f;
-    g.irisBlackoutTicks=now;
-    const float target=g.irisBlackoutTarget?1.0f:0.0f;
-    const float step=dt*1.25f;
-    if(g.irisBlackoutAlpha<target)g.irisBlackoutAlpha=std::min(target,g.irisBlackoutAlpha+step);
-    else if(g.irisBlackoutAlpha>target)g.irisBlackoutAlpha=std::max(target,g.irisBlackoutAlpha-step);
-    return g.irisBlackoutAlpha;
-#else
-    return 0.0f;
-#endif
+    // Closing stays opaque indefinitely. Only the original InitOutro starts
+    // opening, independently of the animation clock continuing during loading.
+    if(!g.irisActive)return 0.0f;
+    const Uint32 elapsed=SDL_GetTicks()-g.irisPhaseStartTicks;
+    const float fade=std::min(1.0f,elapsed/250.0f);
+    return g.irisOpening?1.0f-fade:fade;
 }
+
+#if defined(SRR2_VR_RENDERER_VULKAN)
+void DrawSharedIrisBlackoutFallback()
+{
+    const float alpha=UpdateSharedHudIrisAlpha();
+    if(!RefreshRuntime() || !g.activeEye || alpha<=0.0f)return;
+    // A full-eye HUD pass resolves HDR first and covers the final image.
+    // Use this on desktop runtimes lacking composition-layer color scaling;
+    // Quest keeps the compositor path to avoid foveation tile artifacts.
+    const float vertices[24]={-1,-1,0,1,0,0, 1,-1,0,1,1,0,
+                             -1,1,0,1,0,1, 1,1,0,1,1,1};
+    DrawVulkanHudQuad(VK_NULL_HANDLE,vertices,g.eyes[g.activeEye-1],
+                      alpha,0);
+}
+#endif
 
 #if defined(SRR2_VR_RENDERER_VULKAN)
 bool GetSharedHudCaptureTarget(VulkanEyeTarget* target)

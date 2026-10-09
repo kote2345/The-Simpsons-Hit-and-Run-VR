@@ -644,7 +644,7 @@ static void FireHaptic(unsigned hand, float amplitude, float durationMs, float f
 {
     if (!g.hapticAction || !g.session) return;
     XrHapticVibration vibration = {XR_TYPE_HAPTIC_VIBRATION};
-    vibration.duration = static_cast<XrDuration>(durationMs * 1000000.0); // ms -> ns
+    vibration.duration = static_cast<XrDuration>(durationMs * 2000000.0); // double duration, ms -> ns
     vibration.frequency = frequencyHz;
     vibration.amplitude = std::max(0.0f, std::min(1.0f, amplitude));
     XrHapticActionInfo info = {XR_TYPE_HAPTIC_ACTION_INFO};
@@ -882,8 +882,14 @@ bool GetVrSteeringWheelValue(float* value)
 
 void ApplyControllerHaptics(float amplitude,unsigned durationMs)
 {
-    FireHaptic(0,amplitude,static_cast<float>(durationMs));
-    FireHaptic(1,amplitude,static_cast<float>(durationMs));
+    ApplyHandHaptics(0,amplitude,durationMs);
+    ApplyHandHaptics(1,amplitude,durationMs);
+}
+void ApplyHandHaptics(unsigned hand,float amplitude,unsigned durationMs)
+{
+    if(hand>1 || !g.running || !g.ApplyHapticFeedback ||
+       amplitude<=0.0f || durationMs==0)return;
+    FireHaptic(hand,amplitude,static_cast<float>(durationMs));
 }
 void SetRenderScale(float scale)
 {

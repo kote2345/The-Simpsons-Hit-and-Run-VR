@@ -850,6 +850,11 @@ void Character::Kick()
         }
     }
     GetEventManager()->TriggerEvent( EVENT_KICK, this );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(objectHit && this==GetCharacterManager()->GetCharacter(0) &&
+       SharOpenXR::IsVrModeEnabled())
+        SharOpenXR::ApplyControllerHaptics(0.45f,65u);
+#endif
 
 }   
 
@@ -1637,7 +1642,8 @@ void Character::PreSimUpdate( float timeins )
                     const rmt::Vector end=current+sweep*0.10f;
                     // Consume the swing even when it misses. A new hit is only
                     // possible after the physical hand slows down again.
-                    VrPunch(start,end,sweep);
+                    const bool hit=VrPunch(start,end,sweep);
+                    if(hit)SharOpenXR::ApplyHandHaptics(hand,0.8f,85u);
                     swingArmed[hand]=false;
                 }
             }

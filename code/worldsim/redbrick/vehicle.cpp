@@ -4716,6 +4716,12 @@ sim::Solving_Answer Vehicle::PostReactToCollision(rmt::Vector& impulse, sim::Col
     rc.point = inCollision.GetPositionA();  //This could be either.
 
     GetEventManager()->TriggerEvent( EVENT_RUMBLE_COLLISION, &rc );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    Avatar* vrAvatar=GetAvatarManager()->GetAvatarForPlayer(0);
+    if(vrAvatar && vrAvatar->GetVehicle()==this &&
+       vrAvatar->GetCharacter() && vrAvatar->GetCharacter()->IsInCar())
+        SharOpenXR::ApplyVehicleCollisionHaptics(rc.normalizedForce);
+#endif
 
     if(simStateA->mAIRefIndex == PhysicsAIRef::redBrickVehicle && simStateB->mAIRefIndex == PhysicsAIRef::redBrickVehicle)
     {        

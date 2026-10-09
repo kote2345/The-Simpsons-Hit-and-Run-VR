@@ -28,6 +28,9 @@
 //========================================
 #include <gameflow/gameflow.h>
 #include <worldsim/coins/coinmanager.h>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#endif
 #include <worldsim/coins/sparkle.h>
 #include <worldsim/avatarmanager.h>
 #include <worldsim/redbrick/vehicle.h>
@@ -655,6 +658,9 @@ a coin collected event so that we can play a sound
 =============================================================================*/
 void CoinManager::CollectCoins( int Count )
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(Count>0)SharOpenXR::ApplyPickupHaptics();
+#endif
 	AdjustBankValue( Count );
     #ifdef RAD_GAMECUBE
         HeapMgr()->PushHeap( GMA_GC_VMM );

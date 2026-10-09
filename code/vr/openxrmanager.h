@@ -15,6 +15,7 @@
 #endif
 
 class tCamera;
+class tMultiController;
 
 namespace SharOpenXR
 {
@@ -77,7 +78,8 @@ namespace SharOpenXR
                                      int* height) SHAR_OPENXR_WEAK;
     void SetPauseCoinVisible(bool visible);
     void DrawPauseCoinIcon();
-    void SetIrisBlackout(bool black);
+    void SetIrisAnimation(tMultiController* controller, float numFrames,
+                          bool opening=false);
     void SetEnhancedUiConvergence(bool enabled);
     bool HasEnhancedUiConvergence() SHAR_OPENXR_WEAK;
     bool GetEyeCamera(unsigned eye, tCamera* baseCamera,
@@ -142,6 +144,9 @@ namespace SharOpenXR
     bool IsThirdPersonVehicleMode();
     bool GetVrSteeringWheelValue(float* value);
     void ApplyControllerHaptics(float amplitude,unsigned durationMs);
+    void ApplyHandHaptics(unsigned hand,float amplitude,unsigned durationMs);
+    void ApplyVehicleCollisionHaptics(float normalizedForce);
+    void ApplyPickupHaptics();
     void SetRenderScale(float scale);
     float GetRenderScale();
     void SetRefreshRate(float hz);

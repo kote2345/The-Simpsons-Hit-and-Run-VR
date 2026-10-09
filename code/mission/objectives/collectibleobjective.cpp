@@ -14,6 +14,9 @@
 //========================================
 // Foundation Tech
 #include <raddebug.hpp>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#endif
 
 #if defined(RAD_ANDROID)
 #include <android/log.h>
@@ -600,6 +603,9 @@ void CollectibleObjective::Collect( unsigned int index, bool shouldReset )
         Activate( index, false, false );
 
         GetEventManager()->TriggerEvent( EVENT_MISSION_COLLECTIBLE_PICKED_UP );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+        SharOpenXR::ApplyPickupHaptics();
+#endif
 
         if( mCollectibles[index].mDialogName != 0 )
         {

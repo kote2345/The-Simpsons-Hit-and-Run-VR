@@ -406,8 +406,9 @@ static void PresentSharedHud(void*,unsigned eye)
 {
  currentEye=eye;
  if(cullingBaseValid)DrawSharedGameplayHud();
+ if(!colorScaleBiasEnabled)DrawSharedIrisBlackoutFallback();
 }
-void EndEye(unsigned){if(eyeActive){if(cullingBaseValid)DrawSharedGameplayHud();GetVulkanContext().EndPddiEye();}eyeActive=false;}
+void EndEye(unsigned){if(eyeActive){if(cullingBaseValid)DrawSharedGameplayHud();if(!colorScaleBiasEnabled)DrawSharedIrisBlackoutFallback();GetVulkanContext().EndPddiEye();}eyeActive=false;}
 void EndFrame(){if(!frameActive)return;if(eyeActive)EndEye(currentEye);if(imageAcquired){
  // xrReleaseSwapchainImage transfers ownership back to the compositor.  Both
  // per-eye command buffers must have completed before that handoff; merely
@@ -575,20 +576,23 @@ bool IsThirdPersonVehicleMode() { return GetSharedVrState().vehicleControlMode==
 bool GetVrSteeringWheelValue(float* value) { Character* player=GetCharacterManager()?GetCharacterManager()->GetCharacter(0):NULL;Vehicle* vehicle=(player&&player->IsInCar())?player->GetTargetVehicle():NULL;return GetVrVehicleSteering(value,IsVrYokeVehicle(vehicle?vehicle->GetName():NULL)); }
 void ApplyControllerHaptics(float amplitude,unsigned durationMs)
 {
+ ApplyHandHaptics(0,amplitude,durationMs);
+ ApplyHandHaptics(1,amplitude,durationMs);
+}
+void ApplyHandHaptics(unsigned hand,float amplitude,unsigned durationMs)
+{
+ if(hand>1)return;
  if(!Desktop::running||Desktop::hapticAction==XR_NULL_HANDLE||
     !Desktop::applyHapticFeedback||amplitude<=0.0f||durationMs==0)return;
  XrHapticVibration vibration={XR_TYPE_HAPTIC_VIBRATION};
  vibration.amplitude=std::max(0.0f,std::min(1.0f,amplitude));
- vibration.duration=static_cast<XrDuration>(durationMs)*1000000;
+ vibration.duration=static_cast<XrDuration>(durationMs)*2000000;
  vibration.frequency=XR_FREQUENCY_UNSPECIFIED;
- for(unsigned hand=0;hand<2;++hand)
- {
   XrHapticActionInfo info={XR_TYPE_HAPTIC_ACTION_INFO};
   info.action=Desktop::hapticAction;
   info.subactionPath=Desktop::handPaths[hand];
   Desktop::applyHapticFeedback(Desktop::session,&info,
       reinterpret_cast<const XrHapticBaseHeader*>(&vibration));
- }
 }
 void SetVehicleComfortEnabled(bool enabled) { SetSharedVehicleComfortEnabled(enabled); }
 bool IsVehicleComfortEnabled() { return GetSharedVrState().vehicleComfortEnabled; }

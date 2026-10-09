@@ -232,6 +232,34 @@ void UpdatePhysicalPushInteract()
 }
 
 const VrActionSpec* GetVrActionSpecs(){return ActionSpecs;}
+void ApplyPickupHaptics()
+{
+    if(!IsVrModeEnabled())return;
+    // A collection may fire both an item and a mission event, or collect
+    // several coins in one update. Emit one pulse for that pickup batch.
+    static Uint32 lastTicks=0;
+    static bool havePulse=false;
+    const Uint32 now=SDL_GetTicks();
+    if(havePulse && now-lastTicks<100u)return;
+    lastTicks=now;havePulse=true;
+    ApplyControllerHaptics(0.4f,70u);
+}
+void ApplyVehicleCollisionHaptics(float normalizedForce)
+{
+    if(!IsVrModeEnabled() || !std::isfinite(normalizedForce) ||
+       normalizedForce<=0.01f)return;
+    const float force=std::min(1.0f,normalizedForce);
+    // Multiple contacts from one impact must not replace a strong pulse
+    // with a weaker one or continuously restart it during scraping.
+    static Uint32 lastTicks=0;
+    static float lastForce=0.0f;
+    static bool havePulse=false;
+    const Uint32 now=SDL_GetTicks();
+    if(havePulse && now-lastTicks<100u && force<=lastForce)return;
+    lastTicks=now;lastForce=force;havePulse=true;
+    ApplyControllerHaptics(std::sqrt(force),
+        60u+static_cast<unsigned>(force*180.0f));
+}
 const VrBindingSpec* GetQuestTouchBindingSpecs(bool xOpensMenu,unsigned& count)
 {
     count=static_cast<unsigned>(sizeof(QuestTouchBindings)/sizeof(QuestTouchBindings[0]));

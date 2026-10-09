@@ -48,6 +48,7 @@ float UpdateSharedHudIrisAlpha();
 
 #if defined(SRR2_VR_RENDERER_VULKAN)
 bool GetSharedHudCaptureTarget(VulkanEyeTarget* target);
+void DrawSharedIrisBlackoutFallback();
 #endif
 
 }
