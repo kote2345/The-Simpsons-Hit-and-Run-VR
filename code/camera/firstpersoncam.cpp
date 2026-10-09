@@ -20,6 +20,7 @@
 // Project Includes
 //========================================
 #include <camera/firstpersoncam.h>
+#include <vr/vr_body_ik.h>
 #include <camera/isupercamtarget.h>
 #include <camera/supercamcontroller.h>
 #include <camera/supercamconstants.h>
@@ -565,6 +566,16 @@ void FirstPersonCam::Update( unsigned int milliseconds )
 #endif
 
     //---------  Goofin' with the FOV
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(SharOpenXR::IsVrModeEnabled())
+    {
+        // Keep the seat/body anchor above at the original neck centre.
+        // Translate both eye and target to preserve view direction and pitch.
+        const rmt::Vector eyeOffset=mat.Row(2)*SharOpenXR::VrEyeForwardOffset;
+        position+=eyeOffset;
+        target+=eyeOffset;
+    }
+#endif
 
     float zoom = mController->GetValue( SuperCamController::zToggle );
 

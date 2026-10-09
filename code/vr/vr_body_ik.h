@@ -5,6 +5,8 @@ class Character;
 class tPose;
 namespace SharOpenXR
 {
+// Camera moves from the head/neck centre toward the character's eyes.
+const float VrEyeForwardOffset=0.10f;
 // Per-eye ownership, reset even when no character is submitted this eye.
 void BeginBodyIKEye();
 bool WasBodyIKDrawn();

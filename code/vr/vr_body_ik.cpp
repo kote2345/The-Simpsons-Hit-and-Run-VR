@@ -81,6 +81,34 @@ bool Resolve(tPose* p,const char* name,Chain& c)
     c.upper=p->GetSkeleton()->GetJoint(c.middle)->parentIndex;
     return c.upper>0&&c.upper<p->GetNumJoint()&&c.upper!=c.middle&&c.middle!=c.end&&c.upper!=c.end;
 }
+void SelectLegAnimation(tPose* target,tPose* animated,const Chain legs[2])
+{
+    const int count=target->GetNumJoint();
+    tSkeleton* skeleton=target->GetSkeleton();
+    // Preserve the existing world/render anchor. Replacing it with a bind
+    // root loses the seated frame and the character's gameplay transform.
+    // Only local bone animation is masked, before the existing IK passes.
+    for(int depth=1;depth<count;++depth)
+        for(int i=0;i<count;++i)
+        {
+            if(i==0)continue; // SHAR's Motion_Root parentIndex is itself (0).
+            const int parent=skeleton->GetJoint(i)->parentIndex;
+            if(parent<0||parent>=count)continue;
+            int jointDepth=1;
+            for(int ancestor=parent;ancestor>0&&ancestor<count&&jointDepth<count;
+                ancestor=skeleton->GetJoint(ancestor)->parentIndex)++jointDepth;
+            if(jointDepth!=depth)continue;
+            rmt::Matrix local=skeleton->GetJoint(i)->restPose;
+            if(Descendant(target,i,legs[0].upper)||Descendant(target,i,legs[1].upper))
+            {
+                rmt::Matrix inverseParent=animated->GetJoint(parent)->worldMatrix;
+                inverseParent.Invert();
+                local.Mult(animated->GetJoint(i)->worldMatrix,inverseParent);
+            }
+            target->GetJoint(i)->objectMatrix=local;
+            target->GetJoint(i)->worldMatrix.Mult(local,target->GetJoint(parent)->worldMatrix);
+        }
+}
 rmt::Vector Position(tPose* p,int i){return p->GetJoint(i)->worldMatrix.Row(3);}
 void MoveBranch(tPose* p,int root,const rmt::Matrix& rotation,const rmt::Vector& target)
 {
@@ -510,6 +538,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     for(int i=0;i<animated->GetNumJoint();++i)
         for(int row=0;row<4;++row)if(!Finite(animated->GetJoint(i)->worldMatrix.Row(row)))return NULL;
     tPose* p=scratch.Copy(animated);
+    SelectLegAnimation(p,animated,legs);
     if(inCar)
     {
         for(int i=0;i<p->GetNumJoint();++i)
@@ -522,7 +551,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         rmt::Matrix identity;identity.Identity();
         MoveBranch(p,0,identity,anchorOffset);
     }
-    // The gameplay camera contains stick yaw but excludes physical HMD yaw.
+    // The tracked camera contains stick yaw and physical HMD yaw.
     // Rotate the WHOLE render pose around its motion root before capturing
     // ankle targets, so planted targets cannot undo a snap/smooth body turn.
     rmt::Vector nativeForward;player->GetFacing(nativeForward);nativeForward.y=0;
@@ -542,11 +571,32 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     }
     else
     {
-        // On foot the gameplay camera carries the normal locomotion/stick yaw.
-        bodyForward=Unit(rmt::Vector(base.Row(2).x,0,base.Row(2).z),
+        // The tracked camera includes both stick yaw and physical headset yaw.
+        bodyForward=Unit(rmt::Vector(head.Row(2).x,0,head.Row(2).z),
                          nativeForward);
     }
-    MoveBranch(p,0,Rotation(bodyRotationSource,bodyForward),Position(p,0));
+    const rmt::Matrix bodyYaw=Rotation(bodyRotationSource,bodyForward);
+    if(inCar)
+        MoveBranch(p,0,bodyYaw,Position(p,0));
+    else
+    {
+        // Rotate about the eye, not the motion root. The camera rotates at
+        // this same point; the neck is behind it by the authored eye offset.
+        const rmt::Vector pivot=Position(p,headIndex)+bodyRotationSource*VrEyeForwardOffset;
+        rmt::Vector rootFromEye;
+        bodyYaw.RotateVector(Position(p,0)-pivot,&rootFromEye);
+        MoveBranch(p,0,bodyYaw,pivot+rootFromEye);
+    }
+    // Preserve the original seated legs relative to the final render root.
+    // This includes animated parent/pelvis transforms discarded by the mask.
+    // Restore after torso tracking, so HMD offsets cannot lift the legs.
+    rmt::Matrix seatedLegTransform;
+    if(inCar)
+    {
+        rmt::Matrix inverseAnimatedRoot=animated->GetJoint(0)->worldMatrix;
+        inverseAnimatedRoot.Invert();
+        seatedLegTransform.Mult(inverseAnimatedRoot,p->GetJoint(0)->worldMatrix);
+    }
     rmt::Matrix foot[2]={p->GetJoint(legs[0].end)->worldMatrix,p->GetJoint(legs[1].end)->worldMatrix};
     const rmt::Vector forward=Unit(rmt::Vector(head.Row(2).x,0,head.Row(2).z),rmt::Vector(0,0,1));
     rmt::Vector right;right.CrossProduct(rmt::Vector(0,1,0),forward);
@@ -554,7 +604,12 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     // world-up clearance so IK does not lift the body and cancel that gap.
     // Keep in sync with Character::GetVrNeckCameraHeight.
     const float neckEyeClearance=0.10f;
-    const rmt::Vector headTarget=head.Row(3)-rmt::Vector(0,neckEyeClearance,0);
+    // Reconstructed seated tracking uses the unshifted seat camera. Restore
+    // its eye displacement before subtracting the rotated eye-to-neck vector.
+    rmt::Vector seatedCameraForward(0,0,0);
+    if(inCar)worldToVehicle.RotateVector(trackingBase.Row(2),&seatedCameraForward);
+    const rmt::Vector eyeOffset=(forward-seatedCameraForward)*VrEyeForwardOffset;
+    const rmt::Vector headTarget=head.Row(3)-rmt::Vector(0,neckEyeClearance,0)-eyeOffset;
     rmt::Vector offset=headTarget-Position(p,headIndex);
     // Bound visual lean/crouch; gameplay collision/root/roomscale stay native.
     const float horizontal=std::sqrt(offset.x*offset.x+offset.z*offset.z);
@@ -568,16 +623,19 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         chest=p->GetSkeleton()->GetJoint(chest)->parentIndex;
     if(chest>0&&chest!=pelvis&&Descendant(p,headIndex,chest))
     {
-        // On foot the torso follows the gameplay/head heading.  In a vehicle
-        // the torso is anchored to the chassis; applying head yaw here made a
-        // small headset turn spin the entire body by roughly 30 degrees.
-        if(!inCar)
+        // In a vehicle rotate only the upper body, preserving the seated
+        // lower body. Derive yaw from the camera frame, not mesh -Z facing.
+        if(inCar)
         {
-            const float angle=Clamp(std::atan2(bodyForward.x*forward.z-bodyForward.z*forward.x,
-                                              bodyForward.DotProduct(forward)),-0.65f,0.65f);
-            const float c=std::cos(angle),s=std::sin(angle);
-            rmt::Vector limited(bodyForward.x*c-bodyForward.z*s,0,bodyForward.x*s+bodyForward.z*c);
-            MoveBranch(p,chest,Rotation(bodyForward,limited),Position(p,chest));
+            rmt::Vector seatedForward;
+            worldToVehicle.RotateVector(trackingBase.Row(2),&seatedForward);
+            seatedForward.y=0;
+            seatedForward=Unit(seatedForward,forward);
+            const rmt::Matrix torsoYaw=Rotation(seatedForward,forward);
+            const rmt::Vector pivot=Position(p,headIndex)+seatedForward*VrEyeForwardOffset;
+            rmt::Vector chestFromHead;
+            torsoYaw.RotateVector(Position(p,chest)-pivot,&chestFromHead);
+            MoveBranch(p,chest,torsoYaw,pivot+chestFromHead);
         }
         rmt::Vector from=Position(p,headIndex)-Position(p,chest);
         rmt::Vector to=headTarget-Position(p,chest);
@@ -586,17 +644,20 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         if(from.DotProduct(to)<0.90f)to=Unit(from*0.8f+to*0.2f,from);
         MoveBranch(p,chest,Rotation(from,to),Position(p,chest));
     }
+    if(inCar)
+        for(int joint=0;joint<p->GetNumJoint();++joint)
+            if(Descendant(p,joint,legs[0].upper)||Descendant(p,joint,legs[1].upper))
+                p->GetJoint(joint)->worldMatrix.Mult(
+                    animated->GetJoint(joint)->worldMatrix,seatedLegTransform);
     for(int i=0;i<2;++i)
     {
-        if(!SolveChain(p,legs[i],foot[i].Row(3),bodyForward))
+        if(!inCar)
         {
-            // A transient tracking/animation singularity must not discard
-            // the complete body pose. Keep this leg's animated pose and
-            // continue solving the other limbs.
-            ReportRig(player,20+i,"partial: leg IK solve failed");
+            if(!SolveChain(p,legs[i],foot[i].Row(3),bodyForward))
+                ReportRig(player,20+i,"partial: leg IK solve failed");
+            else
+                MatchRotation(p,legs[i].end,foot[i]);
         }
-        else
-            MatchRotation(p,legs[i].end,foot[i]);
         const rmt::Vector pole=right*(i==0?-0.65f:0.65f)-forward*0.30f+rmt::Vector(0,-0.55f,0);
         // OpenXR hands are measured in the player's space, while the chosen
         // character can have a shorter arm span.  The solver already applies
@@ -610,8 +671,8 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         const float maxArmStretch=std::numeric_limits<float>::max();
         if(!SolveChain(p,arms[i],hands[i].Row(3),pole,maxArmStretch))
         {
-            // Keep the animated arm for this frame instead of switching the
-            // entire character back to the non-VR pose.
+            // The masked neutral arm is the fallback; locomotion animation
+            // must never re-enter the arms when a tracking solve fails.
             ReportRig(player,22+i,"partial: arm IK solve failed");
             continue;
         }
@@ -648,10 +709,10 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         const bool homerRig=player->GetUID()==tEntity::MakeUID("homer");
         ApplyGripFingers(p,arms[i].end,static_cast<unsigned>(i),homerRig);
     }
-    // Use the animated head pose as the neutral anatomical orientation.
+    // Use the masked neutral head pose as the anatomical orientation.
     // The tracked culling camera is composed as HMD-local * gameplay-camera,
-    // so remove the gameplay camera again to recover only the user's physical
-    // head rotation. At a neutral headset pose this becomes identity, leaving
+    // Remove the seated camera frame, or the already-applied body yaw on foot,
+    // to recover the remaining head rotation. At a neutral pose this is identity, leaving
     // the character head exactly in its authored straight-ahead orientation.
     rmt::Matrix baseForPose=inCar?trackingBase:base;
     if(inCar)
@@ -659,6 +720,10 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         rmt::Matrix converted;converted.Mult(baseForPose,worldToVehicle);
         baseForPose=converted;
     }
+    // Both standing body and seated torso already contain the tracked yaw.
+    baseForPose.Row(0)=right;
+    baseForPose.Row(1)=rmt::Vector(0,1,0);
+    baseForPose.Row(2)=forward;
     rmt::Matrix inverseBase=baseForPose;
     for(int row=0;row<3;++row)inverseBase.Row(row)=Unit(inverseBase.Row(row),identity.Row(row));
     inverseBase.Row(3).Set(0,0,0);inverseBase.InvertOrtho();
@@ -679,7 +744,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
             p->GetJoint(i)->worldMatrix=converted;
         }
     }
-    ReportRig(player,0,"active [GRIP_POSE_V2 FIST_V8_THUMB HEAD_NEUTRAL_V1]: tracked arms, neutral-relative head and animated-foot leg IK");
+    ReportRig(player,0,"active [LEG_ANIMATION_ONLY_V2]: HMD body yaw, neutral torso/arms, tracked arms/head, original seated legs");
     return p;
 }
 void HideBodyIKHead(tPose* p)
