@@ -637,6 +637,9 @@ endif()
 
 if(WIN32 AND NOT ANDROID)
 	set_target_properties(${SRR2_TARGET} PROPERTIES OUTPUT_NAME "SimpsonsVR")
+	if(SRR2_ENABLE_OPENXR)
+		set_target_properties(${SRR2_TARGET} PROPERTIES WIN32_EXECUTABLE TRUE)
+	endif()
 endif()
 
 target_link_libraries(${SRR2_TARGET}

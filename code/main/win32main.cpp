@@ -33,6 +33,7 @@
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxr_desktop_runtime.h>
 #include <main/win32crashhandler.h>
+#include <main/pcvrlog.h>
 #endif
 
 #ifdef __SWITCH__
@@ -194,7 +195,9 @@ extern "C" int main( int argc, char *argv[] )
     OpenAndroidLogFile();
 #endif
 #if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    OpenPcvrLog();
     InstallWin32CrashHandler();
+    SDL_LogSetOutputFunction( LogOutputFunction, NULL );
 #endif
 #ifdef __SWITCH__
 #ifdef RAD_DEBUG
