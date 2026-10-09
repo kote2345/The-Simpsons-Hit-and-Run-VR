@@ -210,6 +210,15 @@ float HumanVehicleController::GetSteering( bool& isWheel ) const
     float vrWheelValue=0.0f;
     if(SharOpenXR::GetVrSteeringWheelValue(&vrWheelValue))
     {
+        // Quest maps LeftStickX to Steer, while desktop maps it to the
+        // separate SteerLeft/SteerRight channels handled by VehicleCentral.
+        // Keep the strongest input, matching that original arbitration.
+        const float stickValue=mpMappable->GetButton(VehicleMappable::Steer)->GetValue();
+        if(rmt::Fabs(stickValue)>rmt::Fabs(vrWheelValue))
+        {
+            isWheel=false;
+            return stickValue;
+        }
         isWheel=true;
         return vrWheelValue;
     }
