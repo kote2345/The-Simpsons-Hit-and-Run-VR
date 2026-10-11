@@ -19,7 +19,11 @@ bool loaded=false;
 
 std::string PreferenceFile(const char* name)
 {
+#if defined(SRR2_OPENXR_PLATFORM_WIN32)
+    char* path=SDL_GetBasePath();
+#else
     char* path=SDL_GetPrefPath("c4rlox","simpsons");
+#endif
     if(!path)return std::string();
     std::string result(path);SDL_free(path);result+=name;return result;
 }
@@ -44,7 +48,12 @@ void LoadVrSettings()
 
     const std::string path=PreferenceFile("vrsettings.cfg");
     if(path.empty())return;
-    FILE* file=std::fopen(path.c_str(),"rb");if(!file)return;
+    FILE* file=std::fopen(path.c_str(),"rb");
+    if(!file)
+    {
+        SDL_Log("VR settings: cannot read %s; using defaults",path.c_str());
+        return;
+    }
     char line[256];
     while(std::fgets(line,sizeof(line),file))
     {
@@ -79,6 +88,8 @@ void LoadVrSettings()
     if(s.volumetricLightEnabled) s.hdrEnabled=true;
     s.enhancedMaterialsEnabled=s.enhancedMaterialModel!=0;
     s.appliedRenderScale=s.renderScale;s.renderScalePending=false;
+    SDL_Log("VR settings: loaded %s (hdr=%d, volumetricLight=%d)",
+        path.c_str(),s.hdrEnabled?1:0,s.volumetricLightEnabled?1:0);
 }
 
 bool SaveVrSettings()
