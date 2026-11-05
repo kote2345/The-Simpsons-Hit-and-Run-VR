@@ -1,3 +1,4 @@
+#include <interiors/interiormanager.h>
 #include <vr/vr_body_ik.h>
 #include <vr/openxr_shared_hands.h>
 #include <vr/vr_hand_mesh.h>
@@ -72,7 +73,7 @@ void RenderTrackedHandMeshes(const rmt::Matrix worldPoses[2],const bool valid[2]
         if(renderedHandWorldPositionValid[hand])
             renderedHandWorldPosition[hand]=worldPoses[hand].Row(3);
     }
-    if(WasBodyIKDrawn()) return;
+    if(WasBodyIKDrawn()||(GetInteriorManager()&&GetInteriorManager()->IsInside())) return;
     Character* player=GetCharacterManager()?GetCharacterManager()->GetCharacter(0):NULL;
     if(!player) return;
     const CharacterHands* hands=&homerHands;

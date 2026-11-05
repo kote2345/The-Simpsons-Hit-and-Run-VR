@@ -30,6 +30,7 @@
 //========================================
 #include <camera/supercam.h>
 #include <camera/supercamcentral.h>
+#include <interiors/interiormanager.h>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #endif
@@ -671,7 +672,14 @@ void SuperCamCentral::Update( unsigned int milliseconds, bool isFirstSubstep )
             Character* vrCharacter=GetCharacterManager()->GetCharacter(0);
             const bool vrSeated=vrCharacter && vrCharacter->IsInCar();
             const bool thirdPersonVehicle=SharOpenXR::IsThirdPersonVehicleMode();
-            if(!mTarget->IsCar() &&
+            const bool vrInterior=GetInteriorManager()&&GetInteriorManager()->IsInside();
+            if(vrInterior&&!mTarget->IsCar())
+            {
+                if(activeType==SuperCam::FIRST_PERSON_CAM)
+                    SelectSuperCam(SuperCam::WALKER_CAM,CUT|FORCE,0);
+                mVrForcedCamera=false;
+            }
+            else if(!mTarget->IsCar() &&
                (activeType==SuperCam::WALKER_CAM
 #ifdef RAD_PC
                 || activeType==SuperCam::PC_CAM

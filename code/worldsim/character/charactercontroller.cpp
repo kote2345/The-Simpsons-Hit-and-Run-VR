@@ -1,3 +1,4 @@
+#include <interiors/interiormanager.h>
 #include <ai/sequencer/actioncontroller.h>
 #include <worldsim/character/charactercontroller.h>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
@@ -360,7 +361,18 @@ void CameraRelativeCharacterController::GetDirection( rmt::Vector& outDirection 
     if( SharOpenXR::IsVrModeEnabled() )
     {
         rmt::Vector headForward;
-        if( SharOpenXR::GetHeadForward( &headForward ) )
+        bool haveHeading=false;
+        if(GetInteriorManager()&&GetInteriorManager()->IsInside())
+        {
+            rmt::Matrix eye;
+            if(SharOpenXR::GetActiveCullingCamera(&eye))
+            {
+                headForward=eye.Row(2);headForward.y=0;
+                haveHeading=headForward.NormalizeSafe()>0.0001f;
+            }
+        }
+        else haveHeading=SharOpenXR::GetHeadForward(&headForward);
+        if( haveHeading )
         {
             rmt::Matrix headMatrix;
             headMatrix.Identity();

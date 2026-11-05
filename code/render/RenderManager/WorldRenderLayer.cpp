@@ -1,3 +1,4 @@
+#include <interiors/interiormanager.h>
 //========================================================================
 // Copyright (C) 2002 Radical Entertainment Ltd.  All rights reserved.
 //
@@ -293,6 +294,16 @@ void WorldRenderLayer::Render()
 
             BEGIN_PROFILE( "View Begin Render" );
             mpView[ view ]->BeginRender();
+#if defined(SRR2_OPENXR)
+            if(SharOpenXR::IsVrModeEnabled()&&GetInteriorManager()&&GetInteriorManager()->IsInside())
+            {
+                const pddiColour previous=p3d::pddi->GetClearColour();
+                p3d::pddi->SetClearColour(pddiColour(0,0,0));
+                p3d::pddi->Clear(PDDI_BUFFER_COLOUR|PDDI_BUFFER_DEPTH);
+                p3d::pddi->SetClearColour(previous);
+            }
+#endif
+
             END_PROFILE( "View Begin Render" );
 
 #if defined(SRR2_OPENXR)
@@ -538,6 +549,9 @@ void WorldRenderLayer::Render()
                 p3d::pddi->EnableZBuffer(false);
                 for(i=0; i<mWorldSpheres.mUseSize; i++)
                 {
+#if defined(SRR2_OPENXR)
+                    if(!(SharOpenXR::IsVrModeEnabled()&&GetInteriorManager()&&GetInteriorManager()->IsInside()))
+#endif
                     mWorldSpheres[i]->Display();
                 }
                 BEGIN_PROFILE( "pddi ZBuf" );

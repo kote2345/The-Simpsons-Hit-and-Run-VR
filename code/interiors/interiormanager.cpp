@@ -31,6 +31,11 @@
 #include <ai/sequencer/action.h>
 #include <ai/actionbuttonhandler.h>
 #include <camera/supercammanager.h>
+#include <camera/supercamcentral.h>
+#if defined(SRR2_OPENXR)
+#include <vr/openxrmanager.h>
+#include <vr/openxr_shared_state.h>
+#endif
 #include <console/console.h>
 #include <events/eventdata.h>
 #include <events/eventmanager.h>
@@ -2408,6 +2413,17 @@ void InteriorManager::ExitInterior()
 
     // position the character outside
     pCharacter->RelocateAndReset(mExitPos, mExitFacing);
+#if defined(SRR2_OPENXR)
+    if(SharOpenXR::IsVrModeEnabled())
+    {
+        SharOpenXR::GetSharedVrState().roomscaleMovementSuspended=true;
+        SharOpenXR::RecenterVrPose();
+        SuperCamCentral* cameras=GetSuperCamManager()->GetSCC(0);
+        cameras->SelectSuperCam(SuperCam::FIRST_PERSON_CAM,SuperCamCentral::CUT|SuperCamCentral::FORCE,0);
+        cameras->Update(0);
+    }
+#endif
+
 
     pCharacter->GetActionController()->Clear();
     Sequencer* pSeq = pCharacter->GetActionController()->GetNextSequencer();

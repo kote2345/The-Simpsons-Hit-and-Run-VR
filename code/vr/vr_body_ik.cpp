@@ -1,4 +1,5 @@
 #include <vr/vr_body_ik.h>
+#include <interiors/interiormanager.h>
 #if defined(SHAR_VR_BODY_IK) && defined(SRR2_OPENXR)
 #include <vr/vr_body_ik_math.h>
 #include <vr/openxrmanager.h>
@@ -385,6 +386,7 @@ bool WasBodyIKDrawn(){return drawn;}
 void MarkBodyIKDrawn(){drawn=true;}
 tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& origin)
 {
+    if(GetInteriorManager()&&GetInteriorManager()->IsInside())return NULL;
     if(!IsVrModeEnabled()||!IsBodyIKEnabled()||!player||!GetCharacterManager()||
        player!=GetCharacterManager()->GetCharacter(0)||
        !player->GetController()||!player->GetController()->IsActive()||
@@ -402,6 +404,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
        (camera->GetType()==SuperCam::ANIMATED_CAM||
         camera->GetType()==SuperCam::RELATIVE_ANIMATED_CAM||
         camera->GetType()==SuperCam::CONVERSATION_CAM)))return NULL;
+    if(!player->IsInCar()&&camera->GetType()!=SuperCam::FIRST_PERSON_CAM)return NULL;
     rmt::Matrix head,base,hands[2],local;
     if(!GetActiveCullingCamera(&head)||!GetGameplayCamera(&base))
     {ReportRig(player,10,"fallback: VR camera pose unavailable");return NULL;}
