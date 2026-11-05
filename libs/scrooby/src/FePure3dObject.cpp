@@ -20,6 +20,8 @@
 #include <p3d/utility.hpp>
 #include <p3d/view.hpp>
 #include <p3d/scenegraph/scenegraph.hpp>
+#include <p3d/geometry.hpp>
+#include <p3d/shader.hpp>
 #include <p3d/light.hpp>
 #include "utility/debugMessages.h"
 #include "FeApp.h"
@@ -462,6 +464,25 @@ void FePure3dObject::Render()
         sg::Scenegraph* scene = p3d::find<sg::Scenegraph>( drawable->GetUID() );
         if( scene != NULL )
         {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+            if(SharOpenXR::IsVrModeEnabled() &&
+               gVrFrontendWorldPure3dObject==static_cast<Scrooby::Pure3dObject*>(this))
+            {
+                // camset.p3d embeds a static iris disk in the room itself,
+                // separate from the GUI's 3dIris transition. Its authored
+                // camera hides it on desktop, but the tracked VR view exposes
+                // it. Detach only this mesh; retain animated iris skins.
+                sg::Drawable* disk=dynamic_cast<sg::Drawable*>(scene->Find("pCylinder2fShape"));
+                tGeometry* mesh=disk?dynamic_cast<tGeometry*>(disk->GetDrawable()):NULL;
+                if(mesh && mesh->GetUID()==tName::MakeUID("pCylinder2fShape") &&
+                   mesh->GetNumShader()==1 && mesh->GetShader(0) &&
+                   mesh->GetShader(0)->GetUID()==tName::MakeUID("iris_pure3dSimpleShader1"))
+                {
+                    disk->SetDrawable(NULL);
+                    SDL_Log("OpenXR: main menu static iris disk removed: pCylinder2fShape");
+                }
+            }
+#endif
             // add any light groups found under scenegraph root
             //
             sg::LightGroupIterator it( scene );
