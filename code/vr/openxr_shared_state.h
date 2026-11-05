@@ -26,6 +26,7 @@ struct SharedVrState
     bool volumetricLightEnabled;
     bool hdrEnabled;
     int enhancedMaterialModel;
+    bool locomotionStickActive=false;
     int vehicleControlMode;
     int vehicleLightMode;
     int reflectionMode;

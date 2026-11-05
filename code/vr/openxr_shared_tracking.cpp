@@ -16,7 +16,8 @@ bool UpdateSharedSystemRecenter(SharedSystemRecenterState* state,
     bool invalidated=false;
     if(state->pending&&displayTime>=state->changeTime)
     {
-        state->preserveHeight=*valid&&!seated;
+        // A recenter is also an explicit height calibration in either mode.
+        state->preserveHeight=false;
         state->preservedHeight=origin->position.y;
         state->settleFrames=3;state->pending=false;*valid=false;invalidated=true;
     }
@@ -62,7 +63,8 @@ bool ConsumeSharedRoomscale(const XrView views[2],XrViewStateFlags flags,
     XrPosef head=views[0].pose;head.position.x=(views[0].pose.position.x+views[1].pose.position.x)*.5f;
     head.position.z=(views[0].pose.position.z+views[1].pose.position.z)*.5f;
     if(inCar){s.roomscaleMovementSuspended=true;return false;}
-    if(s.roomscaleMovementSuspended){origin->position.x=head.position.x;origin->position.z=head.position.z;s.roomscaleMovementSuspended=false;return false;}
+
+    if(s.roomscaleMovementSuspended){origin->position.x=head.position.x;origin->position.z=head.position.z;origin->position.y=(views[0].pose.position.y+views[1].pose.position.y)*.5f;s.roomscaleMovementSuspended=false;return false;}
     const XrPosef relative=SharedRender::RelativePose(*origin,head);
     rmt::Vector local(relative.position.x,0,-relative.position.z);
     origin->position.x=head.position.x;origin->position.z=head.position.z;

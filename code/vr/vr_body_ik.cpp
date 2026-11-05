@@ -81,7 +81,7 @@ bool Resolve(tPose* p,const char* name,Chain& c)
     c.upper=p->GetSkeleton()->GetJoint(c.middle)->parentIndex;
     return c.upper>0&&c.upper<p->GetNumJoint()&&c.upper!=c.middle&&c.middle!=c.end&&c.upper!=c.end;
 }
-void SelectLegAnimation(tPose* target,tPose* animated,const Chain legs[2])
+void SelectLegAnimation(tPose* target,tPose* animated,const Chain legs[2],bool neutralLegs=false)
 {
     const int count=target->GetNumJoint();
     tSkeleton* skeleton=target->GetSkeleton();
@@ -99,7 +99,7 @@ void SelectLegAnimation(tPose* target,tPose* animated,const Chain legs[2])
                 ancestor=skeleton->GetJoint(ancestor)->parentIndex)++jointDepth;
             if(jointDepth!=depth)continue;
             rmt::Matrix local=skeleton->GetJoint(i)->restPose;
-            if(Descendant(target,i,legs[0].upper)||Descendant(target,i,legs[1].upper))
+            if(!neutralLegs&&(Descendant(target,i,legs[0].upper)||Descendant(target,i,legs[1].upper)))
             {
                 rmt::Matrix inverseParent=animated->GetJoint(parent)->worldMatrix;
                 inverseParent.Invert();
@@ -492,6 +492,26 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         rmt::Vector relative=targetOrigin-vehicleWorld.Row(3);
         worldToVehicle.RotateVector(relative,&targetOriginLocal);
     }
+    const UpperBodyTracking& bodyTracking=GetUpperBodyTracking();
+    const bool seatedMode=IsSeatedMode();
+    const bool trackedUpperBody=bodyTracking.valid&&bodyTracking.torsoValid;
+    const bool trackedBodyTargets=bodyTracking.valid;
+    rmt::Vector trackedChest,trackedNeck,trackedShoulders[2],trackedElbows[2],trackedHips;
+    rmt::Vector trackedThighs[2],trackedKnees[2],trackedAnkles[2],trackedToes[2];
+    if(trackedBodyTargets) {
+        const auto target=[&](const rmt::Vector& position) {
+            rmt::Vector world;trackingBase.Transform(position,&world);world-=targetOrigin;
+            if(inCar){rmt::Vector converted;worldToVehicle.RotateVector(world,&converted);return converted+targetOriginLocal;}
+            return world;
+        };
+        if(bodyTracking.hipsValid)trackedHips=target(bodyTracking.hips);
+        for(int i=0;i<2;++i)if(bodyTracking.legValid[i]){
+            trackedThighs[i]=target(bodyTracking.thighs[i]);trackedKnees[i]=target(bodyTracking.knees[i]);
+            trackedAnkles[i]=target(bodyTracking.ankles[i]);trackedToes[i]=target(bodyTracking.toes[i]);
+        }
+        trackedChest=target(bodyTracking.chest);trackedNeck=target(bodyTracking.neck);
+        for(int i=0;i<2;++i){trackedShoulders[i]=target(bodyTracking.shoulders[i]);trackedElbows[i]=target(bodyTracking.elbows[i]);}
+    }
     for(int i=0;i<2;++i)
     {
         bool haveWheelPose=false;
@@ -538,7 +558,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     for(int i=0;i<animated->GetNumJoint();++i)
         for(int row=0;row<4;++row)if(!Finite(animated->GetJoint(i)->worldMatrix.Row(row)))return NULL;
     tPose* p=scratch.Copy(animated);
-    SelectLegAnimation(p,animated,legs);
+    SelectLegAnimation(p,animated,legs,seatedMode&&!inCar&&!GetSharedVrState().locomotionStickActive);
     if(inCar)
     {
         for(int i=0;i<p->GetNumJoint();++i)
@@ -575,6 +595,19 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         bodyForward=Unit(rmt::Vector(head.Row(2).x,0,head.Row(2).z),
                          nativeForward);
     }
+    if(!inCar&&!seatedMode&&trackedUpperBody)
+    {
+        rmt::Vector modelRight=Position(p,arms[1].upper)-Position(p,arms[0].upper);
+        rmt::Vector trackedRight=trackedShoulders[1]-trackedShoulders[0];
+        modelRight.y=trackedRight.y=0;
+        if(modelRight.MagnitudeSqr()>0.0001f&&trackedRight.MagnitudeSqr()>0.0001f)
+        {
+            const rmt::Matrix torsoHeading=Rotation(modelRight,trackedRight);
+            torsoHeading.RotateVector(nativeForward,&bodyForward);
+            bodyForward=Unit(bodyForward,nativeForward);
+        }
+    }
+    if(!inCar&&seatedMode)bodyForward=bodyRotationSource;
     const rmt::Matrix bodyYaw=Rotation(bodyRotationSource,bodyForward);
     if(inCar)
         MoveBranch(p,0,bodyYaw,Position(p,0));
@@ -591,7 +624,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     // This includes animated parent/pelvis transforms discarded by the mask.
     // Restore after torso tracking, so HMD offsets cannot lift the legs.
     rmt::Matrix seatedLegTransform;
-    if(inCar)
+    if(inCar||GetSharedVrState().locomotionStickActive)
     {
         rmt::Matrix inverseAnimatedRoot=animated->GetJoint(0)->worldMatrix;
         inverseAnimatedRoot.Invert();
@@ -604,6 +637,13 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         worldToVehicle.RotateVector(trackingBase.Row(2),&headCalibrationForward);
         headCalibrationForward.y=0;
         headCalibrationForward=Unit(headCalibrationForward,rmt::Vector(0,0,1));
+    }
+    std::vector<rmt::Matrix> seatedLowerPose;
+    if(seatedMode&&!inCar&&!GetSharedVrState().locomotionStickActive)
+    {
+        seatedLowerPose.resize(p->GetNumJoint());
+        for(int joint=0;joint<p->GetNumJoint();++joint)
+            seatedLowerPose[joint]=p->GetJoint(joint)->worldMatrix;
     }
     rmt::Matrix foot[2]={p->GetJoint(legs[0].end)->worldMatrix,p->GetJoint(legs[1].end)->worldMatrix};
     const rmt::Vector forward=Unit(rmt::Vector(head.Row(2).x,0,head.Row(2).z),rmt::Vector(0,0,1));
@@ -633,7 +673,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
     {
         // In a vehicle rotate only the upper body, preserving the seated
         // lower body. Derive yaw from the camera frame, not mesh -Z facing.
-        if(inCar)
+        if(inCar&&!trackedUpperBody)
         {
             rmt::Vector seatedForward;
             worldToVehicle.RotateVector(trackingBase.Row(2),&seatedForward);
@@ -645,28 +685,89 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
             torsoYaw.RotateVector(Position(p,chest)-pivot,&chestFromHead);
             MoveBranch(p,chest,torsoYaw,pivot+chestFromHead);
         }
+        if(!trackedUpperBody)
+        {
         rmt::Vector from=Position(p,headIndex)-Position(p,chest);
         rmt::Vector to=headTarget-Position(p,chest);
         // Limit spine lean to avoid folding during extreme tracking offsets.
         from=Unit(from,rmt::Vector(0,1,0));to=Unit(to,from);
         if(from.DotProduct(to)<0.90f)to=Unit(from*0.8f+to*0.2f,from);
         MoveBranch(p,chest,Rotation(from,to),Position(p,chest));
+        }
     }
-    if(inCar)
+    if(trackedUpperBody && chest>0 && chest!=pelvis)
+    {
+        // Build complete orthonormal frames instead of two competing
+        // shortest-arc rotations. Rotate the continuous torso at its root,
+        // preserving all authored joint offsets and the head attachment.
+        const int hipsJoint=p->FindJointIndex("Pelvis");
+        const bool trackedTrunk=bodyTracking.hipsValid&&hipsJoint>0;
+        const rmt::Vector sourceUp=Position(p,headIndex)-Position(p,trackedTrunk?hipsJoint:chest);
+        const rmt::Vector targetUp=trackedNeck-(trackedTrunk?trackedHips:trackedChest);
+        const rmt::Vector sourceRight=Position(p,arms[1].upper)-Position(p,arms[0].upper);
+        const rmt::Vector targetRight=trackedShoulders[1]-trackedShoulders[0];
+        if(sourceUp.MagnitudeSqr()>0.0001f&&targetUp.MagnitudeSqr()>0.0001f&&
+           sourceRight.MagnitudeSqr()>0.0001f&&targetRight.MagnitudeSqr()>0.0001f)
+        {
+            const auto frame=[](const rmt::Vector& right,const rmt::Vector& up) {
+                rmt::Matrix result;result.Identity();
+                result.Row(1)=Unit(up,rmt::Vector(0,1,0));
+                result.Row(0)=Unit(right-result.Row(1)*right.DotProduct(result.Row(1)),rmt::Vector(1,0,0));
+                result.Row(2).CrossProduct(result.Row(0),result.Row(1));
+                return result;
+            };
+            rmt::Matrix source=frame(sourceRight,sourceUp),target=frame(targetRight,targetUp);
+            source.InvertOrtho();rmt::Matrix rotation;rotation.Mult(source,target);
+            const rmt::Vector pivot=Position(p,headIndex);
+            const int torsoRoot=pelvis;
+            rmt::Vector rootFromHead;rotation.RotateVector(Position(p,torsoRoot)-pivot,&rootFromHead);
+            MoveBranch(p,torsoRoot,rotation,headTarget+rootFromHead);
+        }
+
+    }
+    if(inCar||GetSharedVrState().locomotionStickActive)
         for(int joint=0;joint<p->GetNumJoint();++joint)
             if(Descendant(p,joint,legs[0].upper)||Descendant(p,joint,legs[1].upper))
                 p->GetJoint(joint)->worldMatrix.Mult(
                     animated->GetJoint(joint)->worldMatrix,seatedLegTransform);
+    if(!seatedLowerPose.empty())
+        for(int joint=0;joint<p->GetNumJoint();++joint)
+            if(Descendant(p,joint,legs[0].upper)||Descendant(p,joint,legs[1].upper))
+                p->GetJoint(joint)->worldMatrix=seatedLowerPose[joint];
     for(int i=0;i<2;++i)
     {
-        if(!inCar)
+        if(!inCar&&!seatedMode&&!GetSharedVrState().locomotionStickActive&&trackedBodyTargets&&bodyTracking.legValid[i])
+        {
+            // Retarget measured leg directions using authored segment lengths.
+            // Body-tracker legs are estimates; reject degenerate samples.
+            const rmt::Vector hip=Position(p,legs[i].upper);
+            const rmt::Vector upper=Position(p,legs[i].middle)-hip;
+            const rmt::Vector lower=Position(p,legs[i].end)-Position(p,legs[i].middle);
+            const rmt::Vector measuredUpper=trackedKnees[i]-trackedThighs[i];
+            const rmt::Vector measuredLower=trackedAnkles[i]-trackedKnees[i];
+            if(measuredUpper.MagnitudeSqr()>0.0025f&&measuredLower.MagnitudeSqr()>0.0025f)
+            {
+                const rmt::Vector knee=hip+Unit(measuredUpper,upper)*upper.Magnitude();
+                const rmt::Vector ankle=knee+Unit(measuredLower,lower)*lower.Magnitude();
+                MoveBranch(p,legs[i].upper,Rotation(upper,knee-hip),hip);
+                const rmt::Vector currentLower=Position(p,legs[i].end)-Position(p,legs[i].middle);
+                MoveBranch(p,legs[i].middle,Rotation(currentLower,ankle-knee),knee);
+                const int ball=p->FindJointIndex(i==0?"Ball_L":"Ball_R");
+                if(ball>0)MoveBranch(p,legs[i].end,
+                    Rotation(Position(p,ball)-Position(p,legs[i].end),trackedToes[i]-trackedAnkles[i]),Position(p,legs[i].end));
+            }
+            else {SolveChain(p,legs[i],foot[i].Row(3),bodyForward);MatchRotation(p,legs[i].end,foot[i]);}
+        }
+        else if(!inCar&&!seatedMode&&!GetSharedVrState().locomotionStickActive)
         {
             if(!SolveChain(p,legs[i],foot[i].Row(3),bodyForward))
                 ReportRig(player,20+i,"partial: leg IK solve failed");
             else
                 MatchRotation(p,legs[i].end,foot[i]);
         }
-        const rmt::Vector pole=right*(i==0?-0.65f:0.65f)-forward*0.30f+rmt::Vector(0,-0.55f,0);
+        rmt::Vector pole=right*(i==0?-0.65f:0.65f)-forward*0.30f+rmt::Vector(0,-0.55f,0);
+        if(trackedBodyTargets&&bodyTracking.armValid[i])
+            pole=trackedElbows[i]-trackedShoulders[i];
         // OpenXR hands are measured in the player's space, while the chosen
         // character can have a shorter arm span.  The solver already applies
         // stretch only when the target is near/outside the native reach; give
@@ -721,22 +822,40 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         {
             const rmt::Vector axis=Unit(forearm,rmt::Vector(0,1,0));
             const rmt::Matrix currentWrist=p->GetJoint(arms[i].end)->worldMatrix;
-            float best=0.0f;
-            rmt::Vector from,to;
+            float sine=0.0f,cosine=0.0f;
             for(int row=0;row<3;++row)
             {
-                const rmt::Vector a=currentWrist.Row(row)-axis*currentWrist.Row(row).DotProduct(axis);
-                const rmt::Vector b=wrist.Row(row)-axis*wrist.Row(row).DotProduct(axis);
-                const float score=a.DotProduct(a)*b.DotProduct(b);
-                if(score>best){best=score;from=a;to=b;}
+                const rmt::Vector currentAxis=Unit(currentWrist.Row(row),identity.Row(row));
+                const rmt::Vector desiredAxis=Unit(wrist.Row(row),identity.Row(row));
+                const rmt::Vector a=currentAxis-axis*currentAxis.DotProduct(axis);
+                const rmt::Vector b=desiredAxis-axis*desiredAxis.DotProduct(axis);
+                rmt::Vector cross;cross.CrossProduct(a,b);
+                sine+=axis.DotProduct(cross);cosine+=a.DotProduct(b);
             }
-            if(best>0.0001f)
+            if(sine*sine+cosine*cosine>0.0001f)
             {
-                from=Unit(from,rmt::Vector(1,0,0));to=Unit(to,from);
-                rmt::Vector cross;cross.CrossProduct(from,to);
-                const float twist=std::atan2(axis.DotProduct(cross),from.DotProduct(to));
+                // Keep a bounded anatomical twist. Unwrapping this angle
+                // across controller revolutions accumulated arbitrary turns
+                // on the forearm, despite identical final controller poses.
+                const float targetTwist=std::atan2(sine,cosine)*0.5f;
+                static tUID twistModel[2]={0,0};
+                static float forearmTwist[2]={0,0};
+                static Uint32 lastTwistTicks[2]={0,0};
+                const Uint32 ticks=SDL_GetTicks();
+                const Uint32 elapsed=ticks-lastTwistTicks[i];
+                if(twistModel[i]!=player->GetUID()||elapsed>250u)
+                    forearmTwist[i]=targetTwist;
+                else if(elapsed>0)
+                {
+                    // Cross the half-angle branch without an instantaneous
+                    // 180-degree forearm flip. Both eyes share this update.
+                    const float maxStep=12.0f*float(elapsed)*0.001f;
+                    forearmTwist[i]+=Clamp(targetTwist-forearmTwist[i],-maxStep,maxStep);
+                }
+                forearmTwist[i]=Clamp(forearmTwist[i],-1.57079633f,1.57079633f);
+                twistModel[i]=player->GetUID();lastTwistTicks[i]=ticks;
                 const rmt::Vector wristPosition=Position(p,arms[i].end);
-                MoveBranch(p,arms[i].middle,FingerHinge(axis,twist*0.5f),Position(p,arms[i].middle));
+                MoveBranch(p,arms[i].middle,FingerHinge(axis,forearmTwist[i]),Position(p,arms[i].middle));
                 // Avoid even floating-point drift at the tracked hand target.
                 MoveBranch(p,arms[i].end,identity,wristPosition);
             }

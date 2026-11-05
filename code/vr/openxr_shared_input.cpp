@@ -340,6 +340,7 @@ void ResetVrInputSemantics()
     SharedVrState& state=GetSharedVrState();
     state.gripValue[0]=state.gripValue[1]=0.0f;
     state.stickClick[0]=state.stickClick[1]=false;
+    state.locomotionStickActive=false;
     state.menuAxisLock=state.menuAxisNeutralFrames=0;
     state.menuHorizontalInputDominant=state.menuVerticalInputDominant=false;
 }
@@ -408,6 +409,7 @@ void SubmitVrInputFrame(const VrInputFrame& raw,VrInputBindingSink sink,void* co
     SharedVrState& state=GetSharedVrState();
     const bool suppressLook=state.vrModeEnabled&&vehicle&&state.vehicleControlMode!=2;
     const VrInputFrame input=ProcessVrInputFrame(raw,suppressLook);
+    state.locomotionStickActive=input.move.x*input.move.x+input.move.y*input.move.y>0.0001f;
     state.gripValue[0]=input.leftGrip;state.gripValue[1]=input.rightGrip;
     state.stickClick[0]=input.leftStickClick>0.5f;
     state.stickClick[1]=input.rightStickClick>0.5f;

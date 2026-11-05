@@ -15,6 +15,7 @@
 #include <SDL_system.h>
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
+#include <vr/openxr_body_tracking_compat.h>
 
 #include <vr/openxrmanager.h>
 #include <vr/openxr_shared_render.h>
@@ -406,6 +407,76 @@ static XrPosef RelativePose(const XrPosef& origin, const XrPosef& pose)
     return SharOpenXR::SharedRender::RelativePose(origin,pose);
 }
 
+#if defined(XR_FB_body_tracking)
+static XrBodyTrackerFB bodyTracker=XR_NULL_HANDLE;
+static bool fullBodyRequested=false,fullBodyActive=false;
+static PFN_xrCreateBodyTrackerFB createBodyTracker=NULL;
+static PFN_xrDestroyBodyTrackerFB destroyBodyTracker=NULL;
+static PFN_xrLocateBodyJointsFB locateBodyJoints=NULL;
+static PFN_xrRequestBodyTrackingFidelityMETA requestBodyFidelity=NULL;
+static XrPosef RelativePose(const XrPosef& base,const XrPosef& pose);
+static void UpdateBodyTracking()
+{
+    SharOpenXR::UpperBodyTracking& out=SharOpenXR::GetUpperBodyTracking();
+    out.valid=false;out.torsoValid=false;out.armValid[0]=out.armValid[1]=false;
+    out.hipsValid=false;out.legValid[0]=out.legValid[1]=false;
+    if(!bodyTracker && createBodyTracker && g.session) {
+        static Uint32 lastAttempt=0;
+        const Uint32 now=SDL_GetTicks();
+        if(now-lastAttempt>2000u) {
+            lastAttempt=now;
+            XrBodyTrackerCreateInfoFB create={XR_TYPE_BODY_TRACKER_CREATE_INFO_FB};
+            create.bodyJointSet=fullBodyRequested?static_cast<XrBodyJointSetFB>(1000274000):XR_BODY_JOINT_SET_DEFAULT_FB;
+            XrResult result=createBodyTracker(g.session,&create,&bodyTracker);
+            fullBodyActive=XR_SUCCEEDED(result)&&fullBodyRequested;
+            if(XR_FAILED(result)&&fullBodyRequested){create.bodyJointSet=XR_BODY_JOINT_SET_DEFAULT_FB;createBodyTracker(g.session,&create,&bodyTracker);}
+
+            if(bodyTracker&&requestBodyFidelity)requestBodyFidelity(bodyTracker,XR_BODY_TRACKING_FIDELITY_HIGH_META);
+        }
+    }
+    if(!bodyTracker||!locateBodyJoints||!g.originValid)return;
+    XrBodyJointLocationFB joints[84]={};
+    XrBodyJointsLocateInfoFB info={XR_TYPE_BODY_JOINTS_LOCATE_INFO_FB};
+    info.baseSpace=g.space;info.time=g.frameState.predictedDisplayTime;
+    XrBodyJointLocationsFB locations={XR_TYPE_BODY_JOINT_LOCATIONS_FB};
+    locations.jointCount=fullBodyActive?84:XR_BODY_JOINT_COUNT_FB;locations.jointLocations=joints;
+    if(XR_FAILED(locateBodyJoints(bodyTracker,&info,&locations))||!locations.isActive||locations.confidence<0.5f)return;
+    const int indices[6]={XR_BODY_JOINT_CHEST_FB,XR_BODY_JOINT_NECK_FB,
+        XR_BODY_JOINT_LEFT_ARM_UPPER_FB,XR_BODY_JOINT_RIGHT_ARM_UPPER_FB,
+        XR_BODY_JOINT_LEFT_ARM_LOWER_FB,XR_BODY_JOINT_RIGHT_ARM_LOWER_FB};
+    rmt::Vector* targets[6]={&out.chest,&out.neck,&out.shoulders[0],&out.shoulders[1],&out.elbows[0],&out.elbows[1]};
+    bool valid[6]={};
+    for(int i=0;i<6;++i) {
+        valid[i]=(joints[indices[i]].locationFlags&XR_SPACE_LOCATION_POSITION_VALID_BIT)!=0;
+        if(valid[i])
+            *targets[i]=SharOpenXR::SharedRender::PoseToGame(RelativePose(g.origin,joints[indices[i]].pose)).Row(3);
+    }
+    out.torsoValid=valid[0]&&valid[1]&&valid[2]&&valid[3];
+    out.armValid[0]=valid[2]&&valid[4];out.armValid[1]=valid[3]&&valid[5];
+    const auto jointPosition=[&](int joint,rmt::Vector& target) {
+        if(joint>=int(locations.jointCount)||!(joints[joint].locationFlags&XR_SPACE_LOCATION_POSITION_VALID_BIT))return false;
+        target=SharOpenXR::SharedRender::PoseToGame(RelativePose(g.origin,joints[joint].pose)).Row(3);
+        return true;
+    };
+    out.hipsValid=jointPosition(XR_BODY_JOINT_HIPS_FB,out.hips);
+    if(fullBodyActive)for(int side=0;side<2;++side) {
+        const int first=side?77:70;
+        out.legValid[side]=jointPosition(first,out.thighs[side])&&
+            jointPosition(first+1,out.knees[side])&&jointPosition(first+3,out.ankles[side])&&
+            jointPosition(first+6,out.toes[side]);
+    }
+    out.valid=out.torsoValid||out.armValid[0]||out.armValid[1];
+    static Uint32 lastBodyLog=0;
+    if(SDL_GetTicks()-lastBodyLog>2000u) {
+        lastBodyLog=SDL_GetTicks();
+        XRLOG("body elbows: valid=%d,%d L=(%.3f %.3f %.3f) R=(%.3f %.3f %.3f)",
+            out.armValid[0],out.armValid[1],out.elbows[0].x,out.elbows[0].y,out.elbows[0].z,
+            out.elbows[1].x,out.elbows[1].y,out.elbows[1].z);
+    }
+
+    static bool logged=false;if(!logged){XRLOG("body tracking: valid upper-body joints received");logged=true;}
+}
+#endif
 static rmt::Matrix PoseToGame(const XrPosef& pose)
 {
     return SharOpenXR::SharedRender::PoseToGame(pose);
@@ -917,6 +988,8 @@ void SetVrBaseHeading(const rmt::Vector& heading)
 }
 bool RecenterVrPose()
 {
+    // Re-sample after the next locateViews calls; the UI may hold an older pose.
+    QueueSharedSystemRecenter(&g.systemRecenter,0);
     const XrView views[2]={g.eyes[0].view,g.eyes[1].view};
     if(!RecenterSharedTracking(views,g.viewState.viewStateFlags,&g.origin))
     {
@@ -1013,6 +1086,11 @@ bool Initialize()
         XR_FB_FOVEATION_CONFIGURATION_EXTENSION_NAME,
         XR_FB_FOVEATION_VULKAN_EXTENSION_NAME,
 #endif
+#if defined(XR_FB_body_tracking)
+        XR_FB_BODY_TRACKING_EXTENSION_NAME,
+        "XR_META_body_tracking_full_body",
+        XR_META_BODY_TRACKING_FIDELITY_EXTENSION_NAME,
+#endif
         XR_FB_COLOR_SPACE_EXTENSION_NAME,
         XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME};
     g.colorScaleBiasEnabled=hasExtension(
@@ -1090,6 +1168,47 @@ bool Initialize()
     if(!found || XR_FAILED(g.CreateSession(g.instance,&sci,&g.session)))
 #endif
     { XRERR("xrCreateSession failed"); return false; }
+#if defined(XR_FB_body_tracking)
+    XRLOG("body tracking extension available: %d",hasExtension(XR_FB_BODY_TRACKING_EXTENSION_NAME)?1:0);
+    if(hasExtension(XR_FB_BODY_TRACKING_EXTENSION_NAME)) {
+        g.getProc(g.instance,"xrCreateBodyTrackerFB",reinterpret_cast<PFN_xrVoidFunction*>(&createBodyTracker));
+        g.getProc(g.instance,"xrDestroyBodyTrackerFB",reinterpret_cast<PFN_xrVoidFunction*>(&destroyBodyTracker));
+        g.getProc(g.instance,"xrLocateBodyJointsFB",reinterpret_cast<PFN_xrVoidFunction*>(&locateBodyJoints));
+        if(createBodyTracker&&destroyBodyTracker&&locateBodyJoints) {
+            JNIEnv* env=static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+            jobject activity=static_cast<jobject>(SDL_AndroidGetActivity());
+            if(env&&activity) {
+                jclass cls=env->GetObjectClass(activity);
+                jmethodID check=env->GetMethodID(cls,"checkSelfPermission","(Ljava/lang/String;)I");
+                jstring permission=env->NewStringUTF("com.oculus.permission.BODY_TRACKING");
+                if(check&&env->CallIntMethod(activity,check,permission)!=0) {
+                    jclass stringClass=env->FindClass("java/lang/String");
+                    jobjectArray permissions=env->NewObjectArray(1,stringClass,permission);
+                    jmethodID request=env->GetMethodID(cls,"requestPermissions","([Ljava/lang/String;I)V");
+                    if(request)env->CallVoidMethod(activity,request,permissions,732);
+                    env->DeleteLocalRef(permissions);env->DeleteLocalRef(stringClass);
+                }
+                if(env->ExceptionCheck()){env->ExceptionClear();XRERR("body tracking permission request failed");}
+                env->DeleteLocalRef(permission);env->DeleteLocalRef(cls);env->DeleteLocalRef(activity);
+            }
+
+            XrBodyTrackerCreateInfoFB info={XR_TYPE_BODY_TRACKER_CREATE_INFO_FB};
+            fullBodyRequested=hasExtension("XR_META_body_tracking_full_body");
+            info.bodyJointSet=fullBodyRequested?static_cast<XrBodyJointSetFB>(1000274000):XR_BODY_JOINT_SET_DEFAULT_FB;
+            XrResult result=createBodyTracker(g.session,&info,&bodyTracker);
+            fullBodyActive=XR_SUCCEEDED(result)&&fullBodyRequested;
+            if(XR_FAILED(result)&&fullBodyRequested){info.bodyJointSet=XR_BODY_JOINT_SET_DEFAULT_FB;result=createBodyTracker(g.session,&info,&bodyTracker);}
+            XRLOG("body tracking full body active: %d",fullBodyActive?1:0);
+            XRLOG("body tracking create result: %d",int(result));
+            if(hasExtension(XR_META_BODY_TRACKING_FIDELITY_EXTENSION_NAME))
+                g.getProc(g.instance,"xrRequestBodyTrackingFidelityMETA",reinterpret_cast<PFN_xrVoidFunction*>(&requestBodyFidelity));
+            if(bodyTracker&&requestBodyFidelity)
+                XRLOG("body tracking high fidelity request: %d",int(requestBodyFidelity(bodyTracker,XR_BODY_TRACKING_FIDELITY_HIGH_META)));
+
+        }
+    }
+#endif
+
 #if defined(SRR2_VR_RENDERER_VULKAN)
     g.getProc(g.instance,"xrCreateFoveationProfileFB",
         reinterpret_cast<PFN_xrVoidFunction*>(&g.CreateFoveationProfileFB));
@@ -1189,6 +1308,11 @@ void Shutdown()
     if(g.foveationProfile && g.DestroyFoveationProfileFB)
         g.DestroyFoveationProfileFB(g.foveationProfile);
     for(unsigned i=0;i<2;++i) if(g.handSpaces[i]) g.DestroySpace(g.handSpaces[i]);
+#if defined(XR_FB_body_tracking)
+    SharOpenXR::GetUpperBodyTracking().valid=false;
+    if(bodyTracker&&destroyBodyTracker)destroyBodyTracker(bodyTracker);
+    bodyTracker=XR_NULL_HANDLE;
+#endif
     if(g.space) g.DestroySpace(g.space); if(g.session) g.DestroySession(g.session);
     if(g.actionSet) g.DestroyActionSet(g.actionSet);
     if(g.instance) g.DestroyInstance(g.instance);
@@ -1228,6 +1352,7 @@ void PollEvents()
 
 bool BeginFrame()
 {
+    SharOpenXR::GetUpperBodyTracking().valid=false;
     SharedHudBeginFrame();
     g.perfFrameStart=SDL_GetPerformanceCounter();
     g.perfDraws=g.perfIndexedDraws=g.perfVertices=g.perfTriangles=g.perfMaterials=0;
@@ -1350,6 +1475,9 @@ bool BeginFrame()
     }
     LocateSharedHandPoses(g.LocateSpace,g.handSpaces,g.space,
         g.frameState.predictedDisplayTime,g.originValid,g.handPoses,g.handPoseValid);
+#if defined(XR_FB_body_tracking)
+    UpdateBodyTracking();
+#endif
     const auto haptic=[](void*,unsigned hand,float amplitude,unsigned durationMs)
     { FireHaptic(hand,amplitude,static_cast<float>(durationMs)); };
     UpdateTrackedVrVehicle(g.originValid,g.origin,g.handPoses,g.handPoseValid,haptic,NULL);

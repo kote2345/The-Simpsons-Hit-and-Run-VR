@@ -1,4 +1,5 @@
 #include <vr/openxr_shared_settings.h>
+#include <vr/openxrmanager.h>
 #include <vr/openxr_shared_state.h>
 #include <vr/openxr_shared_vehicle.h>
 #include <input/inputmanager.h>
@@ -170,7 +171,13 @@ bool IsSharedSpatialHudEnabled()
     const SharedVrState& s=GetSharedVrState();return s.vrModeEnabled&&s.spatialHudEnabled;
 }
 void SetSharedDeveloperMenusEnabled(bool value){GetSharedVrState().developerMenusEnabled=value;SaveVrSettings();}
-void SetSharedSeatedMode(bool value){GetSharedVrState().seatedMode=value;SaveVrSettings();}
+void SetSharedSeatedMode(bool value)
+{
+    SharedVrState& state=GetSharedVrState();
+    state.seatedMode=value;
+    RecenterVrPose();
+    SaveVrSettings();
+}
 void SetSharedSnapTurnEnabled(bool value){GetSharedVrState().snapTurnEnabled=value;SaveVrSettings();}
 void SetSharedSmoothTurnSpeed(float value){GetSharedVrState().smoothTurnSpeed=value;SaveVrSettings();}
 void SetSharedSnapTurnAngle(float value){GetSharedVrState().snapTurnAngle=value;SaveVrSettings();}

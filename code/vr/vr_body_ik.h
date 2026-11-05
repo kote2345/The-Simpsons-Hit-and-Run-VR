@@ -5,6 +5,15 @@ class Character;
 class tPose;
 namespace SharOpenXR
 {
+// Runtime body joints in the same local tracking frame as controllers.
+struct UpperBodyTracking {
+    bool valid=false;
+    bool torsoValid=false,armValid[2]={false,false};
+    rmt::Vector chest,neck,shoulders[2],elbows[2];
+    bool hipsValid=false,legValid[2]={false,false};
+    rmt::Vector hips,thighs[2],knees[2],ankles[2],toes[2];
+};
+inline UpperBodyTracking& GetUpperBodyTracking(){static UpperBodyTracking state;return state;}
 // Camera moves from the head/neck centre toward the character's eyes.
 const float VrEyeForwardOffset=0.10f;
 // Per-eye ownership, reset even when no character is submitted this eye.
