@@ -800,11 +800,25 @@ bool VulkanContext::BeginPddiEye()
         }
     }
     else mLastFenceWaitMilliseconds=0.0;
-    // Keep retired Vulkan objects alive for the duration of the session.
-    // NVIDIA drivers may still retain internal references after a frame
-    // fence signals (OpenXR compositor work is outside our queue).  Draining
-    // here can corrupt the driver's heap during the next draw.  Everything
-    // is reclaimed after vkDeviceWaitIdle() in Shutdown().
+    // Streaming retires textures and geometry every time a region unloads.
+    // Keeping them until Shutdown grows memory without bound. Reclaim batches
+    // before recording a new command buffer, after a FULL device idle (one
+    // arena fence is insufficient, especially with the desktop compositor).
+    const size_t retiredCount=mDeferredImages.size()+mDeferredBuffers.size()+
+        mDeferredDescriptorSets.size()+mDeferredPipelines.size();
+    if(retiredCount &&
+       (mDeferredImages.size()>=32 || mDeferredBuffers.size()>=128 ||
+        retiredCount>=256 || mEyeSerial-mLastDeferredReleaseSerial>=120))
+    {
+        if(vkDeviceWaitIdle(mDevice)==VK_SUCCESS)
+        {
+            SDL_Log("Vulkan streaming reclaim: images=%u buffers=%u descriptors=%u",
+                unsigned(mDeferredImages.size()),unsigned(mDeferredBuffers.size()),
+                unsigned(mDeferredDescriptorSets.size()));
+            ReleaseDeferredResources();
+            mLastDeferredReleaseSerial=mEyeSerial;
+        }
+    }
     mCommandBuffer=mActiveFrameArena->commandBuffer;
     mTimestampQueryPool=mActiveFrameArena->timestampQueryPool;
     vkResetFences(mDevice,1,&mActiveFrameArena->fence);
@@ -991,8 +1005,8 @@ bool VulkanContext::EndPddiEye()
     {
         // A previous frame may still be executing on the queue.  Retired
         // objects must remain deferred until every frame fence has completed.
-        // Retired objects are reclaimed only from Shutdown(), after a full
-        // device idle.  Do not destroy them on an error path while the
+        // Retired objects are reclaimed after a full device idle at the next
+        // frame boundary. Do not destroy them on an error path while the
         // OpenXR compositor may still hold references.
         if(mEyeOwnsGraphicsMutex)
         {
@@ -2508,7 +2522,9 @@ bool VulkanContext::PrepareTextureForSampling(VkImage image)
     // VulkanTexture deliberately returns no descriptor and the renderer uses
     // its opaque white fallback for this eye.
     EndActiveRenderPass();
-    return RecordPendingTextureUploads() && !HasPendingTextureUploads(image);
+    // Visible original textures must not wait behind a large optional PNG.
+    // Preserve upload order within this image, while bypassing unrelated work.
+    return RecordPendingTextureUploads(image) && !HasPendingTextureUploads(image);
 }
 
 bool VulkanContext::FlushTextureUploads()
@@ -2581,14 +2597,20 @@ bool VulkanContext::FlushTextureUploads()
     return complete;
 }
 
-bool VulkanContext::RecordPendingTextureUploads()
+bool VulkanContext::RecordPendingTextureUploads(VkImage preferredImage)
 {
     if(!mPddiEyeActive || !mTextureUploadMapped || mPendingTextureUploads.empty())
         return true;
     VkDeviceSize cursor=mTextureUploadOffset,recordedBytes=0;
     while(!mPendingTextureUploads.empty())
     {
-        PendingTextureUpload& upload=mPendingTextureUploads.front();
+        auto next=mPendingTextureUploads.begin();
+        if(preferredImage)
+        {
+            while(next!=mPendingTextureUploads.end() && next->image!=preferredImage) ++next;
+            if(next==mPendingTextureUploads.end()) break;
+        }
+        PendingTextureUpload& upload=*next;
         const VkDeviceSize size=upload.data.size();
         const VkDeviceSize aligned=(cursor+255u)&~VkDeviceSize(255u);
         if(aligned+size>mTextureUploadEnd) break;
@@ -2632,7 +2654,7 @@ bool VulkanContext::RecordPendingTextureUploads()
         mPendingUploadBytes-=size;
         if(upload.mipLevel==0 && upload.arrayLayer==0)
             mUploadedTextureImages.insert(upload.image);
-        mPendingTextureUploads.pop_front();
+        mPendingTextureUploads.erase(next);
     }
     if(recordedBytes)
     {
@@ -2665,8 +2687,7 @@ void VulkanContext::DestroyTexture(VkImage image,VkDeviceMemory memory,
         if(memory) mDeferredImageMemory.push_back(memory);
         return;
     }
-    // Deferred resources remain alive until Shutdown() performs
-    // vkDeviceWaitIdle().
+    // No submitted frame can reference these resources.
     if(descriptorSet && mTextureDescriptorPool)
         vkFreeDescriptorSets(mDevice,mTextureDescriptorPool,1,&descriptorSet);
     if(sampler) vkDestroySampler(mDevice,sampler,NULL);

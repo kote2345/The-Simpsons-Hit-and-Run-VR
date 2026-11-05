@@ -298,7 +298,7 @@ struct ExternalDecodeQueue
     std::deque<std::shared_ptr<Request> > requests;
 };
 
-std::shared_future<ExternalTextureSet> RequestExternalTextures(const std::string& base)
+std::future<ExternalTextureSet> RequestExternalTextures(const std::string& base)
 {
     static ExternalDecodeQueue* queue=[]() {
         ExternalDecodeQueue* value=new ExternalDecodeQueue;
@@ -326,7 +326,7 @@ std::shared_future<ExternalTextureSet> RequestExternalTextures(const std::string
     }();
     std::shared_ptr<ExternalDecodeQueue::Request> request(new ExternalDecodeQueue::Request);
     request->base=base;
-    std::shared_future<ExternalTextureSet> result=request->promise.get_future().share();
+    std::future<ExternalTextureSet> result=request->promise.get_future();
     {
         std::lock_guard<std::mutex> lock(queue->mutex);
         queue->requests.push_back(request);
@@ -815,8 +815,11 @@ private:
         for(unsigned level=0;level<decodeJobs.size();++level)
         {
             std::future<std::vector<unsigned char> >& job=decodeJobs[level];
-            if(!job.valid() || job.wait_for(std::chrono::seconds(0))!=
-                               std::future_status::ready) continue;
+            if(!job.valid()) continue;
+            // The sampler exposes the entire mip chain. Publishing the image
+            // while any decode job is outstanding samples uninitialized GPU
+            // memory. Finish ordinary asset decodes at first use; optional
+            // high-resolution replacements remain asynchronous.
             std::vector<unsigned char> decoded=job.get();
             const uint32_t w=std::max(1u,width>>level);
             const uint32_t h=std::max(1u,height>>level);
@@ -859,7 +862,10 @@ private:
     VkSampler pbrSamplers[10];
     VkDescriptorSet pbrDescriptors[10];
     std::string sourceName;
-    std::shared_future<ExternalTextureSet> externalDecodeJob;
+    // A texture owns its result exclusively. shared_future::get copied the
+    // mip chains and retained the decoded PNGs/mips for the texture's entire
+    // lifetime, even after uploading them to the GPU.
+    std::future<ExternalTextureSet> externalDecodeJob;
     VkImage externalColorImage=VK_NULL_HANDLE,pbrImage=VK_NULL_HANDLE;
     VkDeviceMemory externalColorMemory=VK_NULL_HANDLE,pbrMemory=VK_NULL_HANDLE;
     VkImageView externalColorView=VK_NULL_HANDLE,pbrView=VK_NULL_HANDLE;

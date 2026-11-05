@@ -331,6 +331,7 @@ private:
     std::vector<VkDeviceMemory> mDeferredImageMemory;
     std::vector<VkBuffer> mDeferredBuffers;
     std::vector<VkDeviceMemory> mDeferredBufferMemory;
+    uint64_t mLastDeferredReleaseSerial=0;
     std::vector<CachedDrawState> mDrawStateCache;
     std::unordered_map<uint64_t,size_t> mDrawStateLookup;
     size_t mLastDrawStateIndex;
@@ -375,7 +376,7 @@ private:
     void ReleaseDeferredResources();
     bool HasSubmittedFrames() const;
     void RetireRenderTarget(VkImage image);
-    bool RecordPendingTextureUploads();
+    bool RecordPendingTextureUploads(VkImage preferredImage=VK_NULL_HANDLE);
     bool FindMemoryType(uint32_t typeBits, VkMemoryPropertyFlags properties,
                         uint32_t* typeIndex) const;
 };
