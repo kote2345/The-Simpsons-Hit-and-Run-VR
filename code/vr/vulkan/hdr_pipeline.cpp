@@ -154,7 +154,7 @@ bool VulkanContext::RouteHdrTarget(VkImage& image,VkFormat& format,uint32_t widt
 }
 bool VulkanContext::CreateHdrResolve(HdrTarget& t,VkImage depth) {
     VkImageViewCreateInfo vi={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    vi.image=depth; vi.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY; vi.format=VK_FORMAT_D24_UNORM_S8_UINT;
+    vi.image=depth; vi.viewType=VK_IMAGE_VIEW_TYPE_2D_ARRAY; vi.format=mDepthFormat;
     vi.subresourceRange={VK_IMAGE_ASPECT_DEPTH_BIT,0,1,0,t.layers};
     if(vkCreateImageView(mDevice,&vi,nullptr,&t.depthView)!=VK_SUCCESS) return false;
     VkSamplerCreateInfo si={VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};

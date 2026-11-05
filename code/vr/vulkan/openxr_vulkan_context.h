@@ -237,6 +237,7 @@ private:
 
     VkInstance mInstance;
     VkPhysicalDevice mPhysicalDevice;
+    VkFormat mDepthFormat=VK_FORMAT_UNDEFINED;
     VkDevice mDevice;
     bool mMultiviewSupported;
     bool mFragmentDensityMapSupported;

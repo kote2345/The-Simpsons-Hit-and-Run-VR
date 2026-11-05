@@ -240,6 +240,31 @@ bool VulkanContext::Initialize(XrInstance xrInstance, XrSystemId systemId,
         Shutdown(); return false;
     }
 
+    // Use the same supported depth/stencil format for world, HDR and CSM.
+    // Sampling and transfer are needed by HDR resolve and shadow readback.
+    mDepthFormat=VK_FORMAT_UNDEFINED;
+    for(VkFormat candidate:{VK_FORMAT_D24_UNORM_S8_UINT,VK_FORMAT_D32_SFLOAT_S8_UINT})
+    {
+        VkFormatProperties properties={};
+        vkGetPhysicalDeviceFormatProperties(mPhysicalDevice,candidate,&properties);
+        const VkFormatFeatureFlags required=VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT|
+            VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+        VkImageFormatProperties imageProperties={};
+        if((properties.optimalTilingFeatures&required)==required &&
+           vkGetPhysicalDeviceImageFormatProperties(mPhysicalDevice,candidate,
+               VK_IMAGE_TYPE_2D,VK_IMAGE_TILING_OPTIMAL,
+               VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|
+               VK_IMAGE_USAGE_TRANSFER_SRC_BIT,0,&imageProperties)==VK_SUCCESS)
+        {mDepthFormat=candidate;break;}
+    }
+    if(mDepthFormat==VK_FORMAT_UNDEFINED)
+    {
+        VKXR_ERROR("no supported sampled depth/stencil format (D24S8/D32S8)");
+        Shutdown();return false;
+    }
+    SDL_Log("OpenXR Vulkan: selected depth format %s",
+        mDepthFormat==VK_FORMAT_D24_UNORM_S8_UINT?"D24_UNORM_S8_UINT":"D32_SFLOAT_S8_UINT");
+
     uint32_t familyCount = 0;
     vkGetPhysicalDeviceQueueFamilyProperties(mPhysicalDevice,&familyCount,NULL);
     std::vector<VkQueueFamilyProperties> families(familyCount);
@@ -763,7 +788,9 @@ bool VulkanContext::BeginPddiEye()
                     std::fprintf(file,"P5\n%u %u\n255\n",cascade.size,cascade.size);
                     std::vector<unsigned char> grayscale(pixels);
                     for(size_t i=0;i<pixels;++i)
-                        grayscale[i]=static_cast<unsigned char>((values[i]&0x00ffffffu)>>16);
+                        grayscale[i]=static_cast<unsigned char>(mDepthFormat==VK_FORMAT_D32_SFLOAT_S8_UINT?
+                            std::max(0.0f,std::min(1.0f,static_cast<const float*>(cascade.readbackMapped)[i]))*255.0f:
+                            float((values[i]&0x00ffffffu)>>16));
                     std::fwrite(grayscale.data(),1,grayscale.size(),file);
                     std::fclose(file);
                     SDL_Log("Vulkan CSM depth c%u saved: %s",cascadeIndex,path.c_str());
@@ -1234,7 +1261,7 @@ bool VulkanContext::BeginShadowCascade(uint32_t cascadeIndex,uint32_t size)
     if(!cascade.image)
     {
         VkImageCreateInfo ii={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-        ii.imageType=VK_IMAGE_TYPE_2D; ii.format=VK_FORMAT_D24_UNORM_S8_UINT;
+        ii.imageType=VK_IMAGE_TYPE_2D; ii.format=mDepthFormat;
         ii.extent={size,size,1}; ii.mipLevels=1; ii.arrayLayers=1;
         ii.samples=VK_SAMPLE_COUNT_1_BIT; ii.tiling=VK_IMAGE_TILING_OPTIMAL;
         ii.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT|VK_IMAGE_USAGE_SAMPLED_BIT|
@@ -1458,7 +1485,7 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
         CachedDepthTarget target={}; target.colourImage=image;
         target.arrayLayer=arrayLayer; target.width=width; target.height=height;
         VkImageCreateInfo di={VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-        di.imageType=VK_IMAGE_TYPE_2D; di.format=VK_FORMAT_D24_UNORM_S8_UINT;
+        di.imageType=VK_IMAGE_TYPE_2D; di.format=mDepthFormat;
         di.extent={width,height,1}; di.mipLevels=1; di.arrayLayers=multiview?2u:1u;
         di.samples=VK_SAMPLE_COUNT_1_BIT; di.tiling=VK_IMAGE_TILING_OPTIMAL;
         di.usage=VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
@@ -1485,7 +1512,7 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
         VkImageViewCreateInfo dvi={VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
         dvi.image=target.image; dvi.viewType=multiview?VK_IMAGE_VIEW_TYPE_2D_ARRAY:
                                                     VK_IMAGE_VIEW_TYPE_2D;
-        dvi.format=VK_FORMAT_D24_UNORM_S8_UINT;
+        dvi.format=mDepthFormat;
         dvi.subresourceRange.aspectMask=VK_IMAGE_ASPECT_DEPTH_BIT|VK_IMAGE_ASPECT_STENCIL_BIT;
         dvi.subresourceRange.levelCount=1;
         dvi.subresourceRange.layerCount=multiview?2u:1u;
@@ -1675,7 +1702,7 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     attachments[0].stencilStoreOp=VK_ATTACHMENT_STORE_OP_DONT_CARE;
     attachments[0].initialLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     attachments[0].finalLayout=VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    attachments[1].format=VK_FORMAT_D24_UNORM_S8_UINT;
+    attachments[1].format=mDepthFormat;
     attachments[1].samples=VK_SAMPLE_COUNT_1_BIT;
     attachments[1].loadOp=VK_ATTACHMENT_LOAD_OP_LOAD;
     // Per-eye GUI depth is never consumed after that layer finishes. Keep it
