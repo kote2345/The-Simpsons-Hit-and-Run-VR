@@ -172,6 +172,7 @@ private:
         VkFence fence;
         VkQueryPool timestampQueryPool;
         bool submitted;
+        VkDescriptorPool materialPool;
     };
     struct CachedDrawState
     {
@@ -286,6 +287,7 @@ private:
     VkDeviceSize mTransientVertexEnd;
     VkDescriptorSetLayout mTextureSetLayout;
     VkDescriptorSetLayout mDrawSetLayout;
+    VkDescriptorSetLayout mMaterialSetLayout=VK_NULL_HANDLE;
     VkDescriptorSetLayout mShadowSetLayout;
     VkDescriptorPool mTextureDescriptorPool;
     VkDescriptorSet mDrawDescriptorSet;

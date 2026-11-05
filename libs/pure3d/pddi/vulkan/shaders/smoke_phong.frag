@@ -17,17 +17,17 @@ layout(location = 10) in vec4 rawColour;
 layout(location = 11) in vec3 viewPositionOut;
 layout(location = 12) in vec3 viewNormalOut;
 layout(location = 0) out vec4 outputColour;
-layout(set = 0, binding = 0) uniform sampler2D diffuseTexture;
-layout(set = 2, binding = 0) uniform sampler2D reflectionTexture;
-layout(set = 3, binding = 0) uniform sampler2D topTexture;
-layout(set = 4, binding = 0) uniform sampler2D lightMapTexture;
-layout(set = 5, binding = 0) uniform sampler2DShadow shadowTexture0;
-layout(set = 5, binding = 1) uniform sampler2DShadow shadowTexture1;
-layout(set = 5, binding = 2) uniform sampler2DShadow shadowTexture2;
-layout(set = 6, binding = 0) uniform sampler2D pbrTextures;
-layout(set = 5, binding = 3) uniform samplerCube dynamicReflectionTexture;
+layout(set=0,binding=0) uniform sampler2D diffuseTexture;
+layout(set=2,binding=0) uniform sampler2D reflectionTexture;
+layout(set=2,binding=1) uniform sampler2D topTexture;
+layout(set=2,binding=2) uniform sampler2D lightMapTexture;
+layout(set=3,binding=0) uniform sampler2DShadow shadowTexture0;
+layout(set=3,binding=1) uniform sampler2DShadow shadowTexture1;
+layout(set=3,binding=2) uniform sampler2DShadow shadowTexture2;
+layout(set=2,binding=3) uniform sampler2D pbrTextures;
+layout(set=3,binding=3) uniform samplerCube dynamicReflectionTexture;
 struct LightParams { vec4 position; vec4 colour; vec4 attenuation; };
-layout(set = 1, binding = 0, std140) uniform DrawConstants
+layout(set=1,binding=0, std140) uniform DrawConstants
 {
     mat4 modelview;
     vec4 materialColour;

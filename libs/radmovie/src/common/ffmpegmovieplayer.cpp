@@ -21,6 +21,7 @@
 //=============================================================================
 
 #include <radoptions.hpp>
+#include <SDL.h>
 #ifdef RAD_ANDROID
     #include <string>
     #include <errno.h>
@@ -427,26 +428,46 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
 
     SetState( IRadMoviePlayer2::Loading );
 
+    SDL_Log("FMV: loading %s (audio track %u)",moviePath,audioTrackIndex);
+    const auto failLoad=[&](int error,const char* operation) {
+        char reason[AV_ERROR_MAX_STRING_SIZE]={};
+        av_strerror(error,reason,sizeof(reason));
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,"FMV: %s: %s failed: %s (%d)",
+            moviePath,operation,reason,error);
+#ifndef RAD_VITAGL
+        sws_freeContext(m_pSwsCtx);m_pSwsCtx=NULL;
+#endif
+        swr_free(&m_pSwrCtx);
+        avcodec_free_context(&m_pVideoCtx);
+        avcodec_free_context(&m_pAudioCtx);
+        avformat_close_input(&m_pFormatCtx);
+        SetState(IRadMoviePlayer2::NoData);
+    };
     m_pFormatCtx = avformat_alloc_context();
+    if(!m_pFormatCtx){failLoad(AVERROR(ENOMEM),"allocate format");return;}
 
     FILE* f = fopen( moviePath, "rb" );
     if( !f )
     {
-        SetState( IRadMoviePlayer2::NoData );
+        failLoad(AVERROR(errno),"open file");
         return;
     }
     fclose( f );
 
-    AV_CHK( avformat_open_input( &m_pFormatCtx, moviePath, NULL, NULL ) );
-    AV_CHK( avformat_find_stream_info( m_pFormatCtx, NULL ) );
+    {const int error=avformat_open_input( &m_pFormatCtx, moviePath, NULL, NULL );if(error<0){failLoad(error,"avformat_open_input");return;}}
+    {const int error=avformat_find_stream_info( m_pFormatCtx, NULL );if(error<0){failLoad(error,"avformat_find_stream_info");return;}}
 
     const AVCodec* pVideoCodec = NULL;
     m_VideoTrackIndex = av_find_best_stream( m_pFormatCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &pVideoCodec, 0 );
+    if(m_VideoTrackIndex<0 || !pVideoCodec) {
+        failLoad(m_VideoTrackIndex<0?m_VideoTrackIndex:AVERROR_DECODER_NOT_FOUND,"find video stream");return;
+    }
     AVCodecParameters* pVideoParams = m_pFormatCtx->streams[m_VideoTrackIndex]->codecpar;
 
     m_pVideoCtx = avcodec_alloc_context3( pVideoCodec );
-    AV_CHK( avcodec_parameters_to_context( m_pVideoCtx, pVideoParams ) );
-    AV_CHK( avcodec_open2( m_pVideoCtx, pVideoCodec, NULL ) );
+    if(!m_pVideoCtx){failLoad(AVERROR(ENOMEM),"allocate video decoder");return;}
+    {const int error=avcodec_parameters_to_context( m_pVideoCtx, pVideoParams );if(error<0){failLoad(error,"avcodec_parameters_to_context");return;}}
+    {const int error=avcodec_open2( m_pVideoCtx, pVideoCodec, NULL );if(error<0){failLoad(error,"avcodec_open2");return;}}
 
     // timing base reset
     m_HasPtsBase = false;
@@ -498,11 +519,19 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
             0
         );
 
+        if(m_AudioTrackIndex<0) {
+            SDL_Log("FMV: %s requested audio unavailable (%d), trying default audio",moviePath,m_AudioTrackIndex);
+            m_AudioTrackIndex=av_find_best_stream(m_pFormatCtx,AVMEDIA_TYPE_AUDIO,-1,-1,&pAudioCodec,0);
+        }
+        if(m_AudioTrackIndex<0 || !pAudioCodec) {
+            failLoad(m_AudioTrackIndex<0?m_AudioTrackIndex:AVERROR_DECODER_NOT_FOUND,"find audio stream");return;
+        }
         AVCodecParameters* pAudioParams = m_pFormatCtx->streams[m_AudioTrackIndex]->codecpar;
 
         m_pAudioCtx = avcodec_alloc_context3( pAudioCodec );
-        AV_CHK( avcodec_parameters_to_context( m_pAudioCtx, pAudioParams ) );
-        AV_CHK( avcodec_open2( m_pAudioCtx, pAudioCodec, NULL ) );
+        if(!m_pAudioCtx){failLoad(AVERROR(ENOMEM),"allocate audio decoder");return;}
+        {const int error=avcodec_parameters_to_context( m_pAudioCtx, pAudioParams );if(error<0){failLoad(error,"avcodec_parameters_to_context");return;}}
+        {const int error=avcodec_open2( m_pAudioCtx, pAudioCodec, NULL );if(error<0){failLoad(error,"avcodec_open2");return;}}
 
         AVChannelLayout layout = { AV_CHANNEL_ORDER_NATIVE, 2, AV_CH_LAYOUT_STEREO };
         AV_CHK( swr_alloc_set_opts2(
@@ -521,7 +550,7 @@ void radMoviePlayer::Load( const char * pVideoFileName, unsigned int audioTrackI
     }
     else
     {
-        m_AudioTrackIndex = 0;
+        m_AudioTrackIndex = -1;
     }
 
     m_pPacket = av_packet_alloc();
@@ -817,7 +846,7 @@ void radMoviePlayer::Service( void ) {
                             m_refIRadMovieRenderStrategy->UnlockDestination();
                         }
                     }
-                } else if (m_AudioTrackIndex > 0 && m_pPacket->stream_index == m_AudioTrackIndex) {
+                } else if (m_AudioTrackIndex >= 0 && m_pPacket->stream_index == m_AudioTrackIndex) {
                     AV_CHK(avcodec_send_packet(m_pAudioCtx, m_pPacket));
 
                     //

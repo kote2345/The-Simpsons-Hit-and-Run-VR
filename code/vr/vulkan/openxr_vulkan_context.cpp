@@ -438,6 +438,16 @@ bool VulkanContext::Initialize(XrInstance xrInstance, XrSystemId systemId,
     layoutInfo.bindingCount=1; layoutInfo.pBindings=&drawBinding;
     if(vkCreateDescriptorSetLayout(mDevice,&layoutInfo,NULL,&mDrawSetLayout)!=VK_SUCCESS)
     { VKXR_ERROR("draw descriptor layout creation failed"); Shutdown(); return false; }
+    VkDescriptorSetLayoutBinding materialBindings[4]={};
+    for(uint32_t i=0;i<4;++i) {
+        materialBindings[i].binding=i;
+        materialBindings[i].descriptorType=VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        materialBindings[i].descriptorCount=1;
+        materialBindings[i].stageFlags=VK_SHADER_STAGE_FRAGMENT_BIT;
+    }
+    layoutInfo.bindingCount=4;layoutInfo.pBindings=materialBindings;
+    if(vkCreateDescriptorSetLayout(mDevice,&layoutInfo,NULL,&mMaterialSetLayout)!=VK_SUCCESS)
+    { Shutdown();return false; }
     // Keep the environment cube in this low, global descriptor set. Adreno
     // devices used by Quest return zeroes for the old set-7 sampler even when
     // the descriptor itself is valid.
@@ -786,6 +796,8 @@ bool VulkanContext::BeginPddiEye()
         vkCmdWriteTimestamp(mCommandBuffer,VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                             mTimestampQueryPool,0);
     }
+    if(mActiveFrameArena->materialPool)
+        vkResetDescriptorPool(mDevice,mActiveFrameArena->materialPool,0);
     mHdrResolvedOutputs.clear();
     mPddiEyeActive=true;
     mPddiRenderPassActive=false;
@@ -1495,6 +1507,10 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     // layer/reflection varyings and samplers, and variant 0 is the full path.
     const MaterialPipelineSelection materialPipeline=
         SelectMaterialPipeline(material,mShadowReceiverEnabled);
+    // HUD/compact programs only use sets 0 and 1. World programs use up
+    // to set 6; the cube sampler is binding 3 of set 5, not a separate set 7.
+    const uint32_t layoutSetCount=(materialPipeline.geometry==GeometryProgram::Hud ||
+        materialPipeline.geometry==GeometryProgram::Compact)?2u:4u;
     const uint8_t shaderVariant=materialPipeline.shaderVariant;
     const uint8_t materialModel=materialPipeline.materialModel;
     const bool enhancedShading=materialPipeline.technology!=MaterialTechnology::Legacy &&
@@ -1852,9 +1868,17 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
     VkPipelineDynamicStateCreateInfo dynamic={VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dynamic.dynamicStateCount=6; dynamic.pDynamicStates=dynamicStates;
     VkPipelineLayoutCreateInfo pli={VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-    VkDescriptorSetLayout drawLayouts[8]={mTextureSetLayout,mDrawSetLayout,mTextureSetLayout,
-        mTextureSetLayout,mTextureSetLayout,mShadowSetLayout,mTextureSetLayout,mTextureSetLayout};
-    pli.setLayoutCount=8; pli.pSetLayouts=drawLayouts;
+    VkDescriptorSetLayout drawLayouts[4]={mTextureSetLayout,mDrawSetLayout,
+        mMaterialSetLayout,mShadowSetLayout};
+    VkPhysicalDeviceProperties layoutProperties={};
+    vkGetPhysicalDeviceProperties(mPhysicalDevice,&layoutProperties);
+    if(layoutSetCount>layoutProperties.limits.maxBoundDescriptorSets)
+    {
+        VKXR_ERROR("material requires %u descriptor sets, device supports %u",
+            layoutSetCount,layoutProperties.limits.maxBoundDescriptorSets);
+        break;
+    }
+    pli.setLayoutCount=layoutSetCount; pli.pSetLayouts=drawLayouts;
     VkPushConstantRange transformRange={VK_SHADER_STAGE_VERTEX_BIT,0,128};
     pli.pushConstantRangeCount=1; pli.pPushConstantRanges=&transformRange;
     if(vkCreatePipelineLayout(mDevice,&pli,NULL,&layout)!=VK_SUCCESS) break;
@@ -2011,74 +2035,33 @@ bool VulkanContext::DrawPddiGeometry(VkImage image,VkFormat format,
                                 0,1,&selectedTexture,0,NULL);
         mBoundTextureSets[0]=selectedTexture;
     }
-    // Full materials and base-lit PBR both consume the selected environment.
-    // Other base-lit draws still avoid this descriptor bind.
-    if(materialPipeline.usesEnvironment)
+    if(layoutSetCount==4)
     {
-        const VkDescriptorSet selectedReflection=reflectionSet?reflectionSet:mFallbackDescriptorSet;
-        if(mBoundTextureSets[1]!=selectedReflection)
-        {
-            vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,
-                                    2,1,&selectedReflection,0,NULL);
-            mBoundTextureSets[1]=selectedReflection;
+        if(!mActiveFrameArena)break;
+        if(!mActiveFrameArena->materialPool) {
+            VkDescriptorPoolSize size={VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,65536};
+            VkDescriptorPoolCreateInfo info={VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+            info.maxSets=16384;info.poolSizeCount=1;info.pPoolSizes=&size;
+            if(vkCreateDescriptorPool(mDevice,&info,NULL,&mActiveFrameArena->materialPool)!=VK_SUCCESS)break;
         }
-    }
-    // Only the full shader statically references layered/light-map sets 3..4.
-    if(materialPipeline.usesLayers)
-    {
-        const VkDescriptorSet selectedTop=topTextureSet?topTextureSet:mFallbackDescriptorSet;
-        if(mBoundTextureSets[2]!=selectedTop)
-        {
-            vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,
-                                    3,1,&selectedTop,0,NULL);
-            mBoundTextureSets[2]=selectedTop;
+        VkDescriptorSet packed=VK_NULL_HANDLE;
+        VkDescriptorSetAllocateInfo allocate={VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        allocate.descriptorPool=mActiveFrameArena->materialPool;
+        allocate.descriptorSetCount=1;allocate.pSetLayouts=&mMaterialSetLayout;
+        if(vkAllocateDescriptorSets(mDevice,&allocate,&packed)!=VK_SUCCESS)break;
+        const VkDescriptorSet sources[4]={reflectionSet?reflectionSet:mFallbackDescriptorSet,
+            topTextureSet?topTextureSet:mFallbackDescriptorSet,
+            lightMapSet?lightMapSet:mFallbackDescriptorSet,
+            material.pbrTextureSet?material.pbrTextureSet:mFallbackPbrDescriptorSet};
+        VkCopyDescriptorSet copies[4]={};
+        for(uint32_t i=0;i<4;++i) {
+            copies[i].sType=VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+            copies[i].srcSet=sources[i];copies[i].dstSet=packed;
+            copies[i].dstBinding=i;copies[i].descriptorCount=1;
         }
-        const VkDescriptorSet selectedLightMap=lightMapSet?lightMapSet:mFallbackDescriptorSet;
-        if(mBoundTextureSets[3]!=selectedLightMap)
-        {
-            vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,
-                                    4,1,&selectedLightMap,0,NULL);
-            mBoundTextureSets[3]=selectedLightMap;
-        }
-    }
-    if(materialPipeline.usesShadows && mBoundTextureSets[4]!=mShadowDescriptorSet)
-    {
-        vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,
-            5,1,&mShadowDescriptorSet,0,NULL);
-        mBoundTextureSets[4]=mShadowDescriptorSet;
-    }
-    const VkDescriptorSet selectedPbr=material.pbrTextureSet?
-        material.pbrTextureSet:mFallbackPbrDescriptorSet;
-    if(material.pbrMapFlags && material.pbrDebugMode)
-    {
-        static VkDescriptorSet loggedPbr=VK_NULL_HANDLE;
-        if(loggedPbr!=material.pbrTextureSet)
-        {
-            SDL_Log("Vulkan PBR draw descriptors: custom=%p fallback=%p selected=%p flags=0x%x debug=%u",
-                reinterpret_cast<void*>(material.pbrTextureSet),
-                reinterpret_cast<void*>(mFallbackPbrDescriptorSet),
-                reinterpret_cast<void*>(selectedPbr),material.pbrMapFlags,
-                material.pbrDebugMode);
-            loggedPbr=material.pbrTextureSet;
-        }
-    }
-    // Material maps use set 6. Set 7 returned zeroes on the target Adreno even
-    // for the one-pixel fallback texture, so reserve the last slot for the
-    // optional cube probe and keep essential material data on the proven slot.
-    if(materialPipeline.usesPbrMaps &&
-       (material.enhancedMaterialModel==2 || mBoundTextureSets[5]!=selectedPbr))
-    {
-        vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,
-            6,1,&selectedPbr,0,NULL);
-        mBoundTextureSets[5]=selectedPbr;
-    }
-    const VkDescriptorSet selectedVehicleCube=mVehicleCubeDescriptor?
-        mVehicleCubeDescriptor:mFallbackDescriptorSet;
-    if(materialPipeline.usesCubeMap && mBoundTextureSets[6]!=selectedVehicleCube)
-    {
-        vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,
-            7,1,&selectedVehicleCube,0,NULL);
-        mBoundTextureSets[6]=selectedVehicleCube;
+        vkUpdateDescriptorSets(mDevice,0,NULL,4,copies);
+        vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,2,1,&packed,0,NULL);
+        vkCmdBindDescriptorSets(mCommandBuffer,VK_PIPELINE_BIND_POINT_GRAPHICS,layout,3,1,&mShadowDescriptorSet,0,NULL);
     }
     if(mBoundVertexBuffer!=vertexBuffer || mBoundVertexOffset!=vertexOffset)
     {
@@ -2899,11 +2882,15 @@ void VulkanContext::Shutdown()
             }
         }
         if(mPipelineCache) vkDestroyPipelineCache(mDevice,mPipelineCache,NULL);
+        if(mMaterialSetLayout) vkDestroyDescriptorSetLayout(mDevice,mMaterialSetLayout,NULL);
+        mMaterialSetLayout=VK_NULL_HANDLE;
         if(mShadowSetLayout) vkDestroyDescriptorSetLayout(mDevice,mShadowSetLayout,NULL);
         if(mDrawSetLayout) vkDestroyDescriptorSetLayout(mDevice,mDrawSetLayout,NULL);
         if(mTextureSetLayout) vkDestroyDescriptorSetLayout(mDevice,mTextureSetLayout,NULL);
         for(uint32_t i=0;i<FrameArenaCount;++i)
         {
+            if(mFrameArenas[i].materialPool)
+                vkDestroyDescriptorPool(mDevice,mFrameArenas[i].materialPool,NULL);
             if(mFrameArenas[i].timestampQueryPool)
                 vkDestroyQueryPool(mDevice,mFrameArenas[i].timestampQueryPool,NULL);
             if(mFrameArenas[i].fence) vkDestroyFence(mDevice,mFrameArenas[i].fence,NULL);

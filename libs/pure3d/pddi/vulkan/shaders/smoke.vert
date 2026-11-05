@@ -12,7 +12,7 @@ layout(location = 5) in vec2 texcoord2;
 layout(location = 6) in vec3 skinWeights;
 layout(location = 7) in uvec4 skinIndices;
 struct LightParams { vec4 position; vec4 colour; vec4 attenuation; };
-layout(set = 1, binding = 0, std140) uniform DrawConstants
+layout(set=1,binding=0, std140) uniform DrawConstants
 {
     mat4 modelview;
     vec4 materialColour;

@@ -19,11 +19,10 @@ bool ShadowPipeline::GetOrCreate(VkDevice device,VkPipelineCache cache,VkRenderP
     if(!mFragmentModule) { sm.codeSize=sizeof(shadow_frag_spv); sm.pCode=shadow_frag_spv;
         if(vkCreateShaderModule(device,&sm,nullptr,&mFragmentModule)!=VK_SUCCESS) return false; }
     if(!mLayout) {
-        VkDescriptorSetLayout layouts[6]={textureLayout,drawLayout,textureLayout,textureLayout,
-            textureLayout,shadowLayout};
+        VkDescriptorSetLayout layouts[2]={textureLayout,drawLayout};
         VkPushConstantRange range={VK_SHADER_STAGE_VERTEX_BIT,0,64};
         VkPipelineLayoutCreateInfo info={VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        info.setLayoutCount=6; info.pSetLayouts=layouts;
+        info.setLayoutCount=2; info.pSetLayouts=layouts;
         info.pushConstantRangeCount=1; info.pPushConstantRanges=&range;
         if(vkCreatePipelineLayout(device,&info,nullptr,&mLayout)!=VK_SUCCESS) return false;
     }
