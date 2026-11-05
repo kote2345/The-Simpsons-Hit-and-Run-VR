@@ -16,6 +16,8 @@ layout(set=1,binding=0,std140) uniform DrawConstants {
 } draw;
 layout(push_constant) uniform TransformConstants { mat4 mvp; } transform;
 layout(location=0) out vec2 uv;
+#extension GL_GOOGLE_include_directive : require
+#include "skin_dual_quaternion.glsl"
 void main() {
     vec3 deformedPosition=position;
     for(int i=0;i<4;++i) {
@@ -28,11 +30,7 @@ void main() {
         deformedPosition+=normalize(-dent.xyz+vec3(0.0,0.20,0.0))*(dent.w*falloff);
     }
     vec4 p=vec4(deformedPosition,1.0);
-    if(draw.skinParams.x>0.5) {
-        vec4 w=vec4(skinWeights,1.0-skinWeights.x-skinWeights.y-skinWeights.z);
-        p=vec4(0.0);
-        for(int i=0;i<4;++i) p+=draw.skinMatrices[skinIndices[i]]*vec4(deformedPosition,1.0)*w[i];
-    }
+    if(draw.skinParams.x>0.5){vec3 unusedNormal;skinVertex(deformedPosition,vec3(0,1,0),p,unusedNormal);}
     vec4 clip=transform.mvp*p;
     clip.z=(clip.z+clip.w)*0.5;
     gl_Position=clip;

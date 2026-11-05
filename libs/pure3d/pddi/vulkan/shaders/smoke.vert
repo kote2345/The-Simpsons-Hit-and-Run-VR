@@ -53,6 +53,8 @@ layout(location = 10) out vec4 rawColour;
 layout(location = 11) out vec3 viewPositionOut;
 layout(location = 12) out vec3 viewNormalOut;
 
+#extension GL_GOOGLE_include_directive : require
+#include "skin_dual_quaternion.glsl"
 void main()
 {
     vec3 deformedPosition=position;
@@ -67,16 +69,7 @@ void main()
     }
     vec4 skinnedPosition=vec4(deformedPosition,1.0);
     vec3 skinnedNormal=normal;
-    if(draw.skinParams.x>0.5)
-    {
-        vec4 weights=vec4(skinWeights,1.0-skinWeights.x-skinWeights.y-skinWeights.z);
-        skinnedPosition=vec4(0.0);
-        skinnedNormal=vec3(0.0);
-        for(int i=0;i<4;++i) {
-            skinnedPosition+=draw.skinMatrices[skinIndices[i]]*vec4(deformedPosition,1.0)*weights[i];
-            skinnedNormal+=mat3(draw.skinMatrices[skinIndices[i]])*normal*weights[i];
-        }
-    }
+    if(draw.skinParams.x>0.5)skinVertex(deformedPosition,normal,skinnedPosition,skinnedNormal);
 #ifdef ENABLE_MULTIVIEW
     vec4 clip=transform.leftMvp*skinnedPosition;
     if(gl_ViewIndex==1)
