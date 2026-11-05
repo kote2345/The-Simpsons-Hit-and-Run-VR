@@ -199,7 +199,8 @@ tEntity* tPolySkinLoader::LoadObject(tChunkFile* f, tEntityStore* store)
             case Pure3D::Mesh::PRIMGROUP:
             {
                 P3DASSERT(index < nPrimGroup);
-                tPrimGroupLoader pgLoader;                
+                tPrimGroupLoader pgLoader;
+                pgLoader.SetHomerThumbRepair(strcmp(skelName,"homer")==0);
                 skin->primGroup[index] = pgLoader.Load(f, store, skin->boneMatrix, optimise, true);
                 skin->primGroup[index]->AddRef();
                 index++;

@@ -229,9 +229,12 @@ public:
 
     virtual tPrimGroup*          Load(tChunkFile *file, tEntityStore *store, rmt::Matrix* bones, bool optimise, bool deform);
 
+    void SetHomerThumbRepair(bool enabled) { mHomerThumbRepair=enabled; }
+
     void SetVertexFormatMask(unsigned int m) { mVertexFormatMask = m; }
 
 private:
+    bool mHomerThumbRepair=false;
     virtual tPrimGroup*          LoadStreamed(tChunkFile* f, tEntityStore* store, rmt::Matrix* bones);
 
     #ifndef RAD_PS2

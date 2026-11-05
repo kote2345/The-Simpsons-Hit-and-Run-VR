@@ -4,6 +4,8 @@
 
 
 #include <p3d/primgroup.hpp>
+#include <vector>
+#include <array>
 #include <p3d/utility.hpp>
 #include <p3d/shader.hpp>
 #include <p3d/vertexlist.hpp>
@@ -1888,6 +1890,8 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
     int nColourChannels = PddiNumColourSets(mVertexFormat);
     int nUVChannel = mVertexFormat & 0xf;
 
+    std::vector<std::array<unsigned,4> > repairIndices;
+    std::vector<unsigned> repairPalette;
     pddiPrimBufferStream *stream = NULL;
 
     bool memoryImaged = false;
@@ -2150,6 +2154,8 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
                 for (int a = 0; a < count; a++)
                 {
                     f->GetData(&index, 4, tFile::BYTE);
+                    if(mHomerThumbRepair)
+                        repairIndices.push_back({static_cast<unsigned char>(index[3]),static_cast<unsigned char>(index[2]),static_cast<unsigned char>(index[1]),static_cast<unsigned char>(index[0])});
                     stream->SkinIndices(index[3], index[2], index[1], index[0]);
                     stream->Next();
                 }
@@ -2171,6 +2177,7 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
                         unsigned index;
                         f->GetData(&index, 1, tFile::DWORD);
                         skin->matrixPalette[a] = &bones[index];
+                        if(mHomerThumbRepair)repairPalette.push_back(index);
                     }
                 }
             }
@@ -2243,6 +2250,31 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
             stream = NULL;
         }
         f->EndChunk();
+    }
+
+    // Homer has a thumb vertex blended with the elbow instead of the wrist.
+    // Retarget only elbow influences on vertices also influenced by the thumb.
+    if(mHomerThumbRepair&&!repairPalette.empty()&&!repairIndices.empty())
+    {
+        bool changed=false;
+        for(auto& indices:repairIndices)
+            for(unsigned side=0;side<2;++side)
+            {
+                const unsigned thumb=side?31:24,elbow=side?27:20,wrist=side?28:21;
+                bool hasThumb=false;unsigned wristSlot=static_cast<unsigned>(repairPalette.size());
+                for(unsigned slot:indices)
+                    if(slot<repairPalette.size()&&repairPalette[slot]==thumb)hasThumb=true;
+                for(unsigned slot=0;slot<repairPalette.size();++slot)
+                    if(repairPalette[slot]==wrist)wristSlot=slot;
+                if(hasThumb&&wristSlot<repairPalette.size())
+                    for(unsigned& slot:indices)
+                        if(slot<repairPalette.size()&&repairPalette[slot]==elbow){slot=wristSlot;changed=true;}
+            }
+        if(changed)
+        {
+            pddiPrimBufferStream* repair=primBuffer->Lock();
+            if(repair){for(const auto& indices:repairIndices){repair->SkinIndices(indices[0],indices[1],indices[2],indices[3]);repair->Next();}primBuffer->Unlock(repair);}
+        }
     }
 
     //Todo: tmpPositions should be removed when PDDI supports expression system
