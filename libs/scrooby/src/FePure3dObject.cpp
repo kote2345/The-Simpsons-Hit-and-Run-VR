@@ -36,6 +36,17 @@
 #endif
 #include "ResourceManager/FeResourceManager.h"
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+static Scrooby::Pure3dObject* gVrRewardObjects[3]={};
+static rmt::Matrix gVrRewardCamera;
+static bool gVrRewardCameraValid=false;
+static Uint32 gVrRewardStartTicks=0;
+void ScroobySetVrRewardObjects(Scrooby::Pure3dObject* car,Scrooby::Pure3dObject* background,Scrooby::Pure3dObject* pedestal)
+{
+    gVrRewardObjects[0]=car;gVrRewardObjects[1]=background;gVrRewardObjects[2]=pedestal;
+    gVrRewardCameraValid=false;gVrRewardStartTicks=SDL_GetTicks();
+}
+static Scrooby::Pure3dObject* gVrRewardIris=NULL;
+void ScroobySetVrRewardIris(Scrooby::Pure3dObject* object){gVrRewardIris=object;}
 static Scrooby::Pure3dObject* gVrIrisPure3dObject=NULL;
 static Scrooby::Pure3dObject* gVrFrontendWorldPure3dObject=NULL;
 static FePure3dObject* gVrRadarMapPure3dObject=NULL;
@@ -145,6 +156,7 @@ FePure3dObject::~FePure3dObject()
         gVrIrisPure3dObject=NULL;
     if(gVrFrontendWorldPure3dObject==static_cast<Scrooby::Pure3dObject*>(this))
         gVrFrontendWorldPure3dObject=NULL;
+    if(gVrRewardIris==static_cast<Scrooby::Pure3dObject*>(this))gVrRewardIris=NULL;
     if(gVrRadarMapPure3dObject==this) gVrRadarMapPure3dObject=NULL;
     if(gVrRadarHolePure3dObject==this) gVrRadarHolePure3dObject=NULL;
 #endif
@@ -256,6 +268,13 @@ void FePure3dObject::SetupMultiController()
 //===========================================================================
 void FePure3dObject::Update( float elapsedTime )
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    const bool fixedReward=SharOpenXR::IsVrModeEnabled()&&
+        (gVrRewardObjects[1]==static_cast<Scrooby::Pure3dObject*>(this)||
+         gVrRewardObjects[2]==static_cast<Scrooby::Pure3dObject*>(this));
+    if(fixedReward){if(m_MultiController)m_MultiController->SetFrame(0.0f);}
+    else
+#endif
     AdvanceAnimation( elapsedTime );
 }
 
@@ -515,6 +534,14 @@ void FePure3dObject::Render()
     // cameras, then restore the world-locked panel projection for subsequent
     // text, sprites and buttons. Pause/HUD Pure3D widgets retain their existing
     // paths because only CONTEXT_FRONTEND uses this split.
+    const bool vrRewardWorld=SharOpenXR::IsVrModeEnabled()&&
+        (gVrRewardObjects[0]==static_cast<Scrooby::Pure3dObject*>(this)||
+         gVrRewardObjects[1]==static_cast<Scrooby::Pure3dObject*>(this)||
+         gVrRewardObjects[2]==static_cast<Scrooby::Pure3dObject*>(this));
+    const bool rewardPlane=vrRewardWorld&&SharOpenXR::IsFrontendPlaneRendering();
+    if(rewardPlane)SharOpenXR::SetFrontendPlaneRendering(false);
+    const pddiColour rewardAmbient=p3d::pddi->GetAmbientLight();
+    if(vrRewardWorld)p3d::pddi->SetAmbientLight(pddiColour(160,160,160));
     const bool vrFrontendWorld =
         GetGameFlow()->GetCurrentContext() == CONTEXT_FRONTEND &&
         SharOpenXR::IsFrontendPlaneRendering();
@@ -552,7 +579,8 @@ void FePure3dObject::Render()
                                alphaWriteEnabled );
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     const bool suppressVrIris=
-        gVrIrisPure3dObject==static_cast<Scrooby::Pure3dObject*>(this);
+        gVrIrisPure3dObject==static_cast<Scrooby::Pure3dObject*>(this)||
+        (SharOpenXR::IsVrModeEnabled()&&gVrRewardIris==static_cast<Scrooby::Pure3dObject*>(this));
     // In Original mode the authored Hole0 alpha mask is only needed to cut
     // the minimap to the circular bezel. Vulkan's depth-only rendition can
     // resolve that textured mask as a solid plane and consequently reject
@@ -641,6 +669,20 @@ void FePure3dObject::Render()
         this != gVrRadarHolePure3dObject )
     {
         originalVrCamera = m_Camera->GetCameraToWorldMatrix();
+        if(vrRewardWorld)
+        {
+            if(!gVrRewardCameraValid){
+                gVrRewardCamera=originalVrCamera;
+                // Preview vehicles have a 3.6 m radius. Put the viewer beside
+                // the turntable at human eye height, looking at its centre.
+                rmt::Vector forward=originalVrCamera.Row(2);forward.y=0;forward.NormalizeSafe();
+                gVrRewardCamera.FillHeading(forward,rmt::Vector(0,1,0));
+                gVrRewardCamera.Row(3)=forward*-7.0f+rmt::Vector(0,1.65f,0);
+                gVrRewardCameraValid=true;
+            }
+            m_Camera->SetCameraMatrix(&gVrRewardCamera);
+        }
+
         rmt::Matrix eyeCamera;
         if( SharOpenXR::GetActiveEyeCamera( m_Camera, &eyeCamera ) )
         {
@@ -664,6 +706,9 @@ void FePure3dObject::Render()
         p3d::context->LoadViewMatrix( m_Camera->GetWorldToCameraMatrix(), m_Camera->GetCameraToWorldMatrix() );
     }
 
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(vrRewardWorld){l=0;t=0;r=1;b=1;}
+#endif
     p3d::pddi->SetViewWindow(l, t, r, b);
 
     // TC [BUG FIX]: need to set 'm_rect' data first with FeDrawable::SetClip
@@ -679,6 +724,14 @@ void FePure3dObject::Render()
     // MIKE IMPROVE : is this Always just the identity?
     p3d::stack->Multiply( *FeDrawable::GetMatrix() );
 
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(vrRewardWorld&&gVrRewardObjects[0]==static_cast<Scrooby::Pure3dObject*>(this))
+    {
+        rmt::Matrix turn;turn.Identity();
+        turn.FillRotateY(float((SDL_GetTicks()-gVrRewardStartTicks)%12000u)*6.28318531f/12000.0f);
+        p3d::stack->Multiply(turn);
+    }
+#endif
     // apply any drawable transformations
     //
     p3d::stack->Scale( m_drawableScale );
@@ -697,6 +750,9 @@ void FePure3dObject::Render()
         loggedMapDrawable=true;
     }
 #endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(vrRewardWorld)p3d::pddi->SetAmbientLight(pddiColour(160,160,160));
+#endif
     m_RuntimeDrawable->Display();
 
     // restore everything we changed
@@ -711,6 +767,10 @@ void FePure3dObject::Render()
     {
         SharOpenXR::SetEmbeddedHudRendering( false );
     }
+#endif
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(vrRewardWorld)p3d::pddi->SetAmbientLight(rewardAmbient);
+    if(rewardPlane)SharOpenXR::SetFrontendPlaneRendering(true);
 #endif
     originalCamera->SetState();
     currentView->SetCamera( originalCamera );

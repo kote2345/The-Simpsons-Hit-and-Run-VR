@@ -12,6 +12,10 @@
 // System Includes
 //========================================
 #include <raddebugwatch.hpp>
+#if defined(SRR2_OPENXR)
+#include <vr/openxrmanager.h>
+#include <vr/openxr_shared_state.h>
+#endif
 #include <radtime.hpp>
 #include <p3d/billboardobject.hpp>
 
@@ -214,6 +218,17 @@ static bool simpleShadows = true;
 
 void WorldRenderLayer::Render()
 {
+#if defined(SRR2_OPENXR)
+    if(SharOpenXR::IsVrModeEnabled()&&SharOpenXR::GetSharedVrState().rewardShowroomActive)
+    {
+        const pddiColour previous=p3d::pddi->GetClearColour();
+        p3d::pddi->SetClearColour(pddiColour(0,0,0));
+        p3d::pddi->Clear(PDDI_BUFFER_COLOUR|PDDI_BUFFER_DEPTH);
+        p3d::pddi->SetClearColour(previous);
+        return;
+    }
+#endif
+
     BEGIN_PROFILE( "WRL Render" );
 #ifdef DEBUGWATCH
     mDebugRenderTime = radTimeGetMicroseconds();

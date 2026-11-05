@@ -16,6 +16,13 @@
 // Includes
 //===========================================================================
 #include <SDL.h>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <vr/openxrmanager.h>
+#include <vr/openxr_shared_state.h>
+namespace Scrooby {class Pure3dObject;}
+extern void ScroobySetVrRewardIris(Scrooby::Pure3dObject*);
+extern void ScroobySetVrRewardObjects(Scrooby::Pure3dObject*,Scrooby::Pure3dObject*,Scrooby::Pure3dObject*);
+#endif
 
 #include <presentation/gui/ingame/guiscreenrewards.h>
 #include <presentation/gui/guimenu.h>
@@ -406,6 +413,28 @@ IGuiScreenRewards::OnProcessRequestsComplete( void* pUserData )
 void
 IGuiScreenRewards::InitIntro()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(SharOpenXR::IsVrModeEnabled())
+    {
+        SetIrisWipeEnabled(true);
+        Scrooby::Page* irisPage=m_pScroobyScreen->GetPage("IrisCover");
+        if(irisPage){Scrooby::Pure3dObject* iris=irisPage->GetPure3dObject("3dIris");if(iris){iris->SetVisible(true);ScroobySetVrRewardIris(iris);}}
+    }
+    SharOpenXR::GetSharedVrState().rewardShowroomActive=SharOpenXR::IsVrModeEnabled();
+    ScroobySetVrRewardObjects(m_previewWindow,m_previewBgd,m_previewPedestal);
+    if(SharOpenXR::IsVrModeEnabled())
+    {
+        Scrooby::Page* rewardsPage=m_pScroobyScreen->GetPage("Rewards");
+        if(rewardsPage)
+        {
+            const char* overlays[]={"PreviewLightL","PreviewLightR","PreviewImage"};
+            for(unsigned i=0;i<3;++i){Scrooby::Sprite* sprite=rewardsPage->GetSprite(overlays[i]);if(sprite)sprite->SetVisible(false);}
+        }
+    }
+
+    if(SharOpenXR::IsVrModeEnabled()&&m_previewLightCover)m_previewLightCover->SetVisible(false);
+#endif
+
     m_numPreviewVehicles = 0;
     m_currentPreviewVehicle = 0;
 
@@ -433,6 +462,17 @@ IGuiScreenRewards::InitRunning()
 void
 IGuiScreenRewards::InitOutro()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(SharOpenXR::IsVrModeEnabled())
+    {
+        if(m_previewWindow)m_previewWindow->SetVisible(false);
+        if(m_previewBgd)m_previewBgd->SetVisible(false);
+        if(m_previewPedestal)m_previewPedestal->SetVisible(false);
+    }
+    SharOpenXR::GetSharedVrState().rewardShowroomActive=false;
+    ScroobySetVrRewardObjects(NULL,NULL,NULL);
+#endif
+
     m_isLoading = false;
     m_isLoadingReward = false;
 
