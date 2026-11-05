@@ -597,6 +597,14 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         inverseAnimatedRoot.Invert();
         seatedLegTransform.Mult(inverseAnimatedRoot,p->GetJoint(0)->worldMatrix);
     }
+    // Capture anatomical calibration before torso tracking adds spine lean.
+    rmt::Matrix neutralHeadBasis=p->GetJoint(headIndex)->worldMatrix;
+    rmt::Vector headCalibrationForward=bodyForward;
+    if(inCar) {
+        worldToVehicle.RotateVector(trackingBase.Row(2),&headCalibrationForward);
+        headCalibrationForward.y=0;
+        headCalibrationForward=Unit(headCalibrationForward,rmt::Vector(0,0,1));
+    }
     rmt::Matrix foot[2]={p->GetJoint(legs[0].end)->worldMatrix,p->GetJoint(legs[1].end)->worldMatrix};
     const rmt::Vector forward=Unit(rmt::Vector(head.Row(2).x,0,head.Row(2).z),rmt::Vector(0,0,1));
     rmt::Vector right;right.CrossProduct(rmt::Vector(0,1,0),forward);
@@ -705,36 +713,54 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
         rmt::Matrix downTilt;downTilt.Identity();downTilt.FillRotateX(neutralDownTiltRadians);
         rmt::Matrix tiltedWrist;tiltedWrist.Mult(calibratedWrist,downTilt);
         rmt::Matrix wrist;wrist.Mult(tiltedWrist,hands[i]);
+        // Share controller roll with the forearm. Leaving all axial twist
+        // on the wrist makes linear skinning collapse the joint at 180 deg.
+        // Twist about the solved elbow->wrist axis so neither IK endpoint moves.
+        const rmt::Vector forearm=Position(p,arms[i].end)-Position(p,arms[i].middle);
+        if(forearm.Magnitude()>0.0001f)
+        {
+            const rmt::Vector axis=Unit(forearm,rmt::Vector(0,1,0));
+            const rmt::Matrix currentWrist=p->GetJoint(arms[i].end)->worldMatrix;
+            float best=0.0f;
+            rmt::Vector from,to;
+            for(int row=0;row<3;++row)
+            {
+                const rmt::Vector a=currentWrist.Row(row)-axis*currentWrist.Row(row).DotProduct(axis);
+                const rmt::Vector b=wrist.Row(row)-axis*wrist.Row(row).DotProduct(axis);
+                const float score=a.DotProduct(a)*b.DotProduct(b);
+                if(score>best){best=score;from=a;to=b;}
+            }
+            if(best>0.0001f)
+            {
+                from=Unit(from,rmt::Vector(1,0,0));to=Unit(to,from);
+                rmt::Vector cross;cross.CrossProduct(from,to);
+                const float twist=std::atan2(axis.DotProduct(cross),from.DotProduct(to));
+                const rmt::Vector wristPosition=Position(p,arms[i].end);
+                MoveBranch(p,arms[i].middle,FingerHinge(axis,twist*0.5f),Position(p,arms[i].middle));
+                // Avoid even floating-point drift at the tracked hand target.
+                MoveBranch(p,arms[i].end,identity,wristPosition);
+            }
+        }
         MatchRotation(p,arms[i].end,wrist);
         const bool homerRig=player->GetUID()==tEntity::MakeUID("homer");
         ApplyGripFingers(p,arms[i].end,static_cast<unsigned>(i),homerRig);
     }
-    // Use the masked neutral head pose as the anatomical orientation.
-    // The tracked culling camera is composed as HMD-local * gameplay-camera,
-    // Remove the seated camera frame, or the already-applied body yaw on foot,
-    // to recover the remaining head rotation. At a neutral pose this is identity, leaving
-    // the character head exactly in its authored straight-ahead orientation.
-    rmt::Matrix baseForPose=inCar?trackingBase:base;
-    if(inCar)
-    {
-        rmt::Matrix converted;converted.Mult(baseForPose,worldToVehicle);
-        baseForPose=converted;
-    }
-    // Both standing body and seated torso already contain the tracked yaw.
-    baseForPose.Row(0)=right;
-    baseForPose.Row(1)=rmt::Vector(0,1,0);
-    baseForPose.Row(2)=forward;
-    rmt::Matrix inverseBase=baseForPose;
-    for(int row=0;row<3;++row)inverseBase.Row(row)=Unit(inverseBase.Row(row),identity.Row(row));
-    inverseBase.Row(3).Set(0,0,0);inverseBase.InvertOrtho();
+    // Row-vector convention: bind-head * inverse(calibration camera) * HMD.
+    // Use the pre-lean basis so torso movement cannot rotate the head twice.
+    rmt::Vector calibrationRight;
+    calibrationRight.CrossProduct(rmt::Vector(0,1,0),headCalibrationForward);
+    rmt::Matrix calibration;calibration.Identity();
+    calibration.Row(0)=calibrationRight;
+    calibration.Row(2)=headCalibrationForward;
+    calibration.InvertOrtho();
+    for(int row=0;row<3;++row)
+        neutralHeadBasis.Row(row)=Unit(neutralHeadBasis.Row(row),identity.Row(row));
+    neutralHeadBasis.Row(3).Set(0,0,0);
+    rmt::Matrix headCorrection;headCorrection.Mult(neutralHeadBasis,calibration);
     rmt::Matrix trackedHead=head;
     for(int row=0;row<3;++row)trackedHead.Row(row)=Unit(trackedHead.Row(row),identity.Row(row));
     trackedHead.Row(3).Set(0,0,0);
-    rmt::Matrix physicalHead;physicalHead.Mult(trackedHead,inverseBase);
-    rmt::Matrix neutralHead=p->GetJoint(headIndex)->worldMatrix;
-    for(int row=0;row<3;++row)neutralHead.Row(row)=Unit(neutralHead.Row(row),identity.Row(row));
-    neutralHead.Row(3).Set(0,0,0);
-    rmt::Matrix headRotation;headRotation.Mult(physicalHead,neutralHead);
+    rmt::Matrix headRotation;headRotation.Mult(headCorrection,trackedHead);
     MatchRotation(p,headIndex,headRotation);
     if(inCar)
     {

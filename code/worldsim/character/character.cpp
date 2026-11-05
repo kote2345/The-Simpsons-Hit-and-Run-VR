@@ -5220,6 +5220,11 @@ void Character::Display(void)
 
     if(bodyPose) SharOpenXR::HideBodyIKHead(pose);
     mpCharacterRenderable->Display( mSphere.centre, pose, bodyPose != NULL );
+    // Eye-only hiding must not leak into later CSM or shared-pose draws.
+    if(bodyPose)
+        for(int i=0;i<poseJointCount;++i)
+            pose->GetJoint(i)->worldMatrix=mpCsmPoseMatrices[i];
+
 
     p3d::stack->Pop();
     p3d::stack->Pop();
