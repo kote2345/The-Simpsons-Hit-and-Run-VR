@@ -2774,6 +2774,45 @@ bool VulkanContext::UploadTransientVertices(const void* data,VkDeviceSize size,
     return true;
 }
 
+void VulkanContext::InvalidateRenderTargets()
+{
+    if(!mDevice)return;
+    vkDeviceWaitIdle(mDevice);
+        for(const CachedDrawState& state:mDrawStateCache)
+        {
+            if(state.ownsPipeline)
+            {
+                if(state.pipeline) vkDestroyPipeline(mDevice,state.pipeline,NULL);
+                if(state.layout) vkDestroyPipelineLayout(mDevice,state.layout,NULL);
+                if(state.fragmentModule) vkDestroyShaderModule(mDevice,state.fragmentModule,NULL);
+                if(state.vertexModule) vkDestroyShaderModule(mDevice,state.vertexModule,NULL);
+            }
+            if(state.ownsRenderTargets)
+            {
+                if(state.framebuffer) vkDestroyFramebuffer(mDevice,state.framebuffer,NULL);
+                if(state.depthClearRenderPass) vkDestroyRenderPass(mDevice,state.depthClearRenderPass,NULL);
+                if(state.clearRenderPass) vkDestroyRenderPass(mDevice,state.clearRenderPass,NULL);
+                if(state.renderPass) vkDestroyRenderPass(mDevice,state.renderPass,NULL);
+                if(state.densityView) vkDestroyImageView(mDevice,state.densityView,NULL);
+                if(state.view) vkDestroyImageView(mDevice,state.view,NULL);
+            }
+        }
+        mDrawStateCache.clear();
+        DestroyHdrTargets();
+        mDrawStateLookup.clear();
+        mLastDrawStateIndex=static_cast<size_t>(-1);
+        for(const CachedDepthTarget& target:mDepthTargetCache)
+        {
+            if(target.view) vkDestroyImageView(mDevice,target.view,NULL);
+            if(target.image) vkDestroyImage(mDevice,target.image,NULL);
+            if(target.memory) vkFreeMemory(mDevice,target.memory,NULL);
+        }
+        mDepthTargetCache.clear();
+    mBoundPipeline=VK_NULL_HANDLE;
+    mDynamicStateValid=false;
+    std::memset(mBoundTextureSets,0,sizeof(mBoundTextureSets));
+}
+
 void VulkanContext::Shutdown()
 {
     if(mDevice)
@@ -2815,36 +2854,7 @@ void VulkanContext::Shutdown()
         mVehicleCubeImage=VK_NULL_HANDLE; mVehicleCubeMemory=VK_NULL_HANDLE;
         mVehicleCubeView=VK_NULL_HANDLE; mVehicleCubeSampler=VK_NULL_HANDLE;
         mVehicleCubeDescriptor=VK_NULL_HANDLE;
-        for(const CachedDrawState& state:mDrawStateCache)
-        {
-            if(state.ownsPipeline)
-            {
-                if(state.pipeline) vkDestroyPipeline(mDevice,state.pipeline,NULL);
-                if(state.layout) vkDestroyPipelineLayout(mDevice,state.layout,NULL);
-                if(state.fragmentModule) vkDestroyShaderModule(mDevice,state.fragmentModule,NULL);
-                if(state.vertexModule) vkDestroyShaderModule(mDevice,state.vertexModule,NULL);
-            }
-            if(state.ownsRenderTargets)
-            {
-                if(state.framebuffer) vkDestroyFramebuffer(mDevice,state.framebuffer,NULL);
-                if(state.depthClearRenderPass) vkDestroyRenderPass(mDevice,state.depthClearRenderPass,NULL);
-                if(state.clearRenderPass) vkDestroyRenderPass(mDevice,state.clearRenderPass,NULL);
-                if(state.renderPass) vkDestroyRenderPass(mDevice,state.renderPass,NULL);
-                if(state.densityView) vkDestroyImageView(mDevice,state.densityView,NULL);
-                if(state.view) vkDestroyImageView(mDevice,state.view,NULL);
-            }
-        }
-        mDrawStateCache.clear();
-        DestroyHdrTargets();
-        mDrawStateLookup.clear();
-        mLastDrawStateIndex=static_cast<size_t>(-1);
-        for(const CachedDepthTarget& target:mDepthTargetCache)
-        {
-            if(target.view) vkDestroyImageView(mDevice,target.view,NULL);
-            if(target.image) vkDestroyImage(mDevice,target.image,NULL);
-            if(target.memory) vkFreeMemory(mDevice,target.memory,NULL);
-        }
-        mDepthTargetCache.clear();
+        InvalidateRenderTargets();
         mShadowPipeline.Destroy(mDevice);
         for(ShadowCascade& cascade:mShadowCascades)
         {

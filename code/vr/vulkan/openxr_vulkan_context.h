@@ -31,6 +31,7 @@ public:
     bool Initialize(XrInstance xrInstance, XrSystemId systemId,
                     PFN_xrGetInstanceProcAddr getInstanceProcAddr);
     void Shutdown();
+    void InvalidateRenderTargets();
 
     bool IsInitialized() const { return mDevice != VK_NULL_HANDLE; }
     bool IsMultiviewSupported() const { return mMultiviewSupported; }

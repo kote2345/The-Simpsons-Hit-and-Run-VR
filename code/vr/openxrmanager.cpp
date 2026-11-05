@@ -1239,7 +1239,7 @@ bool BeginFrame()
     {
         const auto recreate=[](void*,float)->bool {
 #if defined(SRR2_VR_RENDERER_VULKAN)
-            vkQueueWaitIdle(gVulkanContext.GetQueue());
+            gVulkanContext.InvalidateRenderTargets();
 #else
             glFinish();
 #endif
