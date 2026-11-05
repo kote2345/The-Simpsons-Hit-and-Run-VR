@@ -17,6 +17,7 @@
 #include <worldsim/traffic/trafficmanager.h>
 #include <p3d/anim/pose.hpp>
 #include <p3d/anim/skeleton.hpp>
+#include <p3d/anim/homerrig.hpp>
 #include <SDL.h>
 #include <cstdio>
 #include <limits>
@@ -250,6 +251,7 @@ void ApplyGripFingers(tPose* p,int wrist,unsigned hand,bool homerRig)
     grip=Clamp((grip-0.05f)/0.75f,0.0f,1.0f);
     grip=grip*grip*(3.0f-2.0f*grip);
     tSkeleton* skeleton=p->GetSkeleton();
+    const bool compactHand=p3dHomerHasCompactHands(skeleton->GetUID());
     const int elbow=skeleton->GetJoint(wrist)->parentIndex;
     if(elbow<0)return;
     const rmt::Vector wristBind=skeleton->GetJoint(wrist)->worldMatrix.Row(3);
@@ -322,7 +324,7 @@ void ApplyGripFingers(tPose* p,int wrist,unsigned hand,bool homerRig)
                 // a small mesh wedge. The extra distal opposition bends that
                 // wedge away from the rest of the thumb, so keep the authored
                 // child rotation while still updating it from the moved root.
-                if(homerRig&&depth>0)
+                if(homerRig&&!compactHand&&depth>0)
                 {
                     local=rest;
                     local.Row(3)=rest.Row(3);
@@ -339,7 +341,13 @@ void ApplyGripFingers(tPose* p,int wrist,unsigned hand,bool homerRig)
                     inverseParent.Row(row)=Unit(inverseParent.Row(row),currentWrist.Row(row));
                 inverseParent.Row(3).Set(0,0,0);inverseParent.InvertOrtho();
                 rmt::Vector parentAxis;inverseParent.RotateVector(currentPalmNormal,&parentAxis);
-                const float acrossDegrees=depth==0?92.0f:(depth==1?26.0f:(depth==2?10.0f:0.0f));
+                // Compact costume hands weight the actual thumb tip to its
+                // distal joint. Preserve its articulation and split a shorter
+                // opposition over both joints instead of sweeping the entire
+                // already compact palm web through the normal 92 degrees.
+                const float acrossDegrees=compactHand?
+                    (depth==0?35.0f:(depth==1?25.0f:0.0f)):
+                    (depth==0?92.0f:(depth==1?26.0f:(depth==2?10.0f:0.0f)));
                 const rmt::Matrix across=FingerHinge(parentAxis,
                     acrossDegrees*0.01745329252f*grip*thumbAcrossSign);
                 local.Mult(rest,across);
@@ -352,7 +360,9 @@ void ApplyGripFingers(tPose* p,int wrist,unsigned hand,bool homerRig)
                     inverseParent.Row(row)=Unit(inverseParent.Row(row),palm.Row(row));
                 inverseParent.Row(3).Set(0,0,0);inverseParent.InvertOrtho();
                 rmt::Vector parentAxis;inverseParent.RotateVector(palm.Row(0),&parentAxis);
-                const float degrees=depth==0?95.0f:(depth==1?85.0f:(depth==2?55.0f:0.0f));
+                const float degrees=compactHand?
+                    (depth==0?40.0f:(depth==1?35.0f:0.0f)):
+                    (depth==0?95.0f:(depth==1?85.0f:(depth==2?55.0f:0.0f)));
                 const rmt::Matrix bend=FingerHinge(parentAxis,degrees*0.01745329252f*grip);
                 local.Mult(rest,bend);
             }
@@ -864,7 +874,7 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
             }
         }
         MatchRotation(p,arms[i].end,wrist);
-        const bool homerRig=player->GetUID()==tEntity::MakeUID("homer");
+        const bool homerRig=p3dIsHomerHandRig(animated->GetSkeleton()->GetUID());
         ApplyGripFingers(p,arms[i].end,static_cast<unsigned>(i),homerRig);
     }
     // Row-vector convention: bind-head * inverse(calibration camera) * HMD.

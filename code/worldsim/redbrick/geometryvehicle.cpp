@@ -1155,10 +1155,6 @@ BEGIN_PROFILE("GeometryVehicle::CompDraw->Disp")
                 }
             }
         }
-        // Apply the same unobtrusive glass treatment to every vehicle in VR.
-        // The scope is closed immediately so shared shaders retain their
-        // normal appearance for non-vehicle rendering and Original mode.
-        p3dSetVrVehicleGlassFaded(SharOpenXR::IsVrModeEnabled());
         const bool suppressEmbeddedDriver=SharOpenXR::IsVrModeEnabled() &&
                                           mVehicleOwner->IsUserDrivingCar();
         p3dSetVrVehicleDriverSuppressed(suppressEmbeddedDriver);
@@ -1194,7 +1190,6 @@ BEGIN_PROFILE("GeometryVehicle::CompDraw->Disp")
         pglSuppressVehicleRearLights(false);
         pglSetVehicleDeformation(NULL,0);
         p3dSetVrVehicleDriverSuppressed(false);
-        p3dSetVrVehicleGlassFaded(false);
         for(int siren=0;siren<hiddenSirenCount;++siren)
             hiddenSirens[siren]->SetVisibility(hiddenSirenVisibility[siren]);
 #endif

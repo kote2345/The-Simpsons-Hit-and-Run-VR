@@ -16,14 +16,12 @@ class tEntityStore;
 class tPrimGroupStreamed;
 class tVertexList;
 class tShader;
+class tSkeleton;
 
 class pddiPrimBuffer;
 class pddiPrimStream;
 class pddiPrimBufferStream;
 
-// Temporarily lowers the opacity of translucent primitive groups while a VR
-// vehicle is drawn. The scope is opened and closed by GeometryVehicle.
-void p3dSetVrVehicleGlassFaded(bool faded);
 void p3dSetVrVehicleDriverSuppressed(bool suppressed);
 void p3dSetCsmOpaqueReceiverOnly(bool enabled);
 void p3dSetCsmIntegratedVehicleReceiver(bool enabled);
@@ -229,12 +227,14 @@ public:
 
     virtual tPrimGroup*          Load(tChunkFile *file, tEntityStore *store, rmt::Matrix* bones, bool optimise, bool deform);
 
-    void SetHomerThumbRepair(bool enabled) { mHomerThumbRepair=enabled; }
+    void SetHomerThumbRepair(bool enabled, tSkeleton* skeleton)
+    { mHomerThumbRepair=enabled; mHomerHandSkeleton=enabled?skeleton:NULL; }
 
     void SetVertexFormatMask(unsigned int m) { mVertexFormatMask = m; }
 
 private:
     bool mHomerThumbRepair=false;
+    tSkeleton* mHomerHandSkeleton=NULL;
     virtual tPrimGroup*          LoadStreamed(tChunkFile* f, tEntityStore* store, rmt::Matrix* bones);
 
     #ifndef RAD_PS2

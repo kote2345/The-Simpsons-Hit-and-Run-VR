@@ -10,6 +10,7 @@
 #include <p3d/shader.hpp>
 #include <p3d/vertexlist.hpp>
 #include <p3d/geometry.hpp>
+#include <p3d/anim/skeleton.hpp>
 #include <constants/chunks.h>
 #include <constants/chunkids.hpp>
 #include <p3d/chunkfile.hpp>
@@ -50,15 +51,12 @@ void pglSetEnhancedSunDirection(float x,float y,float z);
 
 using namespace RadicalMathLibrary;
 
-static bool gFadeVrVehicleGlass=false;
 static bool gSuppressVrVehicleDriver=false;
 static bool gCsmOpaqueReceiverOnly=false;
 static bool gCsmIntegratedVehicleReceiver=false;
 static bool gEnhancedWorldMaterials=false;
 static bool gEnhancedCharacterMaterials=false;
 static bool gEnhancedVehicleMaterials=false;
-static tShader* gFadedVrVehicleShaders[128];
-static unsigned gFadedVrVehicleShaderCount=0;
 
 static bool SuppressLegacyGroundShadowPrimGroup(tShader* shader)
 {
@@ -66,17 +64,6 @@ static bool SuppressLegacyGroundShadowPrimGroup(tShader* shader)
     // Entity text is compiled out of release builds (GetName returns
     // NO_NAME_TEXT), but the asset UID is always retained.
     return shader->GetUID()==tName::MakeUID("treeshadow_m");
-}
-
-void p3dSetVrVehicleGlassFaded(bool faded)
-{
-    if(!faded)
-    {
-        for(unsigned i=0; i<gFadedVrVehicleShaderCount; ++i)
-            gFadedVrVehicleShaders[i]->SetInt(PDDI_SP_EMISSIVEALPHA,255);
-        gFadedVrVehicleShaderCount=0;
-    }
-    gFadeVrVehicleGlass=faded;
 }
 
 void p3dSetVrVehicleDriverSuppressed(bool suppressed)
@@ -174,16 +161,6 @@ static int EnhancedMaterialMode(tShader* shader)
     return 2;
 }
 #endif
-
-static void FadeVrVehicleGlass(tShader* shader)
-{
-    if(!gFadeVrVehicleGlass || !shader || !shader->mTranslucent) return;
-    for(unsigned i=0; i<gFadedVrVehicleShaderCount; ++i)
-        if(gFadedVrVehicleShaders[i]==shader) return;
-    if(gFadedVrVehicleShaderCount<sizeof(gFadedVrVehicleShaders)/sizeof(gFadedVrVehicleShaders[0]))
-        gFadedVrVehicleShaders[gFadedVrVehicleShaderCount++]=shader;
-    shader->SetInt(PDDI_SP_EMISSIVEALPHA,64);
-}
 
 static bool SuppressVrVehicleDriver(tShader* shader)
 {
@@ -303,7 +280,6 @@ void tPrimGroupOptimised::Display()
 {
     if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
-    FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
@@ -389,7 +365,6 @@ void tPrimGroupSkinnedOptimised::Display()
 {
     if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
-    FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
@@ -449,7 +424,6 @@ void tPrimGroupStreamed::Display()
 {
     if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
-    FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
@@ -557,7 +531,6 @@ void tPrimGroupSkinnedStreamed::Display(void)
 {
     if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
     if(SuppressVrVehicleDriver(mShader)) return;
-    FadeVrVehicleGlass(mShader);
     if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
     int count = mVertexCount;
     SkinVertex *verts = mVertices;
@@ -723,7 +696,6 @@ void tPrimGroupSkinnedPC::Display(void)
 {
     if(SuppressLegacyGroundShadowPrimGroup(mShader)) return;
 	if(SuppressVrVehicleDriver(mShader)) return;
-	FadeVrVehicleGlass(mShader);
 	if(gCsmOpaqueReceiverOnly && mShader && mShader->mTranslucent) return;
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
     SelectIntegratedVehicleReceiver(mShader);
@@ -2257,7 +2229,13 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
     if(mHomerThumbRepair&&!repairPalette.empty()&&!repairIndices.empty())
     {
         bool changed=false;
-        for(auto& indices:repairIndices)
+        unsigned repairedVertices=0;
+        const bool underwear=mHomerHandSkeleton &&
+            mHomerHandSkeleton->GetUID()==tEntity::MakeUID("h_undrwr");
+        for(unsigned vertex=0;vertex<repairIndices.size();++vertex)
+        {
+            auto& indices=repairIndices[vertex];
+            bool vertexChanged=false;
             for(unsigned side=0;side<2;++side)
             {
                 const unsigned thumb=side?31:24,elbow=side?27:20,wrist=side?28:21;
@@ -2266,14 +2244,50 @@ tPrimGroup*  tPrimGroupLoader::Load(tChunkFile *f, tEntityStore *store, rmt::Mat
                     if(slot<repairPalette.size()&&repairPalette[slot]==thumb)hasThumb=true;
                 for(unsigned slot=0;slot<repairPalette.size();++slot)
                     if(repairPalette[slot]==wrist)wristSlot=slot;
-                if(hasThumb&&wristSlot<repairPalette.size())
+                // The underwear mesh has additional thumb-web vertices
+                // weighted entirely to the elbow, including a duplicate in
+                // another primitive group. They have no thumb influence for
+                // the older mixed-weight test to find. Select only geometry
+                // beyond the wrist's bind plane, leaving forearm blends alone.
+                bool detachedThumbWeb=false;
+                if(underwear && tmpPositions && vertex<static_cast<unsigned>(mVertexCount))
+                {
+                    const rmt::Vector wristPos=mHomerHandSkeleton->GetJoint(wrist)->worldMatrix.Row(3);
+                    rmt::Vector forward=wristPos-mHomerHandSkeleton->GetJoint(elbow)->worldMatrix.Row(3);
+                    forward.NormalizeSafe();
+                    const rmt::Vector offset=tmpPositions[vertex]-wristPos;
+                    const rmt::Vector thumbOffset=mHomerHandSkeleton->GetJoint(thumb)->worldMatrix.Row(3)-wristPos;
+                    const float palmStart=thumbOffset.DotProduct(forward)*0.5f;
+                    detachedThumbWeb=offset.DotProduct(forward)>palmStart &&
+                        offset.MagnitudeSqr()<0.09f;
+                }
+                bool hasElbow=false;
+                for(unsigned slot:indices)
+                    if(slot<repairPalette.size()&&repairPalette[slot]==elbow)hasElbow=true;
+                if(detachedThumbWeb && hasElbow && wristSlot==repairPalette.size())
+                {
+                    // A duplicate thumb face can have an elbow-only palette.
+                    // Add the wrist without changing any existing palette slot.
+                    tPrimGroupSkinnedOptimised* skin=static_cast<tPrimGroupSkinnedOptimised*>(primGroup);
+                    Matrix** palette=new Matrix*[skin->nMatrices+1];
+                    for(int i=0;i<skin->nMatrices;++i)palette[i]=skin->matrixPalette[i];
+                    palette[skin->nMatrices]=&bones[wrist];
+                    delete[] skin->matrixPalette;
+                    skin->matrixPalette=palette;
+                    ++skin->nMatrices;
+                    repairPalette.push_back(wrist);
+                }
+                if((hasThumb||detachedThumbWeb)&&wristSlot<repairPalette.size())
                     for(unsigned& slot:indices)
-                        if(slot<repairPalette.size()&&repairPalette[slot]==elbow){slot=wristSlot;changed=true;}
+                        if(slot<repairPalette.size()&&repairPalette[slot]==elbow){slot=wristSlot;changed=true;vertexChanged=true;}
             }
+            if(vertexChanged)++repairedVertices;
+        }
         if(changed)
         {
             pddiPrimBufferStream* repair=primBuffer->Lock();
             if(repair){for(const auto& indices:repairIndices){repair->SkinIndices(indices[0],indices[1],indices[2],indices[3]);repair->Next();}primBuffer->Unlock(repair);}
+            p3d::printf("Homer hand skin repair: vertices=%u underwear=%d\n",repairedVertices,underwear?1:0);
         }
     }
 

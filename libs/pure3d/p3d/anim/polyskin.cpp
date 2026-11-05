@@ -15,6 +15,7 @@
 #include <p3d/chunkfile.hpp>
 #include <p3d/utility.hpp>
 #include <p3d/anim/skeleton.hpp>
+#include <p3d/anim/homerrig.hpp>
 #include <p3d/matrixstack.hpp>
 #include <radmath/radmath.hpp>
 #include <pddi/pddiext.hpp>
@@ -200,7 +201,7 @@ tEntity* tPolySkinLoader::LoadObject(tChunkFile* f, tEntityStore* store)
             {
                 P3DASSERT(index < nPrimGroup);
                 tPrimGroupLoader pgLoader;
-                pgLoader.SetHomerThumbRepair(strcmp(skelName,"homer")==0);
+                pgLoader.SetHomerThumbRepair(p3dIsHomerHandRig(tEntity::MakeUID(skelName)),skin->skeleton);
                 skin->primGroup[index] = pgLoader.Load(f, store, skin->boneMatrix, optimise, true);
                 skin->primGroup[index]->AddRef();
                 index++;
