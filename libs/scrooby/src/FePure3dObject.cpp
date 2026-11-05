@@ -29,6 +29,7 @@
 #include <radmath/radmath.hpp>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
+#include <vr/openxr_shared_menu.h>
 #include <gameflow/gameflow.h>
 #endif
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
@@ -37,6 +38,14 @@
 #include "ResourceManager/FeResourceManager.h"
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 static Scrooby::Pure3dObject* gVrRewardObjects[3]={};
+static Scrooby::Pure3dObject* gVrLoadingWorldObject=NULL;
+static unsigned gVrLoadingTraceFrames=0;
+void ScroobySetVrLoadingWorldObject(Scrooby::Pure3dObject* object)
+{
+    gVrLoadingWorldObject=object;
+    gVrLoadingTraceFrames=0;
+    SDL_Log("OpenXR loading trace: registered object=%p",object);
+}
 static rmt::Matrix gVrRewardCamera;
 static bool gVrRewardCameraValid=false;
 static Uint32 gVrRewardStartTicks=0;
@@ -538,11 +547,14 @@ void FePure3dObject::Render()
         (gVrRewardObjects[0]==static_cast<Scrooby::Pure3dObject*>(this)||
          gVrRewardObjects[1]==static_cast<Scrooby::Pure3dObject*>(this)||
          gVrRewardObjects[2]==static_cast<Scrooby::Pure3dObject*>(this));
+    const bool vrLoadingWorld=SharOpenXR::IsVrModeEnabled()&&
+        gVrLoadingWorldObject==static_cast<Scrooby::Pure3dObject*>(this);
     const bool rewardPlane=vrRewardWorld&&SharOpenXR::IsFrontendPlaneRendering();
     if(rewardPlane)SharOpenXR::SetFrontendPlaneRendering(false);
     const pddiColour rewardAmbient=p3d::pddi->GetAmbientLight();
     if(vrRewardWorld)p3d::pddi->SetAmbientLight(pddiColour(160,160,160));
     const bool vrFrontendWorld =
+        !vrLoadingWorld &&
         GetGameFlow()->GetCurrentContext() == CONTEXT_FRONTEND &&
         SharOpenXR::IsFrontendPlaneRendering();
     if( vrFrontendWorld )
@@ -664,7 +676,7 @@ void FePure3dObject::Render()
     // HUD map Pure3D widgets use this flag.  Their camera is a map-space
     // camera and must stay inside the 2D clipped map rectangle, not inherit
     // the HMD eye pose.  Other embedded 3D menu objects remain stereoscopic.
-    if( m_Camera && !m_isWideScreenCorrectionEnabled &&
+    if( m_Camera && !vrLoadingWorld && !m_isWideScreenCorrectionEnabled &&
         this != gVrRadarMapPure3dObject &&
         this != gVrRadarHolePure3dObject )
     {
@@ -707,7 +719,30 @@ void FePure3dObject::Render()
     }
 
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
-    if(vrRewardWorld){l=0;t=0;r=1;b=1;}
+    if(vrLoadingWorld && m_Camera)
+    {
+        // Project the animation with its authored camera onto the same GUI
+        // canvas as the level-loading sprites. Only the panel transform
+        // depends on the eyes/HMD; the animation camera never does.
+        float fov=0,aspect=0;
+        m_Camera->GetFOV(&fov,&aspect);
+        rmt::Matrix authored,canvas,scene;
+        authored.SetPerspective(fov,aspect,m_Camera->GetNearPlane(),m_Camera->GetFarPlane());
+        const float guiAspect=float(FeApp::GetInstance()->GetScreenWidth())/
+                              FeApp::GetInstance()->GetScreenHeight();
+        canvas.Identity();
+        canvas.m[0][0]=(r-l)*0.5f;
+        canvas.m[1][1]=(b-t)*0.5f/guiAspect;
+        // Preserve the scene's depth ordering within the flat panel.
+        canvas.m[2][2]=0.00001f;
+        canvas.m[3][0]=(l+r)*0.5f-0.5f;
+        canvas.m[3][1]=(1.0f-t-b)*0.5f/guiAspect;
+        canvas.m[3][2]=0.5f;
+        scene.MultFull(authored,canvas);
+        SharOpenXR::GetSharedVrMenu().SetSceneProjection(&scene);
+    }
+    // Panel placement is encoded in the projection, not an eye-fixed viewport.
+    if(vrRewardWorld||vrLoadingWorld){l=0;t=0;r=1;b=1;}
 #endif
     p3d::pddi->SetViewWindow(l, t, r, b);
 
@@ -740,6 +775,22 @@ void FePure3dObject::Render()
     // draw the damn thing!
     //
     rAssert( m_RuntimeDrawable != NULL );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(vrLoadingWorld &&
+       gVrLoadingTraceFrames++<12)
+    {
+        rmt::Matrix projection;
+        int eyeWidth=0,eyeHeight=0;
+        const bool eyeProjection=SharOpenXR::GetActiveProjection(&projection,&eyeWidth,&eyeHeight);
+        const rmt::Vector position=m_Camera?m_Camera->GetCameraToWorldMatrix().Row(3):rmt::Vector(0,0,0);
+        SDL_Log("OpenXR loading trace: object=%p drawable=%p camera=%p alias=%s context=%d rightEye=%d plane=%d embedded=%d widescreen=%d eyeCamera=%d eyeProjection=%d viewport=%.3f,%.3f,%.3f,%.3f cameraPos=%.4f,%.4f,%.4f",
+            static_cast<Scrooby::Pure3dObject*>(this),m_RuntimeDrawable,m_Camera,
+            static_cast<const char*>(*m_alias),int(GetGameFlow()->GetCurrentContext()),
+            SharOpenXR::IsRightEyeRendering()?1:0,SharOpenXR::IsFrontendPlaneRendering()?1:0,
+            SharOpenXR::IsEmbeddedHudRendering()?1:0,m_isWideScreenCorrectionEnabled?1:0,
+            vrCameraChanged?1:0,eyeProjection?1:0,l,t,r,b,position.x,position.y,position.z);
+    }
+#endif
 #if (defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)) && defined(SRR2_VR_RENDERER_VULKAN)
     static bool loggedMapDrawable=false;
     if(this==gVrRadarMapPure3dObject && !loggedMapDrawable)
@@ -754,6 +805,9 @@ void FePure3dObject::Render()
     if(vrRewardWorld)p3d::pddi->SetAmbientLight(pddiColour(160,160,160));
 #endif
     m_RuntimeDrawable->Display();
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    if(vrLoadingWorld) SharOpenXR::GetSharedVrMenu().SetSceneProjection(NULL);
+#endif
 
     // restore everything we changed
     //

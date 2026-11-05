@@ -41,6 +41,10 @@
 #include <Sprite.h>
 #include <Polygon.h>
 #include <Pure3dObject.h>
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+#include <SDL.h>
+extern void ScroobySetVrLoadingWorldObject(Scrooby::Pure3dObject* object);
+#endif
 
 //===========================================================================
 // Global Data, Local Data, Local Classes
@@ -152,6 +156,9 @@ CGuiScreenLoadingFE::CGuiScreenLoadingFE
 //===========================================================================
 CGuiScreenLoadingFE::~CGuiScreenLoadingFE()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    ScroobySetVrLoadingWorldObject(NULL);
+#endif
 #ifdef ENABLE_DYNA_LOADED_RESOURCES
     p3d::inventory->DeleteSection( LOADING_FE_INVENTORY );
 #endif
@@ -377,6 +384,10 @@ CGuiScreenLoadingFE::OnProcessRequestsComplete( void* pUserData )
 
         tMultiController* multiController = p3d::find<tMultiController>( LOADING_FE_MULTICONTROLLER );
         m_itchyAndScratchy->SetMultiController( multiController );
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+        SDL_Log("OpenXR loading trace: resources drawable=%p camera=%p controller=%p",drawable,camera,multiController);
+        ScroobySetVrLoadingWorldObject(m_itchyAndScratchy);
+#endif
 
         // pop inventory section and restore states
         //
@@ -459,6 +470,9 @@ void CGuiScreenLoadingFE::InitRunning()
 //===========================================================================
 void CGuiScreenLoadingFE::InitOutro()
 {
+#if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
+    ScroobySetVrLoadingWorldObject(NULL);
+#endif
     RenderLayer* levelLayer = GetRenderManager()->mpLayer( RenderEnums::LevelSlot );
     if( levelLayer != NULL && levelLayer->IsFrozen() )
     {

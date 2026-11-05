@@ -18,6 +18,7 @@ public:
     void SetActive(bool active);
     void SetRendering(bool rendering,bool eyeActive,const XrView views[2]);
     bool IsRendering() const;
+    void SetSceneProjection(const rmt::Matrix* projection);
     bool GetProjection(bool eyeActive,const XrView& eye,int width,int height,
                        rmt::Matrix* projection,int* targetWidth,
                        int* targetHeight,bool requireRendering=true) const;
@@ -27,6 +28,8 @@ private:
     bool mRendering;
     bool mAnchorValid;
     XrPosef mAnchor;
+    bool mSceneProjectionActive;
+    rmt::Matrix mSceneProjection;
 };
 
 SharedVrMenu& GetSharedVrMenu();

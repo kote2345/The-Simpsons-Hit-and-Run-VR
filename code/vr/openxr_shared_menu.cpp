@@ -13,6 +13,7 @@ void SharedVrMenu::Reset()
     mActive=false;
     mRendering=false;
     mAnchorValid=false;
+    mSceneProjectionActive=false;
     mAnchor=XrPosef{{0.0f,0.0f,0.0f,1.0f},{0.0f,0.0f,0.0f}};
 }
 
@@ -44,6 +45,12 @@ bool SharedVrMenu::IsRendering() const
     return mRendering;
 }
 
+void SharedVrMenu::SetSceneProjection(const rmt::Matrix* projection)
+{
+    mSceneProjectionActive=projection!=NULL;
+    if(projection) mSceneProjection=*projection;
+}
+
 bool SharedVrMenu::GetProjection(bool eyeActive,const XrView& eye,
                                  int width,int height,rmt::Matrix* projection,
                                  int* targetWidth,int* targetHeight,
@@ -53,6 +60,11 @@ bool SharedVrMenu::GetProjection(bool eyeActive,const XrView& eye,
        (requireRendering&&!mRendering)) return false;
     SharedRender::ComposeWorldLockedPanel(mAnchor,eye.pose,eye.fov,
                                           3.2f,3.2f,8.0f,projection);
+    if(mSceneProjectionActive)
+    {
+        rmt::Matrix panel=*projection;
+        projection->MultFull(mSceneProjection,panel);
+    }
     *targetWidth=width;
     *targetHeight=height;
     return true;
