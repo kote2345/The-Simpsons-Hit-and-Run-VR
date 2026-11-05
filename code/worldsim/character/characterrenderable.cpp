@@ -245,6 +245,11 @@ Return:         void
 */
 void CharacterRenderable::DisplayShadow( tPose* pose, const BlobShadowParams* BlobParams )
 {
+#if defined(SRR2_OPENXR)
+    // CSM already casts the character mesh; the blob also becomes an
+    // unwanted circular caster when this draw runs during the shadow pass.
+    if(SharOpenXR::IsCsmEnabled())return;
+#endif
 	if( BlobParams )
 	{
         BEGIN_PROFILE("Char Blobby Shadow");
