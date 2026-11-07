@@ -620,7 +620,10 @@ tPose* BuildBodyIKPose(Character* player,tPose* animated,const rmt::Vector& orig
             bodyForward=Unit(bodyForward,nativeForward);
         }
     }
-    if(!inCar&&seatedMode)bodyForward=bodyRotationSource;
+    // With a tracked torso, seated mode applies its heading below at the
+    // torso root. Without body tracking, retain the HMD heading computed
+    // above, just as in standing mode; native facing follows the stick.
+    if(!inCar&&seatedMode&&trackedUpperBody)bodyForward=bodyRotationSource;
     const rmt::Matrix bodyYaw=Rotation(bodyRotationSource,bodyForward);
     if(inCar)
         MoveBranch(p,0,bodyYaw,Position(p,0));
