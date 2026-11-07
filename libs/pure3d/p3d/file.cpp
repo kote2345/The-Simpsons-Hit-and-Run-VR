@@ -85,12 +85,12 @@ static inline void AsyncTest(int c)
 #endif
 
 
-tFileMem::tFileMem(): length(0)
+tFileMem::tFileMem(): dataStream(NULL), del(false), length(0)
 {
 }
 
 tFileMem::tFileMem(unsigned char* data, unsigned len, bool d)
-: dataStream(NULL), del(d)
+: dataStream(NULL), del(d), length(0)
 {
     dataStream = new radLoadDataStream(data,len,d);
     dataStream->AddRef();

@@ -56,7 +56,16 @@ tChunkFile::~tChunkFile()
 bool tChunkFile::ChunksRemaining(void)
 {
     Chunk* chunk = &chunkStack[stackTop];
-    return (chunk->chunkLength > chunk->dataLength) && (realFile->GetPosition() < (chunk->startPosition + chunk->chunkLength));
+    const unsigned position=realFile->GetPosition();
+    const unsigned declaredEnd=chunk->startPosition+chunk->chunkLength;
+    // Compressed streams expose logical chunk offsets, while some backends
+    // report the physical compressed size. Never mix those coordinate spaces.
+    const unsigned fileEnd=realFile->GetCompressed()?declaredEnd:realFile->GetSize();
+    const unsigned end=declaredEnd<fileEnd?declaredEnd:fileEnd;
+    // Replacement assets may retain a short export trailer. It is not a
+    // child chunk unless a complete 12-byte header fits in the parent.
+    return chunk->chunkLength>chunk->dataLength && position<=end &&
+           end-position>=HEADER_SIZE;
 }
 
 unsigned tChunkFile::BeginChunk(void)

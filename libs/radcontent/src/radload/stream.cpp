@@ -123,6 +123,7 @@ radLoadDataStream::~radLoadDataStream()
 
 bool radLoadDataStream::Read( void* data, unsigned int count, unsigned int dataSize )
 {
+    if(!dataSize || m_position>m_size || count>(m_size-m_position)/dataSize)return false;
     unsigned int numBytes = count*dataSize;
     if( m_position + numBytes > m_size )
     {
@@ -184,6 +185,7 @@ radLoadFileStream::~radLoadFileStream()
 
 bool radLoadFileStream::Read( void* data, unsigned int count, unsigned int dataSize )
 {
+    if(!dataSize || m_position>m_size || count>(m_size-m_position)/dataSize)return false;
     unsigned int numBytes = count*dataSize;
     if( m_position + numBytes > m_size )
     {

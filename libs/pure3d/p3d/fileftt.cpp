@@ -115,6 +115,8 @@ void tFileFTT::Advance(unsigned offset)
     {
         return;
     }
+    if(position>=fileSize)return;
+    if(offset>static_cast<unsigned>(fileSize-position))offset=fileSize-position;
 
     if(currentPos + (int)offset <= currentSize)
     {
@@ -178,7 +180,15 @@ bool tFileFTT::GetData(void* buf, unsigned count, DataType type)
         OpenFile();
     }
 
-    int numBytes = count * type;
+    const unsigned elementSize=static_cast<unsigned>(type);
+    if(!elementSize || count>0x7fffffffU/elementSize)return false;
+    int numBytes = static_cast<int>(count*elementSize);
+    if(position<0 || position>fileSize || numBytes>fileSize-position)
+    {
+        if(buf && count && count<=0x7fffffffU/static_cast<unsigned>(type))
+            memset(buf,0,count*type);
+        return false;
+    }
 
      // No data to read
      if ( numBytes == 0 )
@@ -201,6 +211,16 @@ bool tFileFTT::GetData(void* buf, unsigned count, DataType type)
              if( currentPos + size > currentSize)
              {
                  size = currentSize - currentPos;
+             }
+             if(size<=0)
+             {
+                 // An exhausted cache is normal in the middle of a file.
+                 // Refill before deciding the read failed. Returning here
+                 // produced zero chunk lengths at the 192 KiB boundary.
+                 if(size<0 || position>=fileSize)return false;
+                 FillBuffer();
+                 if(currentSize<=currentPos)return false;
+                 continue;
              }
 
              memcpy(output, &currentBuffer[ currentPos ], size);
@@ -280,6 +300,7 @@ void tFileFTT::ReadBuffer(char* buf)
         
     if (filePosition >= size)
     {
+        nextSize=0;
         return;
     }
 
@@ -525,7 +546,7 @@ void tFileFTT::OpenFile( void )
         currentBuffer = cache[0];
         currentPos = 0;
         currentSize = rmt::Min(CACHE_SIZE, fileSize);
-        nextSize = rmt::Min(fileSize - CACHE_SIZE, CACHE_SIZE);
+        nextSize = rmt::Max(0,rmt::Min(fileSize - CACHE_SIZE, CACHE_SIZE));
 
         WaitForCompletion();
     }

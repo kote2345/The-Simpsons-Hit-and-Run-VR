@@ -26,9 +26,9 @@ public:
      
     virtual bool GetData(void* buf, unsigned count, DataType type = BYTE) = 0;
     
-    inline P3D_U8  GetByte(void) { P3D_U8 tmp; GetData(&tmp, 1, BYTE); return tmp; }
-    inline P3D_U16 GetWord(void) { P3D_U16 tmp; GetData(&tmp, 1, WORD); return tmp; }
-    inline P3D_U32 GetDWord(void) { P3D_U32 tmp; GetData(&tmp, 1, DWORD); return tmp; }
+    inline P3D_U8  GetByte(void) { P3D_U8 tmp=0; GetData(&tmp, 1, BYTE); return tmp; }
+    inline P3D_U16 GetWord(void) { P3D_U16 tmp=0; GetData(&tmp, 1, WORD); return tmp; }
+    inline P3D_U32 GetDWord(void) { P3D_U32 tmp=0; GetData(&tmp, 1, DWORD); return tmp; }
     inline P3D_U64 GetQWord(void) { P3D_U64 tmp; GetData(&tmp, 1, QWORD); return tmp; }
 
     inline bool Read(void* data, unsigned count, unsigned size) { return GetData(data,count,static_cast<DataType>(size)); }

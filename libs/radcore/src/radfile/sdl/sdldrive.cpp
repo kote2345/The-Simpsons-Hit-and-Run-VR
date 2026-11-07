@@ -275,6 +275,10 @@ radSdlDrive::radSdlDrive(const char* pdrivespec, radMemoryAllocator alloc)
     m_OpenFiles(0),
     m_pMutex(NULL)
 {
+    // Default-drive construction can skip the explicit-path branch below.
+    // Never test/use an uninitialized path buffer in that case.
+    m_DrivePath[0]='\0';
+    m_DriveName[0]='\0';
     radThreadCreateMutex(&m_pMutex, alloc);
     rAssert(m_pMutex != NULL);
 

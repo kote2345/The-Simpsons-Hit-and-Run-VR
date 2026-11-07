@@ -134,7 +134,8 @@ LONG CALLBACK EarlyFatalExceptionHandler(EXCEPTION_POINTERS* exceptionInfo)
 {
     if(!exceptionInfo || !exceptionInfo->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
     const DWORD code=exceptionInfo->ExceptionRecord->ExceptionCode;
-    if(code==STATUS_HEAP_CORRUPTION || code==STATUS_STACK_BUFFER_OVERRUN)
+    if(code==STATUS_HEAP_CORRUPTION || code==STATUS_STACK_BUFFER_OVERRUN ||
+       code==EXCEPTION_ACCESS_VIOLATION)
         WriteCrashFiles(exceptionInfo);
     return EXCEPTION_CONTINUE_SEARCH;
 }
