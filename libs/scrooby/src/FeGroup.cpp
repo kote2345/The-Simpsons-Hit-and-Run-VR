@@ -6,6 +6,7 @@
 #endif
 #include "tLinearTable.h"
 #include "FePure3dObject.h"
+#include <Text.h>
 #if defined(RAD_ANDROID) || defined(SRR2_OPENXR_PLATFORM_WIN32)
 #include <vr/openxrmanager.h>
 #include <p3d/pure3d.hpp>
@@ -153,6 +154,23 @@ void FeGroup::Display()
     int radarXMin=0,radarYMin=0,radarXMax=640,radarYMax=480;
     if(isRadar) GetBoundingBox(radarXMin,radarYMin,radarXMax,radarYMax);
     if(missionSlot>=0) GetBoundingBox(radarXMin,radarYMin,radarXMax,radarYMax);
+    if(missionSlot==15)
+    {
+        // StageComplete's authored rectangle is only 27 px high. Flash scales
+        // its text to 1.25, and replacement fonts may exceed that rectangle.
+        // Capture the complete animated text, not a narrow strip of its glyphs.
+        Scrooby::Text* text=self->GetText("StageComplete");
+        const int width=radarXMax-radarXMin;
+        const int height=radarYMax-radarYMin;
+        const int textWidth=text?text->GetTextWidth():0;
+        const int textHeight=text?text->GetTextHeight():0;
+        const int captureWidth=int((textWidth>width?textWidth:width)*1.25f)+8;
+        const int captureHeight=int((textHeight>height?textHeight:height)*1.25f)+8;
+        const int centreX=(radarXMin+radarXMax)/2;
+        const int centreY=(radarYMin+radarYMax)/2;
+        radarXMin=centreX-captureWidth/2;radarXMax=radarXMin+captureWidth;
+        radarYMin=centreY-captureHeight/2;radarYMax=radarYMin+captureHeight;
+    }
     if(missionSlot>=0)
         SharOpenXR::UpdateMissionHudLayout((unsigned)missionSlot,*GetMatrix());
     const bool captured=isRadar ? SharOpenXR::BeginRadarCapture(
